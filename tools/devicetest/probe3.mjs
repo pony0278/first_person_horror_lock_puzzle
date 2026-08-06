@@ -45,28 +45,56 @@ console.log('\n──── B. WebGL context loss 恢復 ────');
   const errs = [];
   page.on('pageerror', e => errs.push(String(e).slice(0, 160)));
   page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text().slice(0, 160)); });
+
+  /* 攔截 addEventListener 來偵測有沒有註冊 webglcontextlost。
+     不能用「原始碼裡有沒有這個字串」判斷 —— 打包後的 three.js 內部就含有它，
+     會變成必定為真的假陽性。 */
+  await page.addInitScript(() => {
+    window.__glListeners = [];
+    const orig = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type, ...rest) {
+      if (type === 'webglcontextlost' || type === 'webglcontextrestored') {
+        window.__glListeners.push({ type, onCanvas: this instanceof HTMLCanvasElement });
+      }
+      return orig.call(this, type, ...rest);
+    };
+  });
+
   await page.goto(PAGE_URL, { waitUntil: 'load' });
   await page.waitForTimeout(2500);
 
-  const hasHandler = await page.evaluate(() =>
-    document.documentElement.outerHTML.includes('webglcontextlost'));
-  console.log('  程式碼中是否有 webglcontextlost 處理:', hasHandler);
+  const listeners = await page.evaluate(() => window.__glListeners ?? []);
+  const appHandlers = listeners.filter(l => l.onCanvas);
+  console.log(`  有註冊 webglcontextlost/restored 監聽:`,
+    appHandlers.length ? JSON.stringify(appHandlers) : '無');
 
-  const lost = await page.evaluate(() => {
+  /* 用 #view 的截圖大小當畫面內容指標。
+     readPixels 不行 —— 沒有 preserveDrawingBuffer 時合成後讀回全 0。 */
+  const shotSize = async () => (await page.locator('#view').screenshot()).length;
+  const isLost = () => page.evaluate(() => {
     const c = document.querySelector('#view canvas');
     const gl = c.getContext('webgl2') || c.getContext('webgl');
-    const ext = gl.getExtension('WEBGL_lose_context');
-    if (!ext) return 'no extension';
-    ext.loseContext();
-    return 'lost';
+    return gl ? gl.isContextLost() : null;
   });
-  await page.waitForTimeout(2000);
-  const after = await page.evaluate(() => {
+
+  const base = await shotSize();
+  await page.evaluate(() => {
     const c = document.querySelector('#view canvas');
     const gl = c.getContext('webgl2') || c.getContext('webgl');
-    return { isLost: gl ? gl.isContextLost() : null, probeOk: !!window.__probe };
+    window.__ext = gl.getExtension('WEBGL_lose_context');
+    window.__ext.loseContext();
   });
-  console.log(`  觸發 loseContext → ${lost}；2 秒後 isContextLost=${after.isLost}`);
+  await page.waitForTimeout(1200);
+  const during = await shotSize(), lostFlag = await isLost();
+
+  await page.evaluate(() => window.__ext.restoreContext());
+  await page.waitForTimeout(3000);
+  const after = await shotSize(), afterFlag = await isLost();
+
+  console.log(`  基準 ${base}B → 遺失 ${during}B (isContextLost=${lostFlag}) → 恢復 ${after}B (isContextLost=${afterFlag})`);
+  console.log(`  瀏覽器恢復 context 後畫面是否回來: ${after > during * 3 ? '是' : '否'}`);
+  const state = await page.evaluate(() => window.__probe?.() ?? null);
+  console.log(`  遊戲狀態是否存活: ${state ? `是（over=${state.over}, intro=${state.intro}）` : '無 probe'}`);
   console.log(`  錯誤訊息(${errs.length}):`, errs.slice(0, 4).join(' | ') || '無');
   await page.screenshot({ path: new URL('./build/shots/contextlost.png', import.meta.url).pathname });
   await browser.close();

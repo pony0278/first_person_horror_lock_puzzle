@@ -1,6 +1,6 @@
 # F0 手機測試報告 — 自動化階段
 
-> 對象：`f0_door_prototype_v28.html`
+> 對象：`dist/index.html`（`npm run build` 產出；v28 基線見 `tools/devicetest/setup.mjs`）
 > 日期：2026-08-06
 > 方法：Playwright + Chromium（WebGL 2.0），模擬 iPhone / 中階 Android 的視窗、DPR、觸控與自動播放政策
 > 重跑方式：見 `tools/devicetest/README.md`
@@ -14,9 +14,9 @@
 | B3 | 手機上完全沒有聲音 | **已修**，第一次觸控後 AudioContext 由 suspended 轉 running |
 | H1 | 無 safe-area 處理 | 未處理 |
 | H2 | 切背景吃掉隱藏計時器 | 未處理 |
-| H3 | 無 WebGL context loss 恢復 | 未處理 |
+| H3 | context loss 遺失期間無處理 | 未處理（**原始判斷已修正**，見該節） |
 | H4 | 洩壓鈕 66×27px | 未處理 |
-| H5 | 資源依賴 CDN | 未處理 |
+| H5 | 資源依賴 CDN | **已修**，建置後為自帶 three.js 的單檔（577KB / gzip 163KB） |
 
 下面各節保留原始發現與證據；已修項目在小節末補上修正內容與驗證數字。
 
@@ -48,7 +48,7 @@
 **成因（已驗證，非推測）**：`#panel` 是 `flex: 0 0 34%` 且 `min-height:auto`，
 所以它的實際高度是 `max(34% 基準, min-content)`。而 `#pins` 的 min-content 包含
 `#cut` canvas 的 **內建像素高度**（`cutCanvas.height = $pins.clientHeight × min(dpr,2)`，
-`f0_door_prototype_v28.html:1999`）。百分比高度在 min-content 計算時解不出來，就退回內建尺寸，
+v28 的 `f0_door_prototype_v28.html:1999`；現為 `src/main.js` 的 `sizeCut()`）。百分比高度在 min-content 計算時解不出來，就退回內建尺寸，
 於是形成回授迴圈並鎖死在一個定值：
 
 ```
@@ -139,7 +139,7 @@ const TRAVEL = base + up + down;
 
 ### B3. iOS Safari / Chrome Android 上完全沒有聲音
 
-`beep()` 在 `f0_door_prototype_v28.html:1937` 才惰性建立 AudioContext，
+`beep()` 才惰性建立 AudioContext（v28 的 line 1937），
 而**第一個呼叫者是開場演出**（`beep('tap')` / `beep('thunk')`），不是使用者手勢。
 全檔案沒有任何 `actx.resume()`。
 
@@ -195,13 +195,34 @@ const TRAVEL = base + up + down;
 > 順帶：開場演出用的是 `dt`（`clock.getDelta()` 上限 0.05s，line 2447），
 > 計時器用的是牆鐘。兩套時間基準並存，低幀率時會對不上（見 M1）。
 
-### H3. 沒有 WebGL context loss 恢復
+### H3. WebGL context loss —— 恢復本身沒問題，缺的是遺失期間的處理
 
-設計文件 §2 把這條列為「第一週內驗證」的已知風險並要求「實作恢復流程，避免黑畫面」。
-目前沒有 `webglcontextlost` 監聽。實測觸發 `WEBGL_lose_context.loseContext()` 後
-2 秒 `isContextLost=true`，畫面停在最後一幀，不會恢復。
+> **這一節已修正。** 初版寫「沒有 `webglcontextlost` 監聽、不會恢復」，那是錯的。
+> 當時的判斷依據是「HTML 原始碼裡有沒有這個字串」——
+> 而 three.js 的監聽在 CDN 載入的那個檔案裡，所以查不到。
+> 改成攔截 `addEventListener` 之後才看到真實情況。
 
-手機切分頁、切 App、記憶體壓力都可能觸發。
+three.js 的 `WebGLRenderer` 本來就在 canvas 上註冊了 `webglcontextlost`
+（呼叫 `preventDefault`，這正是允許之後恢復的關鍵）與 `webglcontextrestored`（重新初始化）。
+
+實測（凍結版 v28 與建置版行為一致）：
+
+```
+凍結版 v28: 基準 87041B → 遺失 3508B (isLost=true) → 恢復 50780B (isLost=false)  ✓ 畫面有回來
+建置版    : 基準 82891B → 遺失 3508B (isLost=true) → 恢復 50946B (isLost=false)  ✓ 畫面有回來
+```
+
+遊戲狀態（回合、撞針、開場進度）在恢復後都還在。
+
+**所以要做的不是「實作恢復流程」，而是處理遺失的那段期間**：
+
+- 遺失期間畫面是全黑的，沒有任何提示，玩家不知道發生什麼事
+- 隱藏計時器在那段期間照跑（這是 H2），玩家可能在黑畫面裡被殺掉
+- 瀏覽器不保證會恢復。iOS Safari 在記憶體壓力下可能就是不還你
+
+設計文件 §2 要求的「避免黑畫面」仍然成立，只是成本比原本以為的低很多 ——
+接上 `webglcontextlost` 暫停計時＋顯示一行字，`webglcontextrestored` 恢復即可。
+與 H2 是同一個修法。
 
 ### H4. 「全部洩壓」鈕 66×27px，低於 44×44
 
@@ -219,6 +240,17 @@ unpkg 在部分地區與行動網路下的延遲會直接違反這一條，且�
 
 （本次測試是把 three.js 抓到本地才跑得起來 —— 這個環境的網路代理擋掉了 unpkg，
 正好示範了失敗長什麼樣：完全白畫面，無任何提示。）
+
+### H5 修正（已套用）
+
+加了 Vite 建置（`npm run build`），three.js 直接內嵌進輸出的單一 HTML：
+
+```
+dist/index.html  577 KB（gzip 163 KB）
+```
+
+遠低於 §2 的 20MB 初始下載預算，離線可開，也符合上架時要自帶資源的要求。
+**v28 基線仍然依賴 CDN** —— 它保留在 git 歷史裡作為對照，用 `tools/devicetest/setup.mjs` 取出。
 
 ---
 
@@ -280,8 +312,9 @@ unpkg 在部分地區與行動網路下的延遲會直接違反這一條，且�
 B1~B3 已修，實機測試可以開始跑了。剩下的：
 
 1. H1、H4（safe-area + 洩壓鈕命中區，同一區塊順手做完）
-2. H2、H3（`visibilitychange` 暫停計時 + context loss 恢復）
-3. H5（把 three.js 內嵌或同目錄自帶）—— 上架前必做，測試前非必要（測試機有網路即可）
+2. H2、H3（同一個修法：`visibilitychange` 與 `webglcontextlost` 都暫停計時，
+   前者還原、後者等 `webglcontextrestored`）
+3. ~~H5~~ —— 已隨建置步驟解決
 
 H1~H4 都不阻擋實機測試，但 H2 會干擾隱藏計時器的觀察：真機測試時若有人被通知打斷，
 要記得那一局的時間數據不能用。

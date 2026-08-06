@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>F0 — 門前原型</title>
+<style>
+  :root { --line:#232327; --dim:#6a6a70; --txt:#b8b8be; --bad:#a5675f; --ok:#7f9a78; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000; }
+  body { font:12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color:var(--txt);
+         -webkit-user-select:none; user-select:none; touch-action:none;
+         display:flex; flex-direction:column; }
+
+  /* ── 上方 66%：第一人稱 ─────────────────────────── */
+  #view { position:relative; flex:1 1 66%; min-height:0; overflow:hidden; }
+  #view canvas { display:block; }
+  #turnCue {
+    position:absolute; left:0; right:0; bottom:6px; text-align:center;
+    font-size:10px; color:#3a3a41; letter-spacing:.18em; pointer-events:none;
+  }
+  #dev { position:absolute; top:6px; left:8px; font-size:10px; color:#4a4a52;
+         white-space:pre; pointer-events:none; display:none; }
+
+  /* ── 下方 34%：門鎖 ─────────────────────────────── */
+  #panel {
+    flex:0 0 34%; background:#0e0e11; border-top:1px solid var(--line);
+    padding:10px 12px 12px; display:flex; flex-direction:column; gap:8px;
+    transition:opacity .12s, filter .12s;
+    /* min-height:auto 會讓面板高度變成 max(34%, min-content)，而 min-content
+       又被剖面圖 canvas 的內建像素高度撐開 —— 在矮視窗（手機橫向）下 34% 會失效。 */
+    min-height:0; position:relative;
+  }
+  #panel.blind { opacity:.12; filter:blur(3px); pointer-events:none; }
+  #pins { flex:1; display:flex; gap:8px; align-items:flex-end; min-height:0; position:relative; }
+  #pins.cut { display:block; }
+  /* 絕對定位讓 canvas 不參與 min-content 計算，面板高度才由 flex-basis 決定 */
+  #cut { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .track { flex:1; height:100%; position:relative; border:1px solid var(--line);
+    border-radius:2px; overflow:hidden;
+    background:linear-gradient(180deg,#0000 0%,#ffffff08 100%); }
+  .track.sel { border-color:#c8b98f; }
+  .pin { position:absolute; left:3px; right:3px; height:22px; border-radius:2px;
+    transition:bottom .09s ease-out; display:grid; place-items:center;
+    font-size:12px; color:#0009; }
+  .flash { position:absolute; inset:0; background:var(--bad); opacity:0;
+    transition:opacity .16s; pointer-events:none; }
+  /* 洩壓鈕與歷程並排成一列 —— 垂直預算讓給剖面圖，因為撞針行程是
+     這個面板唯一承載資訊的距離（見 drawCutaway 的 TRAVEL）。 */
+  #chrome { flex:0 0 auto; display:flex; align-items:center; gap:10px; min-width:0; }
+  #seq { min-height:22px; display:flex; align-items:center; gap:6px;
+    overflow:hidden; font-size:14px; color:#3c3c43; }
+  .step small { font-size:9px; }
+  .step.ok small { color:var(--ok); } .step.fake small { color:#c8b98f; }
+  .step.err small { color:var(--bad); }
+  #dump { flex:0 0 auto; padding:5px 10px; border:1px solid var(--line);
+    border-radius:3px; background:#18181b; color:var(--txt);
+    font:11px ui-monospace, Menlo, monospace; }
+
+  /* 矮視窗（手機橫向）：面板只有視窗高的 34%，把邊距壓到最低，
+     否則 padding 與間距會吃掉剖面圖將近三分之一的高度。 */
+  @media (max-height: 520px) {
+    #panel { padding:4px 8px 6px; gap:4px; }
+  }
+
+  /* ── 黑幕 ───────────────────────────────────────── */
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
+    transition:opacity .18s; display:grid; place-items:center; z-index:10; }
+  #fade.on { opacity:1; }
+  #fade div { font-size:15px; color:#8a8a90; letter-spacing:.06em; }
+
+  #hdbg {
+    position:fixed; top:8px; left:8px; z-index:30; display:none;
+    width:min(280px, calc(100vw - 16px)); max-height:calc(100vh - 16px); overflow-y:auto;
+    background:rgba(10,10,12,.92); border:1px solid #2a2a2e; border-radius:4px;
+    padding:8px 0 10px; color:#9a9aa0;
+    font:11px/1.5 ui-monospace, Menlo, monospace; touch-action:pan-y;
+  }
+  #hdbg h4 { font-size:10px; letter-spacing:.12em; color:#5b5b60; padding:8px 12px 4px;
+    text-transform:uppercase; }
+  #hdbg .hrow { padding:2px 12px 4px; }
+  #hdbg .hrow label { display:flex; justify-content:space-between; color:#9a9aa0; }
+  #hdbg .hrow b { color:#d0d0d4; font-weight:400; }
+  #hdbg input[type=range] { width:100%; height:14px; touch-action:auto; accent-color:#b0a48c; }
+  #hdbg select, #hdbg button { width:calc(100% - 24px); margin:3px 12px; padding:6px;
+    background:#17171a; color:#b8b8be; border:1px solid #2a2a2e; border-radius:3px;
+    font:11px ui-monospace, Menlo, monospace; }
+  #hdbg textarea { display:none; width:calc(100% - 24px); margin:6px 12px; height:120px;
+    background:#0b0b0d; color:#8fa08f; border:1px solid #262629; font:10px/1.4 ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+
+<div id="view">
+  <div id="turnCue">按住畫面 = 回頭　·　放開 = 轉回門鎖</div>
+  <div id="dev"></div>
+</div>
+
+<div id="panel">
+  <div id="pins"></div>
+  <div id="chrome">
+    <button id="dump">全部洩壓</button>
+    <div id="seq"></div>
+  </div>
+</div>
+
+<div id="fade"><div></div></div>
+
+<div id="hdbg">
+  <h4>手部調整（H 開關）</h4>
+  <select id="hdPose">
+    <option value="run">run 奔跑</option><option value="side">side 體側</option>
+    <option value="reach">reach 伸手</option>
+    <option value="wrench" selected>wrench 扳手</option>
+    <option value="pick">pick 撬針</option><option value="away">away 離開</option>
+  </select>
+  <div id="hdSliders"></div>
+  <h4>Adapter 基準修正（度）</h4>
+  <div id="hdAdapter"></div>
+  <button id="hdExport">匯出調整結果</button>
+  <textarea id="hdOut" readonly></textarea>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

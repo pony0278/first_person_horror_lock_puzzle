@@ -1,304 +1,25 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>F0 — 門前原型</title>
-<style>
-  :root { --line:#232327; --dim:#6a6a70; --txt:#b8b8be; --bad:#a5675f; --ok:#7f9a78; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { width:100%; height:100%; overflow:hidden; background:#000; }
-  body { font:12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color:var(--txt);
-         -webkit-user-select:none; user-select:none; touch-action:none;
-         display:flex; flex-direction:column; }
-
-  /* ── 上方 66%：第一人稱 ─────────────────────────── */
-  #view { position:relative; flex:1 1 66%; min-height:0; overflow:hidden; }
-  #view canvas { display:block; }
-  #turnCue {
-    position:absolute; left:0; right:0; bottom:6px; text-align:center;
-    font-size:10px; color:#3a3a41; letter-spacing:.18em; pointer-events:none;
-  }
-  #dev { position:absolute; top:6px; left:8px; font-size:10px; color:#4a4a52;
-         white-space:pre; pointer-events:none; display:none; }
-
-  /* ── 下方 34%：門鎖 ─────────────────────────────── */
-  #panel {
-    flex:0 0 34%; background:#0e0e11; border-top:1px solid var(--line);
-    padding:10px 12px 12px; display:flex; flex-direction:column; gap:8px;
-    transition:opacity .12s, filter .12s;
-    /* min-height:auto 會讓面板高度變成 max(34%, min-content)，而 min-content
-       又被剖面圖 canvas 的內建像素高度撐開 —— 在矮視窗（手機橫向）下 34% 會失效。 */
-    min-height:0; position:relative;
-  }
-  #panel.blind { opacity:.12; filter:blur(3px); pointer-events:none; }
-  #pins { flex:1; display:flex; gap:8px; align-items:flex-end; min-height:0; position:relative; }
-  #pins.cut { display:block; }
-  /* 絕對定位讓 canvas 不參與 min-content 計算，面板高度才由 flex-basis 決定 */
-  #cut { position:absolute; inset:0; width:100%; height:100%; display:block; }
-  .track { flex:1; height:100%; position:relative; border:1px solid var(--line);
-    border-radius:2px; overflow:hidden;
-    background:linear-gradient(180deg,#0000 0%,#ffffff08 100%); }
-  .track.sel { border-color:#c8b98f; }
-  .pin { position:absolute; left:3px; right:3px; height:22px; border-radius:2px;
-    transition:bottom .09s ease-out; display:grid; place-items:center;
-    font-size:12px; color:#0009; }
-  .flash { position:absolute; inset:0; background:var(--bad); opacity:0;
-    transition:opacity .16s; pointer-events:none; }
-  /* 洩壓鈕與歷程並排成一列 —— 垂直預算讓給剖面圖，因為撞針行程是
-     這個面板唯一承載資訊的距離（見 drawCutaway 的 TRAVEL）。 */
-  #chrome { flex:0 0 auto; display:flex; align-items:center; gap:10px; min-width:0; }
-  #seq { min-height:22px; display:flex; align-items:center; gap:6px;
-    overflow:hidden; font-size:14px; color:#3c3c43; }
-  .step small { font-size:9px; }
-  .step.ok small { color:var(--ok); } .step.fake small { color:#c8b98f; }
-  .step.err small { color:var(--bad); }
-  #dump { flex:0 0 auto; padding:5px 10px; border:1px solid var(--line);
-    border-radius:3px; background:#18181b; color:var(--txt);
-    font:11px ui-monospace, Menlo, monospace; }
-
-  /* 矮視窗（手機橫向）：面板只有視窗高的 34%，把邊距壓到最低，
-     否則 padding 與間距會吃掉剖面圖將近三分之一的高度。 */
-  @media (max-height: 520px) {
-    #panel { padding:4px 8px 6px; gap:4px; }
-  }
-
-  /* ── 黑幕 ───────────────────────────────────────── */
-  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
-    transition:opacity .18s; display:grid; place-items:center; z-index:10; }
-  #fade.on { opacity:1; }
-  #fade div { font-size:15px; color:#8a8a90; letter-spacing:.06em; }
-
-  #hdbg {
-    position:fixed; top:8px; left:8px; z-index:30; display:none;
-    width:min(280px, calc(100vw - 16px)); max-height:calc(100vh - 16px); overflow-y:auto;
-    background:rgba(10,10,12,.92); border:1px solid #2a2a2e; border-radius:4px;
-    padding:8px 0 10px; color:#9a9aa0;
-    font:11px/1.5 ui-monospace, Menlo, monospace; touch-action:pan-y;
-  }
-  #hdbg h4 { font-size:10px; letter-spacing:.12em; color:#5b5b60; padding:8px 12px 4px;
-    text-transform:uppercase; }
-  #hdbg .hrow { padding:2px 12px 4px; }
-  #hdbg .hrow label { display:flex; justify-content:space-between; color:#9a9aa0; }
-  #hdbg .hrow b { color:#d0d0d4; font-weight:400; }
-  #hdbg input[type=range] { width:100%; height:14px; touch-action:auto; accent-color:#b0a48c; }
-  #hdbg select, #hdbg button { width:calc(100% - 24px); margin:3px 12px; padding:6px;
-    background:#17171a; color:#b8b8be; border:1px solid #2a2a2e; border-radius:3px;
-    font:11px ui-monospace, Menlo, monospace; }
-  #hdbg textarea { display:none; width:calc(100% - 24px); margin:6px 12px; height:120px;
-    background:#0b0b0d; color:#8fa08f; border:1px solid #262629; font:10px/1.4 ui-monospace, Menlo, monospace; }
-</style>
-</head>
-<body>
-
-<div id="view">
-  <div id="turnCue">按住畫面 = 回頭　·　放開 = 轉回門鎖</div>
-  <div id="dev"></div>
-</div>
-
-<div id="panel">
-  <div id="pins"></div>
-  <div id="chrome">
-    <button id="dump">全部洩壓</button>
-    <div id="seq"></div>
-  </div>
-</div>
-
-<div id="fade"><div></div></div>
-
-<div id="hdbg">
-  <h4>手部調整（H 開關）</h4>
-  <select id="hdPose">
-    <option value="run">run 奔跑</option><option value="side">side 體側</option>
-    <option value="reach">reach 伸手</option>
-    <option value="wrench" selected>wrench 扳手</option>
-    <option value="pick">pick 撬針</option><option value="away">away 離開</option>
-  </select>
-  <div id="hdSliders"></div>
-  <h4>Adapter 基準修正（度）</h4>
-  <div id="hdAdapter"></div>
-  <button id="hdExport">匯出調整結果</button>
-  <textarea id="hdOut" readonly></textarea>
-</div>
-
-<script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-</script>
-
-<script type="module">
 import * as THREE from 'three';
+import { CFG } from './logic/config.js';
+import { mulberry32 } from './logic/rng.js';
+import { LockState } from './logic/lock.js';
+import { HiddenTimer, primaryCause as primaryCauseOf, stationThresholds } from './logic/round.js';
 
 /* ═══════════════════════════════════════════════════════════
    CFG
    ═══════════════════════════════════════════════════════════ */
-const CFG = {
-  lock:   { pinCount: 4, falseCount: 1, degPerPin: 9, severeAt: 3, partialH: 0.40 },
-  round:  { limit: 20, hintMs: 1000, grabMs: 1000, startDist: 26, endDist: 1.3 },
-  penalty:{ severeJump: 3.5, errorSec: 0.4 },
-  render: { exposure: 1.12, pixelRatio: 2.0 },
-  light:  { near: { intensity: 7,  decay: 1.5, angle: 0.50 },   // 面對門：近距離不過曝
-            far:  { intensity: 44, decay: 1.05, angle: 0.62 },  // 回頭：照得到油漆牆與怪物
-            penumbra: 0.72, distance: 30, flicker: 0.05, fill: 1.0, ambient: 0.30 },
-  fog:    { density: 0.045, color: 0x05060a },
-  vig:    { inner: 0.34, outer: 0.98 },
-  world:  { seed: 1337, corridorW: 2.4, corridorH: 3.0, segLen: 4.0, segCount: 8 },
-  look:   { returnSpeed: 10, blindAt: 60 },
-  paint:  {
-    wallZ: 4.6,          // 油漆在身後幾公尺的左牆上
-    width: 1.7, height: 1.05, baseY: 1.45,
-    erosion: 0.34,       // 剝落程度 0~0.6
-    drips: 7,            // 流掛條數
-  },
-  intro:  {
-    runFrom: 10,         // 起跑點（門前公尺數）
-    runSec: 2.2,
-    // 子彈時間的四個控制點，皆為「與提示牆的有號距離」（正 = 還沒到）
-    glanceEnter: 3.4,    // 開始減速
-    glanceFull:  1.6,    // 進入全速慢動作
-    glancePast: -0.5,    // 全速慢動作維持到牆後這裡
-    glanceExit: -1.2,    // 完全恢復正常速度
-    glanceSlow: 0.16,    // 子彈時間的時間倍率（越小越慢）
-    glanceMaxYaw: 72,    // 轉頭角度上限（度）
-    handleSec: 1.3,      // 壓門把 ×2、拉不開
-    toolSec: 0.95,       // 工具插入鎖孔的演出
-    bobFreq: 6.0, bobAmp: 0.05, rollAmp: 0.9,
-  },
-  ui:     { style: 'cutaway' },   // 'cutaway' | 'bars'（按 U 即時切換做 A/B）
-  lamp:   { z: 14, y: 2.75, intensity: 2.6, color: 0x8fa3c0 },
-  stations: {
-    z: [22, 13.0, 6.5, 2.6], // 四個站位：走廊深處 → 燈下 → 中距 → 門前
-    vis: [0, 1, 1, 0],       // 空 → 遠處剪影 → 看清楚（主場）→ 消失（然後你死）
-    stareLimit: 1.4,         // 凝視超過這秒數，牠會趁燈閃的瞬間前進
-    blinkSec: 0.18,          // 燈閃的長度
-    // ── 潛伏：抵達最後一站後不現身，累積「空無」次數才貼臉 ──
-    lurkEmptyMin: 2,         // 至少要看到幾次空走廊
-    lurkEmptyMax: 3,         // 最多幾次（每局隨機）
-    lurkGlanceMin: 0.30,     // 一次「回頭」要看滿幾秒才算一次空無
-    lurkStareRecount: 1.1,   // 持續盯著空走廊，每隔這麼久再算一次空無
-    armedStareSec: 0.9,      // 待發狀態下盯著空走廊這麼久，牠直接出現
-    faceZ: 0.80,             // 貼臉時的距離（公尺）
-    faceGraceSec: 1.0,       // 臉出現後的極限窗口 —— 這一秒不殺你
-    faceRiseSec: 0.28,       // 「在視野裡升起」的那種出現方式，時長
-    // ── 正面事件：潛伏期間，威脅也會出現在門這一側 ──
-    frontMin: 1,             // 每局至少幾次正面事件
-    frontMax: 2,             // 最多幾次
-    frontGapSec: 2.4,        // 兩次事件之間的最小間隔
-    frontDurEye: 1.15,       // 鑰匙孔眼睛的持續秒數
-    frontDurRefl: 1.30,      // 積水倒影
-    frontDurLever: 0.85,     // 門把被轉動
-    // 各站位停留的時間比例（總和 1.0）。第一站最久 —— 空白是張力的蓄水池
-    hold: [0.26, 0.16, 0.12, 0.46],   // 末段 0.46 是潛伏窗口（末站約 10.8s 抵達）
-    settleMs: 260,           // 跳站的位移時間（很短，像瞬移不像走路）
-  },
-  seams:  { y: [1.06, 2.12], spacingZ: 1.2, depth: 0.004, width: 0.004 },
-  seep: {                    // Roy 於 seep lab 調校（2026-08-05）
-    color: '#5e100c',        // 平台審核打回時改深鏽色 '#3d2018'
-    patches: 8,
-    gloss: 0.10,             // 液珠中心的粗糙度（越低越濕亮）
-    wallRough: 0.80,         // 濕痕邊緣的粗糙度 —— 兩者的落差 = 液體感
-    spread: 0.34,            // 沿縫橫向暈開的半寬（滿級）
-    drips: 6,                // 流掛通道數（最多 8）
-    dripW: 0.055,
-    runLen: 0.85,
-    speed: 1.0,              // 液珠下滑速度
-    bead: 1.6,
-    poolAt: 0.8,             // 幾級以上出現牆腳積水（牆面上的下緣層）
-    puddleAt: 0.5,           // 幾級以上地板開始積水（站位 3 起）
-    puddleR: 0.62,           // 積水最大半徑（公尺）
-    floodAt: 0.62,          // 幾級以上水窪連成一片
-    floodCenter: 9.0,       // 水線的擴張中心（走廊 z）
-    floodMax: 15.0,         // 滿級時的水線半徑（公尺）
-    waterRough: 0.045,      // 水面粗糙度
-    rim: 0.55,               // 液珠的亮度提升
-    level: [0, 0.18, 0.55, 1.0],   // 各站位的滲透量（只在低頭時跳變）
-    lampDim: [1, 0.85, 0.55, 0.30],   // 緊急照明逐站變暗
-    farDim:  [1, 0.95, 0.80, 0.60],   // 回頭手電筒逐站變弱
-  },
-  dread: {                   // 撬鎖面板承載威脅（Iron Lung 路線）
-    trackShake: [0, 0.6, 1.6, 3.2],    // 各站位的軌道顫動幅度 px
-    shakeHz:    [0, 3.0, 5.5, 9.0],
-    tint:       [0, 0.06, 0.16, 0.34], // 軌道滲入暗紅的程度
-    kickbackAt: 2,           // 從第幾站開始，鎖芯會自己回退半格
-    kickbackSec: 5.0,        // 回退間隔
-    dropAt: 3,               // 從第幾站開始，未固定的針會無故落下
-    dropSec: 3.4,
-  },
-};
+/* CFG 已移至 src/logic/config.ts */
 
 const GLYPH = [
   { c:'#c05a52', s:'●' }, { c:'#5a7fc0', s:'■' }, { c:'#c9a94e', s:'▲' },
   { c:'#6a9e63', s:'◆' }, { c:'#b0763f', s:'⬟' }, { c:'#8d6ab0', s:'✚' },
 ];
 
-const mulberry32 = a => () => {
-  a |= 0; a = a + 0x6D2B79F5 | 0;
-  let t = Math.imul(a ^ a >>> 15, 1 | a);
-  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-  return ((t ^ t >>> 14) >>> 0) / 4294967296;
-};
+/* mulberry32 已移至 src/logic/rng.ts */
 
 /* ═══════════════════════════════════════════════════════════
    LockState — 純邏輯（與測試台同一份，可直接抽成模組）
    ═══════════════════════════════════════════════════════════ */
-class LockState {
-  constructor(o = {}) {
-    Object.assign(this, { pinCount: 4, falseCount: 1, degPerPin: 9, severeAt: 3,
-                          rng: Math.random }, o);
-    this.listeners = {};
-    this.newCombination();
-  }
-  on(e, fn) { (this.listeners[e] ??= []).push(fn); return this; }
-  emit(e, d) { for (const fn of this.listeners[e] ?? []) fn(d); }
-
-  newCombination() {
-    const n = this.pinCount, idx = [...Array(n).keys()];
-    for (let i = n - 1; i > 0; i--) {
-      const j = Math.floor(this.rng() * (i + 1));
-      [idx[i], idx[j]] = [idx[j], idx[i]];
-    }
-    this.falsePins = new Set(idx.slice(0, this.falseCount));
-    this.trueOrder = idx.slice(this.falseCount);
-    this.errors = 0;
-    this.clear();
-  }
-  clear() {
-    this.pins = Array.from({ length: this.pinCount }, () => 'idle');
-    this.progress = 0; this.consecutive = 0; this.solved = false;
-  }
-  get jammed() { return this.pins.some(s => s === 'falseSet'); }
-  get cylinderDeg() { return this.progress * this.degPerPin; }
-  get nextTruePin() { return this.trueOrder[this.progress] ?? -1; }
-
-  push(i) {
-    if (this.solved || this.pins[i] === 'set' || this.pins[i] === 'falseSet') return 'ignored';
-    if (this.falsePins.has(i) && !this.jammed) {
-      this.pins[i] = 'falseSet'; this.emit('falseSet', { pin: i }); return 'falseSet';
-    }
-    if (!this.jammed && i === this.nextTruePin) {
-      this.pins[i] = 'set'; this.progress++; this.consecutive = 0;
-      this.emit('set', { pin: i });
-      if (this.progress === this.trueOrder.length) { this.solved = true; this.emit('solved', {}); }
-      return 'set';
-    }
-    this.pins[i] = 'partial'; this.errors++; this.consecutive++;
-    this.emit('error', { pin: i });
-    if (this.consecutive >= this.severeAt) { this.consecutive = 0; this.emit('severe', {}); }
-    return 'error';
-  }
-  release(i) {
-    if (this.solved) return;
-    if (this.pins[i] === 'set') this.progress = Math.max(0, this.progress - 1);
-    const was = this.pins[i]; this.pins[i] = 'idle';
-    this.emit('release', { pin: i, was });
-  }
-  releaseAll() {
-    if (this.solved) return;
-    this.pins = this.pins.map(() => 'idle'); this.progress = 0;
-    this.emit('releaseAll', {});
-  }
-  getHint() { return { order: [...this.trueOrder], falsePins: [...this.falsePins] }; }
-}
-
+/* LockState 已移至 src/logic/lock.ts */
 /* ═══════════════════════════════════════════════════════════
    程序化材質
    ═══════════════════════════════════════════════════════════ */
@@ -1981,9 +1702,8 @@ function beep(kind) {
    回合狀態
    ═══════════════════════════════════════════════════════════ */
 const R = {
-  lock: null, t0: 0, elapsed: 0, over: false, won: false,
+  lock: null, timer: new HiddenTimer(), elapsed: 0, over: false, won: false,
   lookTime: 0, jamTime: 0, jamStart: 0, errorCount: 0, severeCount: 0,
-  extraTime: 0,            // 錯誤造成的時間損失（怪物瞬移換算）
   history: [], attempts: [],
 };
 
@@ -2275,19 +1995,19 @@ function flashTrack(i) {
 /* ── 新回合 ─────────────────────────────────────────── */
 function newRound() {
   R.lock = new LockState({ ...CFG.lock });
-  R.t0 = performance.now(); R.elapsed = 0;
+  R.timer.start(); R.elapsed = 0;
   R.over = false; R.won = false;
   R.lookTime = 0; R.jamTime = 0; R.jamStart = 0;
-  R.errorCount = 0; R.severeCount = 0; R.extraTime = 0;
+  R.errorCount = 0; R.severeCount = 0;
   R.history = []; sel = 0;
   look.yaw = 0; look.target = 0; look.holding = false;
 
   R.lock.on('set', () => beep('set'));
   R.lock.on('falseSet', () => { beep('falseSet'); R.jamStart = performance.now(); });
-  R.lock.on('error', d => { beep('error'); flashTrack(d.i ?? d.pin); R.errorCount++; });
+  R.lock.on('error', d => { beep('error'); flashTrack(d.pin); R.errorCount++; });
   R.lock.on('severe', () => {
     beep('severe'); R.severeCount++; handShake = 0.4;
-    R.extraTime += CFG.penalty.severeJump;      // 怪物瞬間前進
+    R.timer.addPenalty(CFG.penalty.severeJump); // 怪物瞬間前進
   });
   R.lock.on('release', d => {
     if (d.was === 'falseSet' && R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
@@ -2299,12 +2019,7 @@ function newRound() {
 
   // 站位時刻表：把 hold 比例累加成切換時間點。總時間守恆（議題 14）
   const S = CFG.stations;
-  ST.thresholds = [];
-  let acc = 0;
-  for (let i = 0; i < S.hold.length; i++) {
-    acc += S.hold[i];
-    ST.thresholds.push(acc * CFG.round.limit);
-  }
+  ST.thresholds = stationThresholds(S.hold, CFG.round.limit);
   ST.index = 0; ST.z = S.z[0]; ST.targetZ = S.z[0];
   decay.applied = 0;
   window.__applySeep(0);
@@ -2350,12 +2065,12 @@ function win() {
 }
 
 function primaryCause() {
-  const c = [
-    ['卡在假針太久',   R.jamTime / 1000],
-    ['回頭看太多次',   R.lookTime / 1000],
-    ['連續操作錯誤',   R.errorCount * CFG.penalty.errorSec],
-  ].sort((a, b) => b[1] - a[1])[0];
-  return c[1] > 1.5 ? c[0] : '時間不夠';
+  return primaryCauseOf({
+    jamSec: R.jamTime / 1000,
+    lookSec: R.lookTime / 1000,
+    errorCount: R.errorCount,
+    errorSec: CFG.penalty.errorSec,
+  });
 }
 
 function die() {
@@ -2490,10 +2205,10 @@ function tick() {
   dt *= timeScale;
 
   if (!R.over) {
-    if (hd.on) R.t0 = performance.now();           // debug 中計時凍結
+    if (hd.on) R.timer.hold();                     // debug 中計時凍結
     if (intro.active) {
       intro.t += dt;
-      R.t0 = performance.now();                          // 開場期間計時器不啟動
+      R.timer.hold();                                    // 開場期間計時器不啟動
       const I = CFG.intro;
 
       if (intro.phase === 'run') {
@@ -2558,7 +2273,7 @@ function tick() {
         }
       }
     }
-    R.elapsed = (performance.now() - R.t0) / 1000 + R.extraTime;
+    R.elapsed = R.timer.elapsed;
     if (look.holding) R.lookTime += dt * 1000;
   }
 
@@ -2877,9 +2592,27 @@ function tick() {
   requestAnimationFrame(tick);
 }
 
+
+/* ═══════════════════════════════════════════════════════════
+   測試接點
+   —— 與 D（dev overlay）、H（手部調整面板）同性質的除錯出口。
+   tools/devicetest/ 的自動化測試靠這個讀狀態，因此它必須存在於
+   實際建置出來的檔案裡，而不是某個特製的測試版本。
+   ═══════════════════════════════════════════════════════════ */
+window.__probe = () => ({
+  pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.elapsed,
+  over: R.over, yaw: look.yaw, intro: intro.active,
+  actx: actx ? actx.state : 'not-created',
+  dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
+});
+window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
+window.__pinCentres = () => {
+  const el = document.getElementById('pins');
+  const w = el.clientWidth, h = el.clientHeight, n = CFG.lock.pinCount;
+  const left = h * 0.16 * 2.1, cell = (w - left) / n;
+  return { w, h, xs: Array.from({ length: n }, (_, i) => left + cell * (i + 0.5)) };
+};
+
 newRound();
 resize();
 tick();
-</script>
-</body>
-</html>
