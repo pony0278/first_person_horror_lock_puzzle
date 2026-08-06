@@ -6,23 +6,29 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Pages 部署需要的權限。contents 只要讀。
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# 同一分支的新推送取消掉舊的檢查（省 runner）。
-# 部署的序列化另外設在 deploy job 上 —— 放在這一層的話，所有分支的 CI
-# 都會排在同一個佇列裡互相等待。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: 檢查與建置
+  # ── 發布：快路徑 ──────────────────────────────────────────
+  # 只擋在「快且穩定」的檢查後面：型別、相依分層、單元測試都是純 Node，
+  # 加起來兩秒且完全確定性。整個 job 約一分鐘。
+  #
+  # 手機視窗測試刻意不放在這裡。那套跑真 Chromium + 軟體渲染 WebGL，
+  # 三到五分鐘且對 runner 負載敏感 —— 拿它擋發布的話，每次想上線都要賭一次
+  # 瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
+  deploy:
+    name: 建置與發布
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +39,6 @@ jobs:
 
       - run: npm ci
 
-      # 型別、相依分層與循環、邏輯層單元測試。全部很快，先跑掉。
       - name: 型別 / 相依 / 單元測試
         run: npm run check
 
@@ -44,14 +49,47 @@ jobs:
         run: |
           BYTES=$(stat -c%s dist/index.html)
           echo "dist/index.html = $BYTES bytes ($((BYTES/1024)) KB)"
-          # 設計文件 §2：初始下載 ≤ 20MB。這裡抓 5MB 當早期警戒線，
-          # 真的逼近 20MB 之前就該先知道。
+          # 設計文件 §2：初始下載 ≤ 20MB。5MB 當早期警戒線。
           if [ "$BYTES" -gt 5242880 ]; then
             echo "::error::產物超過 5MB，離 §2 的 20MB 上限已經不遠"
             exit 1
           fi
 
-      # 快取瀏覽器：版本沒變就不用每次重抓（單次約 20 秒）。
+      - name: 上傳 Pages 產物
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      # enablement: true 會在 Pages 尚未啟用時自動開啟並設成 GitHub Actions 來源。
+      - name: 設定 Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: 發布
+        id: deployment
+        if: github.ref == 'refs/heads/main'
+        uses: actions/deploy-pages@v4
+
+  # ── 手機視窗測試：與發布並行，不擋發布 ──────────────────────
+  # 失敗代表「有東西要修」，不代表「不能上線」。網站壞掉的成本是再推一次，
+  # 而擋住發布的成本是每次都要等三到五分鐘並賭測試穩定度。
+  devicetest:
+    name: 手機視窗測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
       - name: Playwright 版本
         id: pw
         run: echo "v=$(node -p "require('playwright/package.json').version")" >> $GITHUB_OUTPUT
@@ -62,8 +100,6 @@ jobs:
           path: ~/.cache/ms-playwright
           key: pw-${{ runner.os }}-${{ steps.pw.outputs.v }}
 
-      # --with-deps 補系統函式庫，否則 headless Chromium 在 ubuntu-runner 上起不來。
-      # 快取命中時只補系統函式庫，瀏覽器本體省下來。
       - name: 安裝 Chromium
         run: |
           if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
@@ -77,11 +113,8 @@ jobs:
           npx http-server dist -p 8100 -s &
           npx wait-on -t 30000 http://127.0.0.1:8100/index.html
 
-      # 幾何量測（devicetest、safearea）互不相干且對時間不敏感 —— 併行跑。
-      # interrupt 量的是計時器行為，對機器負載敏感：三個瀏覽器搶 runner 的
-      # 核心做軟體渲染時，事件派送延遲會從 8 秒暴增到 19 秒、rAF 一幀數十秒
-      # （run#5 因此崩潰）。所以讓它單獨跑，換一台安靜的機器。
-      - name: 手機視窗測試（幾何，併行）
+      # 幾何量測對時間不敏感，併行跑。
+      - name: 幾何（版面、safe-area、命中區）
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: |
@@ -96,41 +129,15 @@ jobs:
           done
           exit $FAILED
 
-      - name: 手機視窗測試（中斷情境，單獨）
+      # 中斷情境量的是計時器行為，對機器負載敏感 —— 單獨跑，換一台安靜的機器。
+      - name: 中斷情境（背景、context 遺失）
+        if: always()
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/interrupt.mjs
 
-      - name: 撞針可讀性（僅記錄，不擋）
+      - name: 撞針可讀性（僅記錄）
         if: always()
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/pinread.mjs
-
-      - name: 上傳 Pages 產物
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    name: 發布到 GitHub Pages
-    needs: check
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    # 同時只跑一個部署，且不中斷進行中的那個 —— 中途取消會讓 Pages 停在半成品。
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      # enablement: true 會在 Pages 尚未啟用時自動開啟並設成 GitHub Actions 來源，
-      # 省掉去 repo 設定頁點一次的手續。若組織政策不允許，這一步會失敗並說明原因。
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
