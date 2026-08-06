@@ -12,10 +12,12 @@ permissions:
   pages: write
   id-token: write
 
-# 同時只跑一個部署，且不中斷進行中的那個 —— 中途取消會讓 Pages 停在半成品。
+# 同一分支的新推送取消掉舊的檢查（省 runner）。
+# 部署的序列化另外設在 deploy job 上 —— 放在這一層的話，所有分支的 CI
+# 都會排在同一個佇列裡互相等待。
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -84,9 +86,19 @@ jobs:
     needs: check
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # 同時只跑一個部署，且不中斷進行中的那個 —— 中途取消會讓 Pages 停在半成品。
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # enablement: true 會在 Pages 尚未啟用時自動開啟並設成 GitHub Actions 來源，
+      # 省掉去 repo 設定頁點一次的手續。若組織政策不允許，這一步會失敗並說明原因。
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - id: deployment
         uses: actions/deploy-pages@v4
