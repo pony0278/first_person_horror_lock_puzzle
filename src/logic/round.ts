@@ -24,21 +24,24 @@ export interface RoundStats {
  * 用牆鐘而不是累加 dt，因為 dt 在低幀率時被 clamp（原型是 0.05s 上限），
  * 累加會讓時限隨幀率浮動 —— 怪物就不誠實了。
  *
- * `pause()` / `resume()` 目前沒有被接上。接上 `visibilitychange` 就是報告 H2
- * 的修法：切到背景時暫停，否則一則通知橫幅就吃掉 20 秒時限的 15~25%。
+ * 暫停是**具名的**：切到背景（H2）與 WebGL context 遺失（H3）可能同時發生，
+ * 用單一布林值會讓其中一個先恢復就把計時器放行，而畫面其實還沒回來。
+ * 因此記的是「還有哪些原因暫停中」，全部解除才真的繼續走。
  */
 export class HiddenTimer {
   private t0 = 0;
   private pausedAt: number | null = null;
   /** 錯誤造成的時間損失（怪物瞬移換算，§6）。 */
   private penalty = 0;
+  private readonly reasons = new Set<string>();
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
   start(): void {
     this.t0 = this.now();
-    this.pausedAt = null;
     this.penalty = 0;
+    // 若開新回合時仍在背景／context 未恢復，就直接以暫停狀態起跑
+    this.pausedAt = this.reasons.size > 0 ? this.t0 : null;
   }
 
   /** 開場演出期間反覆呼叫，讓計時器不啟動。 */
@@ -50,18 +53,27 @@ export class HiddenTimer {
     this.penalty += seconds;
   }
 
-  pause(): void {
+  /** 記下一個暫停原因。同一個原因重複記不會有副作用。 */
+  pause(reason = 'manual'): void {
+    this.reasons.add(reason);
     if (this.pausedAt === null) this.pausedAt = this.now();
   }
 
-  resume(): void {
-    if (this.pausedAt === null) return;
+  /** 解除一個暫停原因；還有其他原因存在時計時器不會繼續走。 */
+  resume(reason = 'manual'): void {
+    this.reasons.delete(reason);
+    if (this.reasons.size > 0 || this.pausedAt === null) return;
     this.t0 += this.now() - this.pausedAt;
     this.pausedAt = null;
   }
 
   get paused(): boolean {
     return this.pausedAt !== null;
+  }
+
+  /** 目前有哪些原因讓計時器停著 —— dev overlay 會顯示。 */
+  get pauseReasons(): string[] {
+    return [...this.reasons];
   }
 
   /** 已經過的秒數，含錯誤懲罰。 */

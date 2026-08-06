@@ -2092,6 +2092,53 @@ function endRound(msg) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   中斷：切到背景（報告 H2）與 WebGL context 遺失（報告 H3）
+   ═══════════════════════════════════════════════════════════ */
+const $halt = document.getElementById('halt');
+
+/* 隱藏計時器走的是牆鐘（必須如此 —— 累加 dt 會讓時限隨幀率浮動，
+   怪物就不誠實了）。代價是它在畫面看不見的時候照樣前進：一則通知橫幅
+   或誤觸 home 就吃掉 20 秒時限的 15~25%，而玩家不會知道自己是被這個殺死的。
+   所以看不見的期間一律把計時器停下來。 */
+const HALT_MSG = {
+  hidden: '',                                   // 切到背景不需要文案，玩家本來就沒在看
+  contextlost: '畫面中斷了　·　正在等待恢復',
+};
+const halted = new Set();
+
+function setHalt(reason, on) {
+  if (on) { halted.add(reason); R.timer.pause(reason); }
+  else    { halted.delete(reason); R.timer.resume(reason); }
+
+  // 只有 context 遺失需要蓋畫面 —— 那時 canvas 是全黑的，不講一聲玩家不知道發生什麼事
+  const msg = [...halted].map(r => HALT_MSG[r]).filter(Boolean)[0] ?? '';
+  $halt.querySelector('p').textContent = msg;
+  $halt.classList.toggle('on', !!msg);
+}
+
+/** 中斷期間下方停止接受輸入，與回頭時的規則一致（設計文件 §5）。 */
+const interrupted = () => halted.size > 0;
+
+document.addEventListener('visibilitychange', () => {
+  setHalt('hidden', document.hidden);
+  // iOS 切回前景後 AudioContext 仍是 suspended，先試著接回來；
+  // 失敗也沒關係，下一次觸控的 unlockAudio 會補上。
+  if (!document.hidden) unlockAudio();
+});
+
+/* three.js 的 WebGLRenderer 本來就會處理 context 的遺失與恢復（實測畫面
+   與遊戲狀態都回得來），所以這裡不重做恢復流程 —— 只補它管不到的兩件事：
+   遺失期間的計時器與畫面提示。 */
+renderer.domElement.addEventListener('webglcontextlost', () => {
+  setHalt('contextlost', true);
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  setHalt('contextlost', false);
+  resize();                                     // 尺寸依附在 context 上，重新套一次
+  renderPins();
+});
+
+/* ═══════════════════════════════════════════════════════════
    輸入
    ═══════════════════════════════════════════════════════════ */
 const blind = () => Math.abs(look.yaw) > CFG.look.blindAt;
@@ -2099,7 +2146,7 @@ const blind = () => Math.abs(look.yaw) > CFG.look.blindAt;
 /* 下方：撬鎖 */
 let drag = null;
 $pins.addEventListener('pointerdown', e => {
-  if (R.over || blind() || intro.active) return;
+  if (R.over || blind() || intro.active || interrupted()) return;
   let idx;
   if (CFG.ui.style === 'cutaway') {
     const rect = $pins.getBoundingClientRect();
@@ -2134,7 +2181,7 @@ $pins.addEventListener('pointerup', () => {
 $pins.addEventListener('pointercancel', () => { drag = null; pick.lift = 0; });
 
 document.getElementById('dump').onclick = () => {
-  if (R.over || blind() || intro.active) return;
+  if (R.over || blind() || intro.active || interrupted()) return;
   R.lock.releaseAll(); beep('release'); R.history = []; renderPins();
 };
 
@@ -2154,7 +2201,7 @@ function doRelease(i) {
 
 /* 上方：長按觀察、放開回彈（議題 1 規格） */
 view.addEventListener('pointerdown', e => {
-  if (intro.active) return;
+  if (intro.active || interrupted()) return;
   view.setPointerCapture(e.pointerId);
   look.holding = true;
   look.target = 180;
@@ -2203,6 +2250,10 @@ let timeScale = 1;
 function tick() {
   let dt = Math.min(clock.getDelta(), 0.05);
   dt *= timeScale;
+
+  // 中斷期間不推進任何演出。clock.getDelta() 仍要照呼叫，
+  // 否則恢復那一刻會累積出一個超大的 dt。
+  if (interrupted()) dt = 0;
 
   if (!R.over) {
     if (hd.on) R.timer.hold();                     // debug 中計時凍結
@@ -2289,7 +2340,7 @@ function tick() {
   const camZ = intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(standX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
-  $panel.classList.toggle('blind', blind() || R.over || intro.active);
+  $panel.classList.toggle('blind', blind() || R.over || intro.active || interrupted());
 
   // 鎖芯：事實層。鑰匙孔與兩支工具都掛在它底下，一起轉。
   cylinder.rotation.z = -THREE.MathUtils.degToRad(R.lock.cylinderDeg);
@@ -2587,7 +2638,8 @@ function tick() {
     $dev.textContent =
       `elapsed ${R.elapsed.toFixed(1)} / ${CFG.round.limit}   dist ${dist.toFixed(1)}m\n` +
       `look ${(R.lookTime/1000).toFixed(1)}s   jam ${(R.jamTime/1000).toFixed(1)}s   err ${R.errorCount}\n` +
-      `attempts ${R.attempts.length}   won ${R.attempts.filter(a=>a.won).length}`;
+      `attempts ${R.attempts.length}   won ${R.attempts.filter(a=>a.won).length}` +
+      (R.timer.paused ? `\npaused: ${R.timer.pauseReasons.join(', ')}` : '');
   }
   requestAnimationFrame(tick);
 }

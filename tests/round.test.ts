@@ -70,6 +70,59 @@ describe('隱藏計時器', () => {
       expect(timer.elapsed).toBeCloseTo(2);
     });
   });
+
+  describe('具名暫停（H2 與 H3 可能同時發生）', () => {
+    it('兩個原因都解除才會繼續走', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      c.advance(1000);
+
+      timer.pause('hidden');              // 切到背景
+      timer.pause('contextlost');         // 同時 WebGL context 也掉了
+      c.advance(10000);
+
+      timer.resume('hidden');             // 回到前景，但畫面還沒回來
+      expect(timer.paused).toBe(true);
+      expect(timer.pauseReasons).toEqual(['contextlost']);
+      c.advance(5000);
+      expect(timer.elapsed).toBeCloseTo(1);
+
+      timer.resume('contextlost');        // 畫面回來了
+      expect(timer.paused).toBe(false);
+      c.advance(2000);
+      expect(timer.elapsed).toBeCloseTo(3);
+    });
+
+    it('解除一個沒記過的原因不會誤放行', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      timer.pause('contextlost');
+      c.advance(3000);
+      timer.resume('hidden');             // 從來沒因為 hidden 暫停過
+      expect(timer.paused).toBe(true);
+      c.advance(3000);
+      expect(timer.elapsed).toBeCloseTo(0);
+    });
+
+    it('在暫停中開新回合，仍以暫停狀態起跑', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      timer.pause('hidden');
+      c.advance(2000);
+
+      timer.start();                      // 死亡後 1.5 秒自動重開，此時還在背景
+      c.advance(8000);
+      expect(timer.paused).toBe(true);
+      expect(timer.elapsed).toBeCloseTo(0);
+
+      timer.resume('hidden');
+      c.advance(1000);
+      expect(timer.elapsed).toBeCloseTo(1);
+    });
+  });
 });
 
 describe('站位時刻表', () => {

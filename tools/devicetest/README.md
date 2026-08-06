@@ -14,7 +14,10 @@ F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/probe2.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/probe3.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/pinread.mjs
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs
 ```
+
+`interrupt.mjs` 是唯一會用結束碼表示成敗的（FAIL 就 exit 1），適合掛進 CI。
 
 測試接點（`window.__probe` / `__setPins` / `__pinCentres`）定義在 `src/main.js` 結尾，
 會一起進建置產物 —— 這是刻意的，因為要測的就是實際出貨的那個檔案，
@@ -41,6 +44,7 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `probe2.mjs` | 面板高度是否受 `flex-basis` 控制（含不同視窗高度與 DPR 的對照）、intro 實際耗時、觸控推針、計時器 |
 | `probe3.mjs` | 真實自動播放政策下的 AudioContext 狀態、WebGL context 遺失與恢復、面板高度的熱套驗證 |
 | `pinread.mjs` | 直接對畫好的 canvas 取樣，量各撞針狀態的實際像素差 |
+| `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
 
 ## 兩個容易踩的量測陷阱
 
@@ -49,6 +53,10 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 
 **別用 `readPixels` 取畫面內容。** 沒有 `preserveDrawingBuffer` 時合成後讀回全 0。
 改用 `page.locator('#view').screenshot()` 的位元組長度當內容指標。
+
+**別從瀏覽器外面前後夾量 context 遺失的漏秒。** `loseContext()` 到 `webglcontextlost`
+之間有瀏覽器自己的派送延遲（本環境 260~330ms），再加上 Playwright 的往返，
+會把那些都算成程式的漏秒。`interrupt.mjs` 改成在頁面內側錄事件觸發當下的值。
 
 ## 這裡測不到的
 
