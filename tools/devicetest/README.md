@@ -46,6 +46,7 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `probe3.mjs` | 真實自動播放政策下的 AudioContext 狀態、WebGL context 遺失與恢復、面板高度的熱套驗證 |
 | `pinread.mjs` | 直接對畫好的 canvas 取樣，量各撞針狀態的實際像素差 |
 | `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
+| `signature.mjs` | Three.js 場景圖的**結構**指紋（型別、幾何、材質、階層）＋ 全域接點與事件監聽。純程式碼搬移時用來確認什麼都沒漏，用法見檔頭 |
 | `safearea.mjs` | 四種瀏海配置下，可操作元素是否避開瀏海與 home indicator、洩壓鈕命中區、可操作區比例、撞針高度差有沒有被吃掉 |
 
 ## 幾個容易踩的量測陷阱

@@ -17,6 +17,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run deps && npm run test",
+    "deps": "node tools/deps.mjs"
   }
 }
