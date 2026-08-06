@@ -1,0 +1,92 @@
+name: CI 與發布
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Pages 部署需要的權限。contents 只要讀。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時只跑一個部署，且不中斷進行中的那個 —— 中途取消會讓 Pages 停在半成品。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: 檢查與建置
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 型別、相依分層與循環、邏輯層單元測試。全部很快，先跑掉。
+      - name: 型別 / 相依 / 單元測試
+        run: npm run check
+
+      - name: 建置單檔
+        run: npm run build
+
+      - name: 產物大小
+        run: |
+          BYTES=$(stat -c%s dist/index.html)
+          echo "dist/index.html = $BYTES bytes ($((BYTES/1024)) KB)"
+          # 設計文件 §2：初始下載 ≤ 20MB。這裡抓 5MB 當早期警戒線，
+          # 真的逼近 20MB 之前就該先知道。
+          if [ "$BYTES" -gt 5242880 ]; then
+            echo "::error::產物超過 5MB，離 §2 的 20MB 上限已經不遠"
+            exit 1
+          fi
+
+      # 裝 Playwright 自己的 Chromium。--with-deps 補系統函式庫，
+      # 否則 headless Chromium 在 ubuntu-runner 上起不來。
+      - name: 安裝 Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 啟動靜態伺服器
+        run: |
+          npx http-server dist -p 8100 -s &
+          npx wait-on -t 30000 http://127.0.0.1:8100/index.html
+
+      # 這三支會用結束碼表示成敗，任何一項 FAIL 就擋下部署。
+      - name: 手機視窗測試
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: |
+          node tools/devicetest/devicetest.mjs
+          node tools/devicetest/safearea.mjs
+          node tools/devicetest/interrupt.mjs
+
+      - name: 撞針可讀性（僅記錄，不擋）
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: node tools/devicetest/pinread.mjs
+
+      - name: 上傳 Pages 產物
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: 發布到 GitHub Pages
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

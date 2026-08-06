@@ -1,9 +1,16 @@
 /* 第二輪：釐清面板高度異常 + 等 intro 真的結束後的實際互動 / 計時器 / 音訊 */
 import { chromium, devices } from 'playwright';
+import fs from 'node:fs';
+
+/* CI 上沒有這個環境預裝的 Chromium，交給 Playwright 用它自己管理的那份
+   （executablePath 給 undefined 就是這個意思）。本機則沿用預裝的，省下載。 */
+const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const chromiumPath = process.env.CHROMIUM_PATH
+  || (fs.existsSync(LOCAL_CHROMIUM) ? LOCAL_CHROMIUM : undefined);
 
 const PAGE_URL = process.env.F0_URL || 'http://127.0.0.1:8100/f0.html';
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  executablePath: chromiumPath,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 

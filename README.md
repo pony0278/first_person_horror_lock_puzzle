@@ -2,8 +2,21 @@
 
 怪物正在逼近，而你不知道還剩多少時間。
 
+**▶ 線上試玩：https://pony0278.github.io/first_person_horror_lock_puzzle/**
+（`main` 有新 commit 就自動重新發布；手機請橫向）
+
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
 目前階段：**F0**（單門原型，待實機測試與 5~8 人驗收）
+
+## 自動化
+
+推到任何分支都會跑 CI；`main` 通過後自動發布到 GitHub Pages。
+
+| 關卡 | 內容 |
+| --- | --- |
+| `npm run check` | TypeScript 型別、相依分層與循環、37 個單元測試 |
+| `npm run build` | 建置單檔，並檢查產物未逼近設計文件 §2 的 20MB 下載上限 |
+| 手機視窗測試 | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（14 項），任一 FAIL 就擋下發布 |
 
 ## 快速開始
 

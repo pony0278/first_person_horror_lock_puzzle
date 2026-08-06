@@ -2,7 +2,13 @@
    跑真 Chromium（有 WebGL），模擬 iPhone / 中階 Android 的視窗、DPR、觸控。
    只驗證機器測得出來的部分；主觀項目（發熱、戶外可辨識度）留給真機。 */
 import { chromium, devices } from 'playwright';
-import fs from 'fs';
+import fs from 'node:fs';
+
+/* CI 上沒有這個環境預裝的 Chromium，交給 Playwright 用它自己管理的那份
+   （executablePath 給 undefined 就是這個意思）。本機則沿用預裝的，省下載。 */
+const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const chromiumPath = process.env.CHROMIUM_PATH
+  || (fs.existsSync(LOCAL_CHROMIUM) ? LOCAL_CHROMIUM : undefined);
 
 const PAGE_URL = process.env.F0_URL || 'http://127.0.0.1:8100/f0.html';
 const OUT = new URL('./build/shots', import.meta.url).pathname;
@@ -28,7 +34,7 @@ const rec = (profile, id, pass, detail) => {
 };
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  executablePath: chromiumPath,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 
@@ -188,6 +194,9 @@ for (const p of PROFILES) {
 }
 
 await browser.close();
+fs.mkdirSync(OUT, { recursive: true });
 fs.writeFileSync(OUT + '/results.json', JSON.stringify(results, null, 2));
 const fails = results.filter(r => r.pass === false);
+for (const f of fails) console.log(`FAIL  [${f.profile}] ${f.id} — ${f.detail}`);
 console.log(`\n=== ${results.length} 項，FAIL ${fails.length} 項 ===`);
+process.exit(fails.length ? 1 : 0);
