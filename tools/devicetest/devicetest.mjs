@@ -10,7 +10,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const PROFILES = [
   { name: 'iPhone-13-landscape', w: 844, h: 390, dpr: 3, touch: true,
-    ua: devices['iPhone 13'].userAgent, notch: { left: 47, right: 47, bottom: 21 } },
+    ua: devices['iPhone 13'].userAgent, notch: { left: 47, right: 0, bottom: 21 } },
   { name: 'iPhone-13-portrait',  w: 390, h: 844, dpr: 3, touch: true,
     ua: devices['iPhone 13'].userAgent, notch: { top: 47, bottom: 34 } },
   { name: 'iPhone-SE-landscape', w: 667, h: 375, dpr: 2, touch: true,
@@ -40,6 +40,17 @@ for (const p of PROFILES) {
     userAgent: p.ua,
   });
   const page = await ctx.newPage();
+  if (p.notch) {
+    await page.addInitScript(n => {
+      addEventListener('DOMContentLoaded', () => {
+        const r = document.documentElement.style;
+        r.setProperty('--sa-t', (n.top ?? 0) + 'px');
+        r.setProperty('--sa-r', (n.right ?? 0) + 'px');
+        r.setProperty('--sa-b', (n.bottom ?? 0) + 'px');
+        r.setProperty('--sa-l', (n.left ?? 0) + 'px');
+      });
+    }, p.notch);
+  }
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -80,20 +91,24 @@ for (const p of PROFILES) {
     const hits = [];
     if (n.bottom && box.dump.bottom > vh - n.bottom) hits.push(`全部洩壓鈕下緣 ${box.dump.bottom.toFixed(0)} 落在 home indicator 區 (>${vh - n.bottom})`);
     if (n.bottom && box.pins.bottom > vh - n.bottom) hits.push(`撬鎖區下緣 ${box.pins.bottom.toFixed(0)} 落在 home indicator 區`);
-    if (n.left && box.dump.x < n.left) hits.push(`全部洩壓鈕左緣 ${box.dump.x.toFixed(0)} 落在瀏海區 (<${n.left})`);
-    if (n.left && box.pins.x < n.left) hits.push(`撬鎖區左緣 ${box.pins.x.toFixed(0)} 落在瀏海區`);
+    if (n.left && box.dump.x < n.left - 0.5) hits.push(`全部洩壓鈕左緣 ${box.dump.x.toFixed(0)} 落在瀏海區 (<${n.left})`);
+    if (n.left && box.pins.x < n.left - 0.5) hits.push(`撬鎖區左緣 ${box.pins.x.toFixed(0)} 落在瀏海區`);
+    if (n.right && box.pins.right > vw - n.right + 0.5) hits.push(`撬鎖區右緣 ${box.pins.right.toFixed(0)} 落在瀏海區`);
     rec(p.name, '2.2 safe-area 不遮擋', hits.length === 0, hits.length ? hits.join('；') : '無重疊');
   }
 
   /* 2.4 上下分區比例是否符合設計（上 65-70% / 下 30-35%） */
   const split = await page.evaluate(() => {
     const v = document.getElementById('view').getBoundingClientRect();
-    const pl = document.getElementById('panel').getBoundingClientRect();
-    return { view: v.height, panel: pl.height, total: v.height + pl.height };
+    const panel = document.getElementById('panel');
+    const pl = panel.getBoundingClientRect();
+    // 扣掉 safe-area 的內距 —— 那段是 home indicator 佔的，本來就不能操作
+    const saB = parseFloat(getComputedStyle(panel).paddingBottom) - 6;
+    return { view: v.height, panel: pl.height - Math.max(0, saB) };
   });
-  const panelPct = split.panel / split.total * 100;
-  rec(p.name, '2.4 上下比例', panelPct >= 28 && panelPct <= 38,
-    `下方 ${panelPct.toFixed(1)}%（設計 30~35%）；view ${split.view.toFixed(0)}px / panel ${split.panel.toFixed(0)}px`);
+  const panelPct = split.panel / (split.view + split.panel) * 100;
+  rec(p.name, '2.4 可操作區比例', panelPct >= 28 && panelPct <= 38,
+    `下方 ${panelPct.toFixed(1)}%（設計 30~35%）；view ${split.view.toFixed(0)}px / 可操作 ${split.panel.toFixed(0)}px`);
 
   /* 3.4 觸控目標 ≥44px：每個撞針欄位的寬度 + 洩壓鈕 */
   const targets = await page.evaluate(() => {

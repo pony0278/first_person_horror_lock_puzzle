@@ -15,9 +15,10 @@ F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/probe2.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/probe3.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/pinread.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs
 ```
 
-`interrupt.mjs` 是唯一會用結束碼表示成敗的（FAIL 就 exit 1），適合掛進 CI。
+`interrupt.mjs` 與 `safearea.mjs` 會用結束碼表示成敗（FAIL 就 exit 1），適合掛進 CI。
 
 測試接點（`window.__probe` / `__setPins` / `__pinCentres`）定義在 `src/main.js` 結尾，
 會一起進建置產物 —— 這是刻意的，因為要測的就是實際出貨的那個檔案，
@@ -45,8 +46,13 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `probe3.mjs` | 真實自動播放政策下的 AudioContext 狀態、WebGL context 遺失與恢復、面板高度的熱套驗證 |
 | `pinread.mjs` | 直接對畫好的 canvas 取樣，量各撞針狀態的實際像素差 |
 | `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
+| `safearea.mjs` | 四種瀏海配置下，可操作元素是否避開瀏海與 home indicator、洩壓鈕命中區、可操作區比例、撞針高度差有沒有被吃掉 |
 
-## 兩個容易踩的量測陷阱
+## 幾個容易踩的量測陷阱
+
+**Chromium 不會模擬 safe-area**（CDP 沒有 `Emulation.setSafeAreaInsets`）。
+`index.html` 把 `env()` 讀進 `--sa-*` 自訂屬性，測試覆寫那些屬性來模擬瀏海；
+真機上 `env()` 直接生效，兩條路徑走同一組 CSS。
 
 **別用「原始碼裡有沒有這個字串」判斷有沒有註冊監聽。** 打包後的 three.js 內部就含有
 `webglcontextlost`，這種檢查會變成必定為真。`probe3.mjs` 改成攔截 `addEventListener`。

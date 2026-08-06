@@ -61,10 +61,19 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 | B1 | 手機橫向上下分區反了（面板吃 42~61%） | 已修 |
 | B2 | 撞針高度差在手機橫向只剩 3.5px | 已修（→ 9.5~10px） |
 | B3 | iOS / Android 上完全沒有聲音 | 已修 |
-| H5 | 資源依賴 CDN，離線白畫面 | 已修（建置內嵌） |
+| H1 | 無 safe-area 處理 | 已修 |
 | H2 | 切背景吃掉隱藏計時器 | 已修 |
 | H3 | context loss 遺失期間無處理 | 已修 |
-| H1 | 無 safe-area 處理 | 未處理 |
-| H4 | 洩壓鈕 66×27px，低於 44×44 | 未處理 |
+| H4 | 洩壓鈕 66×27px，低於 44×44 | 已修（→ 70×44px） |
+| H5 | 資源依賴 CDN，離線白畫面 | 已修（建置內嵌） |
 
-下一步是拿真機跑 `docs/f0_device_test_checklist.md`，再做 5~8 人驗收（設計文件 §17）。
+自動化階段沒有已知未處理項目。下一步是拿真機跑 `docs/f0_device_test_checklist.md`，
+再做 5~8 人驗收（設計文件 §17）。
+
+```bash
+npm run check      # 型別 + 37 個單元測試
+npm run build && npx http-server dist -p 8100 -s &
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 14 項
+```
