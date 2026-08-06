@@ -31,6 +31,15 @@ window.__probe = () => ({
   actx: actx ? actx.state : 'not-created',
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
+/* 強制設定撞針狀態並重畫 —— 讓測試去讀實際畫出來的像素，
+   而不是在測試腳本裡複製一份 drawCutaway 的公式（會隨原型改版而失準）。 */
+window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
+window.__pinCentres = () => {
+  const el = document.getElementById('pins');
+  const w = el.clientWidth, h = el.clientHeight, n = CFG.lock.pinCount;
+  const left = h * 0.16 * 2.1, cell = (w - left) / n;
+  return { w, h, xs: Array.from({length: n}, (_, i) => left + cell * (i + 0.5)) };
+};
 `;
 const anchor = 'newRound();\nresize();\ntick();';
 if (!out.includes(anchor)) { console.error('找不到啟動段落，原型結構可能已變動'); process.exit(1); }
