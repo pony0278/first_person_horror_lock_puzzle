@@ -33,8 +33,8 @@ import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
-import { R, intro, look } from './state.js';
-import { renderer, scene } from './render/scene.js';
+import { R, anim, intro, look } from './state.js';
+import { door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
@@ -48,13 +48,33 @@ import { tick } from './game/loop.js';
    出來的檔案裡，而不是某個特製的測試版本。
    ═══════════════════════════════════════════════════════════ */
 window.__probe = () => ({
-  pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.elapsed,
+  // 直接讀計時器而不是 R.elapsed —— 後者每幀才更新一次，
+  // 在低幀率下（CI 的軟體渲染、多瀏覽器併行）會落後將近半秒，
+  // 量「暫停期間有沒有漏秒」時那個落差會被誤判成漏秒。
+  pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.timer.elapsed,
   over: R.over, yaw: look.yaw, intro: intro.active,
   actx: audioState(),
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
 window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場景圖結構
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
+/* 直接跳到開場演出的結束狀態。
+   演出是 dt 驅動的，低幀率下會等比拉長（見報告 M1）—— CI 的軟體渲染上
+   本來 4.45 秒的演出可能跑掉快一分鐘，測試若用固定或有上限的等待，
+   會在演出還沒結束時就開始量測，量到的全是垃圾。 */
+window.__skipIntro = () => {
+  intro.active = false;
+  intro.phase = 'tool';
+  intro.t = 0; intro.z = 0; intro.bobY = 0; intro.roll = 0; intro.press = 0;
+  intro.arriveF = 1;
+  intro.beeped = intro.th1 = intro.th2 = intro.thTool = true;
+  look.yaw = 0; look.target = 0;
+  anim.timeScale = 1;
+  doorLever.rotation.z = 0; door.position.x = 0;
+  wrench.visible = pickTool.visible = true;
+  wrench.position.z = pickTool.position.z = 0;
+  R.timer.start();
+};
 window.__pinCentres = () => {
   const w = $pins.clientWidth, h = $pins.clientHeight, n = CFG.lock.pinCount;
   const left = h * 0.16 * 2.1, cell = (w - left) / n;

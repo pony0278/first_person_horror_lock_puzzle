@@ -106,6 +106,32 @@ describe('隱藏計時器', () => {
       expect(timer.elapsed).toBeCloseTo(0);
     });
 
+    /**
+     * 迴歸測試：hold() 原本只推 t0，暫停中的 pausedAt 會留在過去，
+     * elapsed 因此變成負數而且持續變負。實際觸發路徑是「在背景中死亡重開」——
+     * 死亡後 1.5 秒自動 newRound，開場演出每幀呼叫 hold()，而 App 還在背景。
+     * CI 上跑出 elapsed -5.82 → -10.34 才發現。
+     */
+    it('暫停中跑開場演出，elapsed 不會變成負數', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      timer.pause('hidden');
+      c.advance(2000);
+
+      timer.start();                      // 背景中死亡重開
+      for (let i = 0; i < 30; i++) {      // 開場演出每幀 hold()
+        c.advance(100);
+        timer.hold();
+      }
+      expect(timer.elapsed).toBeCloseTo(0);
+      expect(timer.elapsed).toBeGreaterThanOrEqual(0);
+
+      timer.resume('hidden');             // 回到前景，從 0 開始跑
+      c.advance(1500);
+      expect(timer.elapsed).toBeCloseTo(1.5);
+    });
+
     it('在暫停中開新回合，仍以暫停狀態起跑', () => {
       const c = fakeClock();
       const timer = new HiddenTimer(c.now);

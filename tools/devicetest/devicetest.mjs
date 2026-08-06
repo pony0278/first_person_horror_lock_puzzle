@@ -127,8 +127,9 @@ for (const p of PROFILES) {
   rec(p.name, '3.4 撞針命中寬 ≥44px', targets.perPin >= 44, `每針 ${targets.perPin.toFixed(1)}px`);
   rec(p.name, '3.4b 洩壓鈕 ≥44px', targets.dumpH >= 44, `${targets.dumpW.toFixed(0)}x${targets.dumpH.toFixed(0)}px`);
 
-  /* 等開場演出跑完（run 2.2s + handle 1.3s + tool 0.95s ≈ 4.5s） */
-  await page.waitForTimeout(4200);
+  /* 跳到開場演出結束 —— 固定等待在低幀率下不夠（見 __skipIntro 的說明） */
+  await page.evaluate(() => window.__skipIntro());
+  await page.waitForTimeout(300);
 
   /* 3.1/3.2 觸控撬鎖：向上滑一支針，看鎖狀態是否改變 */
   const before = await page.evaluate(() => window.__probe?.() ?? null);
@@ -163,7 +164,12 @@ for (const p of PROFILES) {
   rec(p.name, '3.9 背景不吃時間', null,
     t1 != null ? `elapsed ${t1.toFixed(2)} → ${t2.toFixed(2)}（2 秒背景）` : '無 probe 掛鉤');
 
-  /* 4.1 FPS：取樣 5 秒 */
+  /* 4.1 FPS：取樣 5 秒。
+     CI 上跳過 —— 這裡只有 SwiftShader 軟體渲染，數字本來就不能當效能結論
+     （見本目錄 README 的「這裡測不到的」），5 種機型各等 5 秒純屬浪費。 */
+  if (process.env.CI) {
+    rec(p.name, '4.1 FPS', null, 'CI 上跳過（軟體渲染的數字無參考價值）');
+  } else {
   const fps = await page.evaluate(() => new Promise(res => {
     let n = 0, worst = 0, last = performance.now();
     const t0 = last;
@@ -179,6 +185,7 @@ for (const p of PROFILES) {
   }));
   rec(p.name, '4.1 FPS（SwiftShader 軟體渲染，非真機代表值）', null,
     `avg ${fps.avg.toFixed(1)} / 最差單幀 ${fps.worstFrameMs.toFixed(0)}ms`);
+  }
 
   /* 5.1 AudioContext 狀態 */
   const audio = await page.evaluate(() => {

@@ -49,7 +49,9 @@ for (const c of CASES) {
   });
   const page = await ctx.newPage();
   await page.goto(PAGE_URL, { waitUntil: 'load' });
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
+  await page.evaluate(() => window.__skipIntro());
+  await page.waitForTimeout(300);
 
   const geom = await page.evaluate(() => window.__pinCentres());
   const seam = {};

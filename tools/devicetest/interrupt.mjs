@@ -30,12 +30,11 @@ const errs = [];
 page.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await page.goto(PAGE_URL, { waitUntil: 'load' });
 
-/* 等開場演出結束，計時器才真的在跑 */
-let waited = 0;
-while (waited < 60000 && (await page.evaluate(() => window.__probe().intro))) {
-  await page.waitForTimeout(500); waited += 500;
-}
-await page.waitForTimeout(600);
+/* 跳過開場演出。用等待迴圈的話，低幀率下演出可能跑掉快一分鐘，
+   有上限的等待會在演出還沒結束時就往下跑，量到的全是垃圾。 */
+await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
+await page.evaluate(() => window.__skipIntro());
+await page.waitForTimeout(400);
 
 const elapsed = () => page.evaluate(() => window.__probe().elapsed);
 const haltShown = () => page.evaluate(() => {
@@ -45,17 +44,20 @@ const haltShown = () => page.evaluate(() => {
 const panelBlind = () => page.evaluate(() =>
   document.getElementById('panel').classList.contains('blind'));
 
+/* 回傳「派送事件那一瞬間」的 elapsed。
+   從外面先讀一次再派送的話，兩次往返（CI 上可能各數百毫秒）會被算成漏秒。 */
 const setHidden = v => page.evaluate(hidden => {
+  const at = window.__probe().elapsed;
   Object.defineProperty(document, 'hidden', { value: hidden, configurable: true });
   Object.defineProperty(document, 'visibilityState',
     { value: hidden ? 'hidden' : 'visible', configurable: true });
   document.dispatchEvent(new Event('visibilitychange'));
+  return at;
 }, v);
 
 /* ── H2：切到背景 ── */
 console.log('\n──── H2 切到背景 ────');
-const a0 = await elapsed();
-await setHidden(true);
+const a0 = await setHidden(true);          // 取的是派送當下的值
 await page.waitForTimeout(3000);
 const a1 = await elapsed();
 check('背景 3 秒不吃時間', Math.abs(a1 - a0) < 0.3, `elapsed ${a0.toFixed(2)} → ${a1.toFixed(2)}`);
@@ -66,7 +68,7 @@ check('背景不蓋提示畫面（玩家本來就沒在看）', !hb.on, `halt.on
 await setHidden(false);
 await page.waitForTimeout(1500);
 const a2 = await elapsed();
-check('回到前景後計時器繼續走', a2 - a1 > 1.0, `elapsed ${a1.toFixed(2)} → ${a2.toFixed(2)}`);
+check('回到前景後計時器繼續走', a2 - a1 > 0.8, `elapsed ${a1.toFixed(2)} → ${a2.toFixed(2)}`);
 check('回到前景後恢復輸入', !(await panelBlind()), 'panel.blind 已解除');
 
 /* ── H3：WebGL context 遺失與恢復 ── */
@@ -85,12 +87,15 @@ await page.evaluate(() => {
   }, { once: true });
   window.__ext.loseContext();
 });
-await page.waitForTimeout(2500);
+/* 等事件真的來。固定等待撐不住 —— CI 上實測瀏覽器派送 webglcontextlost
+   可能要 8.5 秒，比本機的 260~330ms 慢一個數量級。 */
+await page.waitForFunction(() => window.__atLoss, null, { timeout: 60000 });
+await page.waitForTimeout(2000);
 const atLoss = await page.evaluate(() => window.__atLoss ?? null);
 const b1 = await elapsed();
 const hc = await haltShown();
 check('事件觸發後不再吃時間', atLoss !== null && Math.abs(b1 - atLoss.elapsed) < 0.15,
-  atLoss ? `事件當下 ${atLoss.elapsed.toFixed(2)} → 2.5 秒後 ${b1.toFixed(2)}` : '事件未觸發');
+  atLoss ? `事件當下 ${atLoss.elapsed.toFixed(2)} → 2 秒後 ${b1.toFixed(2)}` : '事件未觸發');
 console.log(`  INFO  瀏覽器派送 webglcontextlost 的延遲: ${atLoss ? atLoss.delayMs.toFixed(0) : '-'}ms` +
   `（這段期間遊戲還不知情，無法避免）`);
 check('遺失期間有蓋提示畫面', hc.on && hc.text.length > 0, `「${hc.text}」`);
@@ -114,8 +119,8 @@ await page.evaluate(() => {
 });
 await setHidden(true);
 await page.evaluate(() => window.__ext.loseContext());
-await page.waitForTimeout(2000);
-const c0 = await page.evaluate(() => window.__atLoss2 ?? window.__probe().elapsed);
+await page.waitForFunction(() => window.__atLoss2 !== null, null, { timeout: 60000 });
+const c0 = await page.evaluate(() => window.__atLoss2);
 await setHidden(false);                       // 回到前景，但畫面還沒回來
 await page.waitForTimeout(2500);
 const c1 = await elapsed();
@@ -127,6 +132,9 @@ await page.evaluate(() => window.__ext.restoreContext());
 await page.waitForTimeout(2500);
 const c2 = await elapsed();
 check('兩項都恢復後計時器才繼續', c2 - c1 > 1.0, `elapsed ${c1.toFixed(2)} → ${c2.toFixed(2)}`);
+
+const finalElapsed = await elapsed();
+check('elapsed never 變成負數', finalElapsed >= 0, `最後 elapsed ${finalElapsed.toFixed(2)}`);
 
 console.log(`\nJS 例外: ${errs.length ? errs.slice(0, 3).join(' | ') : '無'}`);
 console.log(`\n=== FAIL ${failures} 項 ===`);

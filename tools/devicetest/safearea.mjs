@@ -47,7 +47,9 @@ for (const c of CASES) {
     });
   }, c.sa);
   await page.goto(PAGE_URL, { waitUntil: 'load' });
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
+  await page.evaluate(() => window.__skipIntro());
+  await page.waitForTimeout(300);
 
   console.log(`\n──── ${c.name} (${c.w}×${c.h}, 瀏海 上${c.sa.t}/右${c.sa.r}/下${c.sa.b}/左${c.sa.l}) ────`);
 

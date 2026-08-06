@@ -51,26 +51,53 @@ jobs:
             exit 1
           fi
 
-      # 裝 Playwright 自己的 Chromium。--with-deps 補系統函式庫，
-      # 否則 headless Chromium 在 ubuntu-runner 上起不來。
+      # 快取瀏覽器：版本沒變就不用每次重抓（單次約 20 秒）。
+      - name: Playwright 版本
+        id: pw
+        run: echo "v=$(node -p "require('playwright/package.json').version")" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw.outputs.v }}
+
+      # --with-deps 補系統函式庫，否則 headless Chromium 在 ubuntu-runner 上起不來。
+      # 快取命中時只補系統函式庫，瀏覽器本體省下來。
       - name: 安裝 Chromium
-        run: npx playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: 啟動靜態伺服器
         run: |
           npx http-server dist -p 8100 -s &
           npx wait-on -t 30000 http://127.0.0.1:8100/index.html
 
-      # 這三支會用結束碼表示成敗，任何一項 FAIL 就擋下部署。
+      # 三支互不相干，各自開自己的瀏覽器 —— 併行跑，牆鐘時間取決於最慢那支。
+      # 任一項 FAIL 就擋下部署（wait -n 收集每個子程序的結束碼）。
       - name: 手機視窗測試
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: |
-          node tools/devicetest/devicetest.mjs
-          node tools/devicetest/safearea.mjs
-          node tools/devicetest/interrupt.mjs
+          node tools/devicetest/devicetest.mjs > /tmp/devicetest.log 2>&1 &
+          P1=$!
+          node tools/devicetest/safearea.mjs   > /tmp/safearea.log   2>&1 &
+          P2=$!
+          node tools/devicetest/interrupt.mjs  > /tmp/interrupt.log  2>&1 &
+          P3=$!
+          FAILED=0
+          for P in $P1 $P2 $P3; do wait $P || FAILED=1; done
+          for L in devicetest safearea interrupt; do
+            echo "══════════ $L ══════════"; cat /tmp/$L.log
+          done
+          exit $FAILED
 
       - name: 撞針可讀性（僅記錄，不擋）
+        if: always()
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/pinread.mjs

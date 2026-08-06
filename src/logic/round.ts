@@ -45,8 +45,17 @@ export class HiddenTimer {
   }
 
   /** 開場演出期間反覆呼叫，讓計時器不啟動。 */
+  /**
+   * 開場演出期間反覆呼叫，讓計時器不啟動。
+   *
+   * 暫停中也必須把 pausedAt 一起前移。只推 t0 的話，凍結的 pausedAt 會停在過去，
+   * `elapsed = (pausedAt - t0)` 就變成負的而且愈來愈負 —— 玩家等於白拿時間。
+   * 觸發條件是「暫停期間換了新回合」：死亡後 1.5 秒自動重開，而那時 App 在背景。
+   */
   hold(): void {
-    this.t0 = this.now();
+    const now = this.now();
+    this.t0 = now;
+    if (this.pausedAt !== null) this.pausedAt = now;
   }
 
   addPenalty(seconds: number): void {
