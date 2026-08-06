@@ -107,8 +107,20 @@ const b2 = await elapsed();
 const hd = await haltShown();
 check('恢復後提示畫面收起', !hd.on, `halt.on=${hd.on}`);
 check('恢復後計時器繼續走', b2 - b1 > 1.0, `elapsed ${b1.toFixed(2)} → ${b2.toFixed(2)}`);
-check('恢復後畫面有回來', (await page.locator('#view').screenshot()).length > 20000,
-  `截圖 ${(await page.locator('#view').screenshot()).length}B`);
+
+/* 用 page.screenshot({ clip }) 而不是 locator.screenshot()。
+   後者的可操作性檢查要等元素在連續兩個 rAF 幀保持穩定 —— CI 上多個瀏覽器
+   搶核心做軟體渲染時，context 恢復後一幀可能要數十秒，30 秒 timeout 直接爆掉
+   （run#5 就是這樣崩的）。page.screenshot 抓合成器輸出，不等 rAF。
+   另外改成輪詢：恢復後的第一幀在慢環境下不一定畫完了，等到有畫面或超時為止。 */
+const viewBox = await page.locator('#view').boundingBox();
+let shot = await page.screenshot({ clip: viewBox });
+const shotDeadline = Date.now() + 60000;
+while (shot.length <= 20000 && Date.now() < shotDeadline) {
+  await page.waitForTimeout(1000);
+  shot = await page.screenshot({ clip: viewBox });
+}
+check('恢復後畫面有回來', shot.length > 20000, `截圖 ${shot.length}B`);
 
 /* ── 兩者疊加：先背景、再遺失，一個先恢復不能放行計時器 ── */
 console.log('\n──── H2 + H3 疊加 ────');

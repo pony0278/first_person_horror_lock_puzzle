@@ -77,9 +77,11 @@ jobs:
           npx http-server dist -p 8100 -s &
           npx wait-on -t 30000 http://127.0.0.1:8100/index.html
 
-      # 三支互不相干，各自開自己的瀏覽器 —— 併行跑，牆鐘時間取決於最慢那支。
-      # 任一項 FAIL 就擋下部署（wait -n 收集每個子程序的結束碼）。
-      - name: 手機視窗測試
+      # 幾何量測（devicetest、safearea）互不相干且對時間不敏感 —— 併行跑。
+      # interrupt 量的是計時器行為，對機器負載敏感：三個瀏覽器搶 runner 的
+      # 核心做軟體渲染時，事件派送延遲會從 8 秒暴增到 19 秒、rAF 一幀數十秒
+      # （run#5 因此崩潰）。所以讓它單獨跑，換一台安靜的機器。
+      - name: 手機視窗測試（幾何，併行）
         env:
           F0_URL: http://127.0.0.1:8100/index.html
         run: |
@@ -87,14 +89,17 @@ jobs:
           P1=$!
           node tools/devicetest/safearea.mjs   > /tmp/safearea.log   2>&1 &
           P2=$!
-          node tools/devicetest/interrupt.mjs  > /tmp/interrupt.log  2>&1 &
-          P3=$!
           FAILED=0
-          for P in $P1 $P2 $P3; do wait $P || FAILED=1; done
-          for L in devicetest safearea interrupt; do
+          for P in $P1 $P2; do wait $P || FAILED=1; done
+          for L in devicetest safearea; do
             echo "══════════ $L ══════════"; cat /tmp/$L.log
           done
           exit $FAILED
+
+      - name: 手機視窗測試（中斷情境，單獨）
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: node tools/devicetest/interrupt.mjs
 
       - name: 撞針可讀性（僅記錄，不擋）
         if: always()
