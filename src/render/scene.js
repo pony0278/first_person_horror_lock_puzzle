@@ -140,10 +140,12 @@ for (const yy of [DH * 0.16, DH * 0.5, DH * 0.86]) {
 }
 // 把手（壓下式）
 export let doorLever;
+export let doorLeverRose;                     // 門 2 換裝時跟拉把一起收（render/doorpanel.js）
 {
   const rose = new THREE.Mesh(cylGeo, matMetal);
   rose.scale.set(0.055, 0.02, 0.055); rose.rotation.x = Math.PI / 2;
   rose.position.set(0.60, 1.02, LEAF_Z + 0.012); doorLeaf.add(rose);
+  doorLeverRose = rose;
   doorLever = new THREE.Mesh(boxGeo, matMetal);
   doorLever.scale.set(0.16, 0.032, 0.032);
   doorLever.position.set(0.52, 1.02, LEAF_Z + 0.03); doorLeaf.add(doorLever);

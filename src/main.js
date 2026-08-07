@@ -23,6 +23,7 @@ import './render/monster.js';
 import './render/decay.js';
 import './render/hintwall.js';
 import './render/electroroom.js';
+import './render/doorpanel.js';
 import './render/hands.js';
 import './game/audio.js';
 import './render/cutaway.js';
@@ -45,6 +46,7 @@ import { T, grabPoint } from './game/transit.js';
 import { D2 } from './game/door2.js';
 import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
 import { cellCentreClient } from './render/pipeboard.js';
+import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 
@@ -87,6 +89,11 @@ window.__pipeNext = () => {
   return null;
 };
 window.__pipeCellCentre = i => cellCentreClient(i);
+/* 門 2 門面：LCD 現在顯示哪個符號（紅槓＝鎖定、綠框＝解鎖）。 */
+window.__doorPanel = () => ({
+  visible: doorPanel2.visible,
+  mode: !doorPanel2.visible ? 'off' : lcdGreen.visible ? 'green' : 'red',
+});
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };

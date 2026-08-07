@@ -106,6 +106,10 @@ await page.screenshot({ path: `${OUT}/transit-door2.png` });
 await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 60000 });
 check('抵達後進入互動等待（door2）', true, 'phase=door2');
 
+/* 門面換裝：門 2 是電磁門 —— LCD 紅槓上桌，機械鎖收走 */
+const dp0 = await page.evaluate(() => window.__doorPanel());
+check('門 2 門面是 LCD（紅槓鎖定）', dp0.visible && dp0.mode === 'red', `mode=${dp0.mode}`);
+
 /* 滑鼠按住上方＝第一根手指，回頭 */
 await page.mouse.move(422, 110);
 await page.mouse.down();
@@ -168,6 +172,12 @@ check('落槽是歪的 —— 還得再轉（v3 §4）', !pp1.solved && pp1.cost
 const done1 = await solvePipe();
 check('點轉管格到通電', done1.solved === true, `chain=${done1.chain}`);
 
+/* 通電瞬間 LCD 跳綠（綠色缺口框 —— 閂縮回的形狀） */
+try {
+  await page.waitForFunction(() => window.__doorPanel().mode === 'green', null, { timeout: 15000 });
+  check('通電後 LCD 跳綠', true, 'mode=green');
+} catch { check('通電後 LCD 跳綠', false, `mode=${await page.evaluate(() => window.__doorPanel().mode)}`); }
+
 await waitPhase('done');
 
 /* 自動重開：全部歸位 */
@@ -181,7 +191,9 @@ try {
     elapsed: window.__probe().elapsed,
     tug: window.__probe().tug,
   }));
-  check('自動重開且歸位', reset.tug === 0, `seep=${reset.seep} tug=${reset.tug} elapsed=${reset.elapsed.toFixed(2)}`);
+  const dpReset = await page.evaluate(() => window.__doorPanel());
+  check('自動重開且歸位', reset.tug === 0 && !dpReset.visible,
+    `seep=${reset.seep} tug=${reset.tug} lcd=${dpReset.mode} elapsed=${reset.elapsed.toFixed(2)}`);
 } catch {
   check('自動重開且歸位', false, `逾時（phase=${await phase()}）`);
 }
@@ -251,6 +263,10 @@ try {
   check('左鍵交接給 S 後視角沒有彈回',
     await page.evaluate(() => Math.abs(window.__probe().yaw) >= 130),
     `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+  /* 等鬆脫段真的進畫面再點 —— 交接瞬間 yaw 還在爬，太早點會點在畫面外（一度造成 flake） */
+  try {
+    await page.waitForFunction(() => !!window.__grabPoint(), null, { timeout: 15000 });
+  } catch { /* 下面的 tug 檢查會抓到 */ }
   const gp2 = await page.evaluate(() => window.__grabPoint());
   if (gp2) await page.mouse.click(gp2.x, gp2.y);
   await page.waitForTimeout(140);

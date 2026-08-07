@@ -10,10 +10,11 @@
    計時器現況：整段 R.over=true，隱藏計時凍結 —— 門 2 目前能解但不可怕。
    時鐘與怪物是下一步（接上 HiddenTimer 的門 2 段），這裡刻意不先偷接。 */
 
-import { emptySlot, insertPiece, isSolved, rotate } from '../logic/pipe.js';
+import { emptySlot, insertPiece, isSolved, reach, rotate } from '../logic/pipe.js';
 import { newBoard, pickSpec } from '../logic/pipe.js';
 import { $panel } from '../dom.js';
 import { PB, cellAt, drawPipe, pieceLand, pipeCanvas, showPipe, spinCell } from '../render/pipeboard.js';
+import { setDoorPanel } from '../render/doorpanel.js';
 import { blind, hooks } from '../state.js';
 import { beep, zap } from './audio.js';
 import { interrupted } from './halt.js';
@@ -64,6 +65,8 @@ pipeCanvas.addEventListener('pointerdown', e => {
 export function updateDoor2(dt, lampF) {
   if (!D2.active || !D2.board) return;
   drawPipe(D2.board, dt, lampF);
+  // 門面 LCD：紅槓隨 reach 越接越穩，通電跳綠（render/doorpanel.js）
+  setDoorPanel(reach(D2.board), D2.doneT >= 0, lampF, performance.now() / 1000);
 
   if (D2.doneT < 0 && isSolved(D2.board)) {
     D2.doneT = 0;
