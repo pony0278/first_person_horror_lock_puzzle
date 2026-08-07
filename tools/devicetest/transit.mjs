@@ -162,6 +162,19 @@ await page.evaluate(() => window.__solveDoor1());
 try {
   await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
 
+  /* 中文輸入法開著時按 S：e.key 是 'Process'，只有 e.code 還是 'KeyS'。
+     使用者實測就是栽在這裡 —— 用合成事件直接模擬輸入法狀態。 */
+  await page.evaluate(() => dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Process', code: 'KeyS' })));
+  try {
+    await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+    check('中文輸入法下按 S 仍能佔視角', true,
+      `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+  } catch { check('中文輸入法下按 S 仍能佔視角', false, '逾時'); }
+  await page.evaluate(() => dispatchEvent(
+    new KeyboardEvent('keyup', { key: 'Process', code: 'KeyS' })));
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) < 100, null, { timeout: 30000 });
+
   /* 桌機：左鍵按住轉過去 → 補按 S → 放開左鍵（視角不該彈回）→ 滑鼠空出來伸手。
      這是桌機唯一可行的順序：只有一個滑鼠，視角必須先交接出去。 */
   await page.mouse.move(422, 110);

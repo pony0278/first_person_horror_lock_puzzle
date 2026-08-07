@@ -139,7 +139,9 @@ view.addEventListener('pointercancel', onUp);
 addEventListener('keydown', e => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= CFG.lock.pinCount) { e.shiftKey ? doRelease(n - 1) : doPush(n - 1); }
-  if (e.key === 's') { keyLook = true; syncLook(); }
+  // 用 e.code 認實體按鍵：中文輸入法開著時 e.key 是 'Process'、
+  // Shift/CapsLock 下是 'S' —— 視角交接不能被輸入法狀態綁架。
+  if (e.code === 'KeyS') { keyLook = true; syncLook(); }
   if (e.key === ' ') { e.preventDefault(); document.getElementById('dump').click(); }
   if (e.key === 'd') { ui.devOn = !ui.devOn; $dev.style.display = ui.devOn ? 'block' : 'none'; }
   if (e.key === 'h') {
@@ -153,4 +155,6 @@ addEventListener('keydown', e => {
     buildPins(); renderPins();
   }
 });
-addEventListener('keyup', e => { if (e.key === 's') { keyLook = false; syncLook(); } });
+addEventListener('keyup', e => { if (e.code === 'KeyS') { keyLook = false; syncLook(); } });
+// 切走視窗時 keyup 會漏接 —— 回來時 S 不該還「卡在按下」。
+addEventListener('blur', () => { if (keyLook) { keyLook = false; syncLook(); } });
