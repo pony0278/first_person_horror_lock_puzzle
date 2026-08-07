@@ -7,9 +7,11 @@ import { view } from '../dom.js';
 import { camera, renderer } from './scene.js';
 import { vig, vigMat } from './hintwall.js';
 import { sizeCut } from './cutaway.js';
+import { sizePipe } from './pipeboard.js';
 
 export function resize() {
   sizeCut();
+  sizePipe();
   const w = view.clientWidth, h = view.clientHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix();
   renderer.setSize(w, h);

@@ -14,6 +14,7 @@ import { beep } from './audio.js';
 import { interrupted } from './halt.js';
 import { die } from './round.js';
 import { T, updateTransit } from './transit.js';
+import { D2, updateDoor2 } from './door2.js';
 
 /* ═══════════════════════════════════════════════════════════
    主迴圈
@@ -118,7 +119,9 @@ export function tick() {
   const camZ = intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(standX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
-  $panel.classList.toggle('blind', blind() || R.over || intro.active || interrupted());
+  // 門 2 解謎期間 R.over 仍為 true（計時凍結），但面板要能操作 —— 回頭失能照舊。
+  $panel.classList.toggle('blind',
+    blind() || (R.over && !D2.active) || intro.active || interrupted());
 
   // 鎖芯：事實層。鑰匙孔與兩支工具都掛在它底下，一起轉。
   cylinder.rotation.z = -THREE.MathUtils.degToRad(R.lock.cylinderDeg);
@@ -323,12 +326,17 @@ export function tick() {
   const dist = ST.z;
 
   // 燈：壞掉的日光燈嗡嗡閃爍，且逐站變暗（世界在失去光）
+  let lampF = 1;                               // 門 2 盤面吃同一條壞電路（v3 §7 燈閃耦合）
   {
     const dim = (CFG.seep.lampDim[ST.index] ?? 1) * (ST.blink > 0 ? 0.04 : 1);
     const buzz = 0.82 + 0.18 * Math.abs(Math.sin(R.elapsed * 23.7) * Math.sin(R.elapsed * 5.1));
     lamp.intensity = CFG.lamp.intensity * buzz * dim;
     lampFixture.userData.tube.material.color.setScalar(0.75 * buzz * dim);
+    lampF = buzz * dim;
   }
+
+  // 門 2 盤面：R.over 期間剖面圖那一段不會跑，盤面在這裡畫
+  updateDoor2(dt, lampF);
 
   // ── 撬鎖面板承載威脅（Iron Lung 路線）──────────────
   if (!R.over) {

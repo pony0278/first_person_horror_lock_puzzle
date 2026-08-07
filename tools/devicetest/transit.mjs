@@ -48,6 +48,19 @@ await page.waitForTimeout(300);
 await page.evaluate(() => window.__solveDoor1());
 const phase = () => page.evaluate(() => window.__probe().transit);
 const tugCount = () => page.evaluate(() => window.__probe().tug);
+const pipe = () => page.evaluate(() => window.__pipe());
+/* 解盤：每次問 __pipeNext 該點哪一格，點到通為止。
+   座標問 __pipeCellCentre —— 盤面是抽的，寫死座標必成假通過。 */
+const solvePipe = async () => {
+  for (let n = 0; n < 20; n++) {
+    const i = await page.evaluate(() => window.__pipeNext());
+    if (i === null) break;
+    const c = await page.evaluate(k => window.__pipeCellCentre(k), i);
+    await page.touchscreen.tap(c.x, c.y);
+    await page.waitForTimeout(120);
+  }
+  return pipe();
+};
 const waitPhase = async (name, timeout = 60000) => {
   const t0 = Date.now();
   try {
@@ -133,10 +146,27 @@ if (gp) {
 await page.mouse.up();
 
 await page.waitForFunction(
-  () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+  () => ['grab', 'retrieved', 'done', 'idle', 'door2'].includes(window.__probe().transit),
   null, { timeout: 30000 });
 check('第三扯後鬆脫段脫落（grab）', true,
   `phase=${await page.evaluate(() => window.__probe().transit)}`);
+
+/* ── 門 2 盤面：抵達時就上桌（缺件、無解），零件落槽後歪的，點轉到通電 ── */
+const pp0 = await pipe();
+check('抵達門 2 時盤面已上桌', !!pp0 && pp0.active, pp0 ? `chain=${pp0.chain}` : 'null');
+check('缺件時盤面無解（取件是強制的）', !!pp0 && pp0.cost === -1 && pp0.slot !== null,
+  pp0 ? `slot=${pp0.slot} cost=${pp0.cost}` : '—');
+
+await page.waitForFunction(() => {
+  const p = window.__pipe();
+  return p && p.slot === null;
+}, null, { timeout: 30000 });
+const pp1 = await pipe();
+check('零件自動落入空槽', pp1.slot === null, `cost=${pp1.cost}`);
+check('落槽是歪的 —— 還得再轉（v3 §4）', !pp1.solved && pp1.cost >= 1, `cost=${pp1.cost}`);
+
+const done1 = await solvePipe();
+check('點轉管格到通電', done1.solved === true, `chain=${done1.chain}`);
 
 await waitPhase('done');
 
@@ -177,9 +207,13 @@ try {
     `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
   await page.mouse.up();
   await page.waitForFunction(
-    () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+    () => ['grab', 'retrieved', 'done', 'idle', 'door2'].includes(window.__probe().transit),
     null, { timeout: 30000 });
   check('右鍵路徑也會脫落', true, `phase=${await phase()}`);
+  await page.waitForFunction(() => { const p = window.__pipe(); return p && p.slot === null; },
+    null, { timeout: 30000 });
+  const done2 = await solvePipe();
+  check('第二趟盤面同樣可解到通電', done2.solved === true, `chain=${done2.chain}`);
 } catch {
   check('右鍵主路徑取件', false, `逾時（phase=${await phase()}）`);
 }
@@ -241,7 +275,7 @@ try {
   check('一指按住下拉也算扯拽', tugN - before2 >= 2, `tug ${before2} → ${tugN}`);
   await page.mouse.up();
   await page.waitForFunction(
-    () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+    () => ['grab', 'retrieved', 'done', 'idle', 'door2'].includes(window.__probe().transit),
     null, { timeout: 30000 });
   check('一指路徑也會脫落', true, `phase=${await phase()}`);
 } catch {

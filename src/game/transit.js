@@ -56,6 +56,7 @@ hooks.startTransit = startTransit;
 
 /** newRound 重置時呼叫：把過場動過的東西全部歸位。 */
 hooks.resetTransit = () => {
+  hooks.resetDoor2?.();                        // 盤面先收走
   T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
   T.tug = 0; T.jerkT = 0; T.reachT = 0; T.flyT = 0;
   anim.handsOverride = null;
@@ -185,6 +186,7 @@ export function updateTransit(dt) {
       // R.over 維持 true —— 撬鎖面板仍然停用、計時器仍然凍結。
       T.phase = 'door2'; T.t = 0;
       intro.active = false;
+      hooks.startDoor2?.();                   // 盤面上桌（game/door2.js）
       beep('falseSet');                       // 身後傳來一聲悶響 —— 火花的方向
     }
   }
@@ -203,7 +205,7 @@ export function updateTransit(dt) {
       loosePiece.rotation.z = LOOSE.homeRotZ + Math.sin(j * 28) * 0.10 * j;
       loosePiece.position.x = LOOSE.home.x + Math.sin(j * 40) * 0.012 * j;
     }
-    if (T.t >= C.door2IdleSec) finish('門 2 施工中');   // 線上版防卡死
+    if (T.t >= C.door2IdleSec) finish('斷電太久 —— 重新開始');   // 線上版防卡死（互動會重置 T.t）
   }
 
   else if (T.phase === 'grab') {
@@ -224,11 +226,18 @@ export function updateTransit(dt) {
   }
 
   else if (T.phase === 'retrieved') {
-    if (T.t >= C.retrievedHoldSec) finish('導管到手 —— 門 2 施工中');
+    if (T.t >= C.retrievedHoldSec) {
+      // 零件落進盤面的空槽（歪的）—— 回到 door2 繼續解。
+      // door2 沒掛（例如未來的純取件關）才走舊的收尾。
+      if (hooks.door2Insert?.()) { T.phase = 'door2'; T.t = 0; }
+      else finish('導管到手 —— 門 2 施工中');
+    }
   }
 }
 
-/* 結尾共用：切黑一句話，然後自動重開（線上版維持可循環）。 */
+/* 結尾共用：切黑一句話，然後自動重開（線上版維持可循環）。
+   door2 通電後也從這裡收尾（它經由 export 呼叫，不反向 import）。 */
+export function finishTransit(msg) { finish(msg); }
 function finish(msg) {
   T.phase = 'done';
   swapped = false;

@@ -33,5 +33,20 @@ export function beep(kind) {
   o.start(t); o.stop(t + .7);
 }
 
+/** 電流爬升的短促電擊聲。pitch 0~1 —— 爬得越遠音越高，
+    回頭時用聽的就知道解到哪（門 2 的盤面在身後看不到）。 */
+export function zap(pitch = 0) {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  o.connect(f); f.connect(g); g.connect(actx.destination);
+  o.type = 'sawtooth'; o.frequency.value = 420 + 1500 * pitch;
+  f.type = 'lowpass'; f.frequency.value = 2800;
+  g.gain.setValueAtTime(0.06, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+  o.start(t); o.stop(t + 0.1);
+}
+
 /** 給測試接點讀的音訊狀態。不直接輸出 actx，避免其他模組拿去亂改。 */
 export const audioState = () => (actx ? actx.state : 'not-created');

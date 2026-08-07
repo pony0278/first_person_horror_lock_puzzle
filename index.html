@@ -50,6 +50,10 @@
   #pins.cut { display:block; }
   /* 絕對定位讓 canvas 不參與 min-content 計算，面板高度才由 flex-basis 決定 */
   #cut { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* 門 2 盤面：與剖面圖同一個位置。door2 期間 chrome 列收起，44px 還給盤面（v3 §4） */
+  #pipe { position:absolute; inset:0; width:100%; height:100%; display:none; }
+  #panel.door2 #pipe { display:block; }
+  #panel.door2 #cut, #panel.door2 .track, #panel.door2 #chrome { display:none; }
   .track { flex:1; height:100%; position:relative; border:1px solid var(--line);
     border-radius:2px; overflow:hidden;
     background:linear-gradient(180deg,#0000 0%,#ffffff08 100%); }

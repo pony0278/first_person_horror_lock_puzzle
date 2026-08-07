@@ -29,6 +29,7 @@ import './render/cutaway.js';
 import './render/viewport.js';
 import './game/round.js';
 import './game/transit.js';
+import './game/door2.js';
 import './game/halt.js';
 import './game/input.js';
 import './game/loop.js';
@@ -41,6 +42,9 @@ import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
+import { D2 } from './game/door2.js';
+import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
+import { cellCentreClient } from './render/pipeboard.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 
@@ -64,6 +68,25 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
+/* 門 2 盤面的測試接點：狀態、下一個該點的格子、格子的螢幕座標。
+   跟 __grabPoint 同一個理由 —— 盤面佈局是抽的，座標寫死必成假通過。 */
+window.__pipe = () => {
+  if (!D2.board) return null;
+  const s = solve(D2.board);
+  return { active: D2.active, chain: chain(D2.board).length,
+           solved: isSolved(D2.board), slot: emptySlot(D2.board),
+           cost: s ? s.cost : -1 };
+};
+window.__pipeNext = () => {
+  const b = D2.board; if (!b) return null;
+  const s = solve(b); if (!s) return null;
+  for (let k = 0; k < s.path.length; k++) {
+    const i = s.path[k];
+    if (b.cells[i].rot !== s.rots[k]) return i;
+  }
+  return null;
+};
+window.__pipeCellCentre = i => cellCentreClient(i);
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };

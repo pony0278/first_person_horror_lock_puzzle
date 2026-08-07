@@ -54,8 +54,8 @@ v3 的觸發點：玩家測試（F0 驗收）通過後,「三扇門都在讀牆�
 ## 2. 平台約束（承 v2，不變）
 
 PEGI 12、初始下載 ≤ 20MB、16:9 響應式、最低 30 FPS、進場最多一次點擊、手機觸控優先。
-已由 CI 守門：產物大小 5MB 警戒線（現況 589KB）、手機視窗自動化測試 115 項
-（devicetest 57、safearea 16、interrupt 15、transit 27）。
+已由 CI 守門：產物大小 5MB 警戒線（現況 589KB）、手機視窗自動化測試 121 項
+（devicetest 57、safearea 16、interrupt 15、transit 33）。
 
 ---
 
