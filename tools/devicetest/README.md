@@ -20,7 +20,7 @@ F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs
 
 `interrupt.mjs` 與 `safearea.mjs` 會用結束碼表示成敗（FAIL 就 exit 1），適合掛進 CI。
 
-測試接點（`window.__probe` / `__setPins` / `__pinCentres`）定義在 `src/main.js` 結尾，
+測試接點（`window.__probe` / `__setPins` / `__pinCentres` / `__grabPoint`）定義在 `src/main.js` 結尾，
 會一起進建置產物 —— 這是刻意的，因為要測的就是實際出貨的那個檔案，
 而不是某個特製的測試版本。它們與 D（dev overlay）、H（手部調整面板）是同性質的除錯出口。
 
@@ -47,7 +47,7 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `pinread.mjs` | 直接對畫好的 canvas 取樣，量各撞針狀態的實際像素差 |
 | `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
 | `signature.mjs` | Three.js 場景圖的**結構**指紋（型別、幾何、材質、階層）＋ 全域接點與事件監聽。純程式碼搬移時用來確認什麼都沒漏，用法見檔頭 |
-| `transit.mjs` | 門 1 → 門 2 過場：解開門 1 後的階段推進（open→through→corner→approach→arrive）、換裝（衰變升級、變電室）、自動重開與歸位 |
+| `transit.mjs` | 門 1 → 門 2 過場：階段推進（open→through→corner→approach→arrive）、換裝（衰變升級、變電室）、取件的兩條輸入路徑（兩指瞄準／一指盲扯）、自動重開與歸位 |
 | `safearea.mjs` | 四種瀏海配置下，可操作元素是否避開瀏海與 home indicator、洩壓鈕命中區、可操作區比例、撞針高度差有沒有被吃掉 |
 
 ## 幾個容易踩的量測陷阱
@@ -61,6 +61,14 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 
 **別用 `readPixels` 取畫面內容。** 沒有 `preserveDrawingBuffer` 時合成後讀回全 0。
 改用 `page.locator('#view').screenshot()` 的位元組長度當內容指標。
+
+**別在測試裡寫死可互動物的螢幕座標。** 鬆脫段的位置取決於鏡頭、走廊寬度與當下的
+yaw，寫死座標會在任何一個改動後變成「點在空氣上卻仍然通過」。`transit.mjs` 改成問
+`window.__grabPoint()`，順便驗命中半徑有沒有掉到 48px 以下。
+
+**兩根手指怎麼測。** 滑鼠與觸控是不同的 pointerId：`page.mouse.down()` 佔住視角那一指，
+`page.touchscreen.tap()` 就是第二指。不需要 CDP 的多點觸控，也才驗得到
+「第一指按著的期間第二指仍然有效」這件事本身。
 
 **別從瀏覽器外面前後夾量 context 遺失的漏秒。** `loseContext()` 到 `webglcontextlost`
 之間有瀏覽器自己的派送延遲（本環境 260~330ms），再加上 Playwright 的往返，

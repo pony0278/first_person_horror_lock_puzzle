@@ -70,6 +70,9 @@ export interface TransitConfig {
   grabYawMin: number;
   /** 每累積下拉多少 CSS px 算一次「扯」 */
   tugPx: number;
+  /** 第二根手指「伸手」的命中半徑（CSS px）。鬆脫段本身只有 3.6cm 粗，
+      幾何命中區在手機上比指尖還小 —— 判定用螢幕距離，不用 raycast。 */
+  grabTapPx: number;
   /** 扯幾下脫落 */
   tugsNeeded: number;
   /** 脫落飛向手上的動畫秒數 */
@@ -148,7 +151,7 @@ export const CFG: Config = {
     holdSec: 2.2,
     stationIndex: 2,      // 門 2 廊道：滲液 0.55、燈 0.55 —— 世界在壞掉
     restartMs: 1800,
-    grabYawMin: 130, tugPx: 48, tugsNeeded: 3,
+    grabYawMin: 130, tugPx: 48, tugsNeeded: 3, grabTapPx: 56,
     grabFlySec: 0.55, retrievedHoldSec: 1.6, door2IdleSec: 45,
   },
   ui:     { style: 'cutaway' },   // 'cutaway' | 'bars'（按 U 即時切換做 A/B）

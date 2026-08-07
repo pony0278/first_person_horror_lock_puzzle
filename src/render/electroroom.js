@@ -76,11 +76,14 @@ export const LOOSE = {
 loosePiece.position.copy(LOOSE.home);
 loosePiece.rotation.z = LOOSE.homeRotZ;
 electroRoom.add(loosePiece);
+/** 鬆脫段的材質。轉到看得見它時，transit 會把 emissiveIntensity 推成慢呼吸
+    —— 「這個可以拿」是靠光講的，不是靠字（§8 零文字）。 */
+export const matLoose = new THREE.MeshStandardMaterial({
+  color: 0x6a7178, roughness: 0.45, metalness: 0.5,
+  emissive: 0x1c3340, emissiveIntensity: 0.55,   // 微光邊緣
+});
+export const LOOSE_GLOW = 0.55;
 {
-  const matLoose = new THREE.MeshStandardMaterial({
-    color: 0x6a7178, roughness: 0.45, metalness: 0.5,
-    emissive: 0x1c3340, emissiveIntensity: 0.55,   // 微光邊緣
-  });
   const seg = new THREE.Mesh(cylGeo, matLoose);
   seg.scale.set(0.036, 0.7, 0.036); seg.rotation.x = Math.PI / 2;
   loosePiece.add(seg);

@@ -1,8 +1,13 @@
 /* 門 1 → 門 2 過場（F1 切片）的自動驗證。
  *
  * 流程：跳過開場 → __solveDoor1() 解開門 1 → 依序等每個過場階段 →
- * 驗證換裝（變電室出現、提示牆收走、衰變升級）→ 等自動重開 → 驗證全部歸位。
+ * 驗證換裝（變電室出現、提示牆收走、衰變升級）→ 取件 → 等自動重開 → 驗證全部歸位。
  * 階段是 dt 驅動的，低幀率下會等比拉長（M1）—— 一律用 waitForFunction，不用固定等待。
+ *
+ * 取件跑兩趟，因為有兩條輸入路徑：
+ *   第一趟 兩根手指 —— 滑鼠按住＝視角，觸控點擊＝伸手（點歪不算）
+ *   第二趟 一根手指 —— 按住往下盲扯
+ * 這兩條是同一個世界的兩種握法，都得會動。
  */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
@@ -41,6 +46,7 @@ await page.waitForTimeout(300);
 /* 解開門 1 → 過場開始 */
 await page.evaluate(() => window.__solveDoor1());
 const phase = () => page.evaluate(() => window.__probe().transit);
+const tugCount = () => page.evaluate(() => window.__probe().tug);
 const waitPhase = async (name, timeout = 60000) => {
   const t0 = Date.now();
   try {
@@ -82,11 +88,11 @@ try {
 await waitPhase('arrive');
 await page.screenshot({ path: `${OUT}/transit-door2.png` });
 
-/* ── 取件：按住回頭 → 累積下拉扯三下 → 鬆脫段到手 ── */
+/* ── 取件（第一趟）：兩根手指 —— 按住回頭，另一指去點鬆脫段 ── */
 await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 60000 });
 check('抵達後進入互動等待（door2）', true, 'phase=door2');
 
-/* 按住上方 —— 回頭 */
+/* 滑鼠按住上方＝第一根手指，回頭 */
 await page.mouse.move(422, 110);
 await page.mouse.down();
 try {
@@ -95,14 +101,34 @@ try {
 } catch { check('按住回頭到取件角度', false, '逾時'); }
 await page.screenshot({ path: `${OUT}/transit-lookback.png` });
 
-/* 未轉夠之前的下拉不該算（在 yaw 起步前已按住往下拖的情況由 grabYawMin 擋）——
-   這裡直接驗正路徑：轉夠之後連扯三下 */
-for (let i = 1; i <= 3; i++) {
-  await page.mouse.move(422, 110 + i * 60, { steps: 4 });
-  await page.waitForTimeout(150);
+/* 這是使用者回報的那件事：轉頭的手指還按著，第二根手指要能同時動作。
+   命中點由頁面自己算（__grabPoint），寫死座標會在鏡頭一改就變成假通過。 */
+const gp = await page.evaluate(() => window.__grabPoint());
+check('回頭後鬆脫段在畫面上', !!gp,
+  gp ? `(${gp.x.toFixed(0)}, ${gp.y.toFixed(0)}) r=${gp.r.toFixed(0)}px` : 'null');
+check('命中半徑 ≥ 48px（H4 觸控目標）', !!gp && gp.r >= 48, gp ? `r=${gp.r.toFixed(0)}px` : '—');
+
+if (gp) {
+  /* 點歪不算：離命中半徑兩倍遠的地方點一下，tug 不該增加 */
+  const before = await tugCount();
+  await page.touchscreen.tap(Math.max(4, gp.x - gp.r * 2.2), gp.y);
+  await page.waitForTimeout(120);
+  const afterMiss = await tugCount();
+  check('點歪不算一次扯', afterMiss === before, `tug ${before} → ${afterMiss}`);
+
+  /* 點中三下 —— 視角手指全程沒有放開 */
+  for (let i = 0; i < 3; i++) {
+    const p = await page.evaluate(() => window.__grabPoint());
+    if (!p) break;
+    await page.touchscreen.tap(p.x, p.y);
+    await page.waitForTimeout(140);
+  }
+  const tapN = await tugCount();
+  check('第二根手指點三下＝三次扯拽', tapN >= 3, `tug=${tapN}`);
+  check('視角手指全程按著沒被搶走',
+    await page.evaluate(() => Math.abs(window.__probe().yaw) >= 130),
+    `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
 }
-const tugN = await page.evaluate(() => window.__probe().tug);
-check('累積下拉觸發三次扯拽', tugN >= 3, `tug=${tugN}`);
 await page.mouse.up();
 
 await page.waitForFunction(
@@ -122,10 +148,52 @@ try {
   const reset = await page.evaluate(() => ({
     seep: window.__probe().seep,
     elapsed: window.__probe().elapsed,
+    tug: window.__probe().tug,
   }));
-  check('自動重開且歸位', true, `seep=${reset.seep} elapsed=${reset.elapsed.toFixed(2)}`);
+  check('自動重開且歸位', reset.tug === 0, `seep=${reset.seep} tug=${reset.tug} elapsed=${reset.elapsed.toFixed(2)}`);
 } catch {
   check('自動重開且歸位', false, `逾時（phase=${await phase()}）`);
+}
+
+/* ── 取件（第二趟）：桌機 S 鍵佔視角 ＋ 一根手指盲扯（單手握手機的退路） ── */
+await page.evaluate(() => window.__skipIntro());     // 重開後演出會再跑一次
+await page.waitForTimeout(300);
+await page.evaluate(() => window.__solveDoor1());
+try {
+  await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
+
+  /* 桌機：S 鍵等同第一根手指，滑鼠就是伸手的那一手 */
+  await page.keyboard.down('s');
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+  const gp2 = await page.evaluate(() => window.__grabPoint());
+  if (gp2) await page.mouse.click(gp2.x, gp2.y);
+  await page.waitForTimeout(140);
+  check('桌機 S 佔視角時滑鼠仍能伸手', await tugCount() >= 1, `tug=${await tugCount()}`);
+  check('滑鼠點擊沒有搶走 S 鍵的視角',
+    await page.evaluate(() => Math.abs(window.__probe().yaw) >= 130),
+    `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+  await page.keyboard.up('s');
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) < 100, null, { timeout: 30000 });
+  check('放開 S 視角彈回正面', true, `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+
+  /* 一指盲扯 */
+  const before2 = await tugCount();
+  await page.mouse.move(422, 110);
+  await page.mouse.down();
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+  for (let i = 1; i <= 3; i++) {
+    await page.mouse.move(422, 110 + i * 60, { steps: 4 });
+    await page.waitForTimeout(150);
+  }
+  const tugN = await tugCount();
+  check('一指按住下拉也算扯拽', tugN - before2 >= 2, `tug ${before2} → ${tugN}`);
+  await page.mouse.up();
+  await page.waitForFunction(
+    () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+    null, { timeout: 30000 });
+  check('一指路徑也會脫落', true, `phase=${await phase()}`);
+} catch {
+  check('第二趟取件（桌機＋一指）', false, `逾時（phase=${await phase()}）`);
 }
 
 check('全程無 JS 例外', errs.length === 0, errs.slice(0, 3).join(' | ') || '無');

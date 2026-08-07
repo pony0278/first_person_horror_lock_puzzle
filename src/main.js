@@ -40,7 +40,7 @@ import { door, doorLever, pickTool, renderer, scene, wrench } from './render/sce
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
-import { T } from './game/transit.js';
+import { T, grabPoint } from './game/transit.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 
@@ -61,6 +61,9 @@ window.__probe = () => ({
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
 window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場景圖結構
+/* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
+   寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
+window.__grabPoint = grabPoint;
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };

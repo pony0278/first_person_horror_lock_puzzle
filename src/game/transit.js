@@ -12,14 +12,15 @@
  * 但每幀積分全部在這裡做：R.over=true 讓 loop 裡的 intro 機器停著，不會搶。
  */
 
+import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
-import { $fade } from '../dom.js';
+import { $fade, view } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
-import { doorHinge, keyEye, pickTool, wrench } from '../render/scene.js';
+import { camera, doorHinge, keyEye, pickTool, wrench } from '../render/scene.js';
 import { marker, markerLight, paintPlane } from '../render/hintwall.js';
 import { decay, decayStages, reflection } from '../render/decay.js';
 import { monster } from '../render/monster.js';
-import { ELECTRO, LOOSE, electroRoom, loosePiece } from '../render/electroroom.js';
+import { ELECTRO, LOOSE, LOOSE_GLOW, electroRoom, loosePiece, matLoose } from '../render/electroroom.js';
 import { beep } from './audio.js';
 import { newRound } from './round.js';
 
@@ -58,6 +59,7 @@ hooks.resetTransit = () => {
   T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
   T.tug = 0; T.jerkT = 0; T.reachT = 0; T.flyT = 0;
   anim.handsOverride = null;
+  matLoose.emissiveIntensity = LOOSE_GLOW;
   loosePiece.visible = true;
   loosePiece.position.copy(LOOSE.home);
   loosePiece.rotation.set(0, 0, LOOSE.homeRotZ);
@@ -188,7 +190,11 @@ export function updateTransit(dt) {
   }
 
   else if (T.phase === 'door2') {
-    // 玩家自由回頭找鬆脫段；扯拽由 input 呼叫 tug()。
+    // 玩家自由回頭找鬆脫段；扯拽由 input 呼叫 tug() / tugAt()。
+    // 轉到看得見它時，微光邊緣轉成慢呼吸 —— 這是「可以伸手了」唯一的告示。
+    matLoose.emissiveIntensity = grabPoint()
+      ? LOOSE_GLOW + 0.5 * (0.5 + 0.5 * Math.sin(T.t * 3.4))
+      : LOOSE_GLOW;
     // reach 姿態在最後一次扯之後維持一小段，讀得出「手還搭在管子上」。
     if (T.reachT > 0) { T.reachT -= dt; if (T.reachT <= 0) anim.handsOverride = null; }
     if (T.jerkT > 0) {
@@ -236,10 +242,41 @@ function finish(msg) {
 const grabFrom = loosePiece.position.clone();
 const grabTo = loosePiece.position.clone();
 
-/** 一次「扯」。input 在按住＋累積下拉每 tugPx 時呼叫；只在鬆脫段真的在視野裡時算數。 */
-export function tug() {
+/* ── 伸手：鬆脫段在畫面上的位置 ──
+   為什麼是螢幕距離而不是 raycast：鬆脫段只有 3.6cm 粗，兩公尺外的幾何命中區
+   比指尖還小（H4 的教訓：可操作元素至少 48px）。這裡量的是「點得夠近」，
+   不是「點得夠準」—— 恐怖遊戲裡手會抖，準度不該是難度。 */
+const tmpV = new THREE.Vector3();
+
+/** 鬆脫段現在在螢幕上的哪裡（client 座標與命中半徑）；不在畫面上則回 null。 */
+export function grabPoint() {
+  if (!electroRoom.visible || !loosePiece.visible) return null;
+  loosePiece.getWorldPosition(tmpV).project(camera);
+  if (tmpV.z > 1) return null;                                  // 在身後
+  if (Math.abs(tmpV.x) > 1.05 || Math.abs(tmpV.y) > 1.05) return null;   // 出畫面
+  const r = view.getBoundingClientRect();
+  return {
+    x: r.left + (tmpV.x * 0.5 + 0.5) * r.width,
+    y: r.top + (-tmpV.y * 0.5 + 0.5) * r.height,
+    r: Math.max(C.grabTapPx, Math.min(r.width, r.height) * 0.16),
+  };
+}
+
+/** 對著畫面上某一點伸手（第二根手指）。點在鬆脫段附近才算一次扯。 */
+export function tugAt(clientX, clientY) {
   if (T.phase !== 'door2') return false;
-  if (Math.abs(look.yaw) < C.grabYawMin) return false;   // 要看著它才扯得到（v3 §4）
+  const p = grabPoint();
+  if (!p) return false;
+  if (Math.hypot(clientX - p.x, clientY - p.y) > p.r) return false;
+  return tug(true);
+}
+
+/** 一次「扯」。
+    aimed=false：按住視角的那根手指盲扯（一手操作），要轉夠角度才算（v3 §4）。
+    aimed=true：第二根手指已經抓在它身上，角度由命中判定代勞。 */
+export function tug(aimed = false) {
+  if (T.phase !== 'door2') return false;
+  if (!aimed && Math.abs(look.yaw) < C.grabYawMin) return false;   // 要看著它才扯得到
 
   T.tug++;
   T.jerkT = 0.22;
@@ -250,6 +287,7 @@ export function tug() {
 
   if (T.tug >= C.tugsNeeded) {
     T.phase = 'grab'; T.flyT = 0;
+    matLoose.emissiveIntensity = 1.4;                    // 脫離接點的那一下火花
     grabFrom.copy(loosePiece.position);
     // 玩家在 z=0 面向 +z：飛到臉前偏下
     grabTo.set(0.12, 1.05, 0.85);
