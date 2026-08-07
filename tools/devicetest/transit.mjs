@@ -4,10 +4,11 @@
  * 驗證換裝（變電室出現、提示牆收走、衰變升級）→ 取件 → 等自動重開 → 驗證全部歸位。
  * 階段是 dt 驅動的，低幀率下會等比拉長（M1）—— 一律用 waitForFunction，不用固定等待。
  *
- * 取件跑兩趟，因為有兩條輸入路徑：
- *   第一趟 兩根手指 —— 滑鼠按住＝視角，觸控點擊＝伸手（點歪不算）
- *   第二趟 一根手指 —— 按住往下盲扯
- * 這兩條是同一個世界的兩種握法，都得會動。
+ * 取件跑三趟，對應三條輸入路徑：
+ *   第一趟 手機兩指 —— 觸控按住＝視角，第二指點擊＝伸手（點歪不算）
+ *   第二趟 桌機主路徑 —— 左鍵按住回頭，右鍵點一下＝扯一下（和弦按鍵走 pointermove）
+ *   第三趟 備援 —— S 鍵佔視角＋滑鼠伸手；一指按住盲扯
+ * 這幾條是同一個世界的不同握法，都得會動。
  */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
@@ -155,8 +156,38 @@ try {
   check('自動重開且歸位', false, `逾時（phase=${await phase()}）`);
 }
 
-/* ── 取件（第二趟）：桌機 S 鍵佔視角 ＋ 一根手指盲扯（單手握手機的退路） ── */
+/* ── 取件（第二趟）：桌機主路徑 —— 左鍵按住回頭，右鍵點三下 ── */
 await page.evaluate(() => window.__skipIntro());     // 重開後演出會再跑一次
+await page.waitForTimeout(300);
+await page.evaluate(() => window.__solveDoor1());
+try {
+  await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
+  await page.mouse.move(422, 110);
+  await page.mouse.down();
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.down({ button: 'right' });      // 左鍵按住中的和弦右鍵
+    await page.mouse.up({ button: 'right' });
+    await page.waitForTimeout(140);
+  }
+  const rcN = await tugCount();
+  check('左鍵按住中右鍵點三下＝三次扯拽', rcN >= 3, `tug=${rcN}`);
+  check('右鍵沒有搶走左鍵的視角',
+    await page.evaluate(() => Math.abs(window.__probe().yaw) >= 130),
+    `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+  await page.mouse.up();
+  await page.waitForFunction(
+    () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+    null, { timeout: 30000 });
+  check('右鍵路徑也會脫落', true, `phase=${await phase()}`);
+} catch {
+  check('右鍵主路徑取件', false, `逾時（phase=${await phase()}）`);
+}
+
+/* ── 取件（第三趟）：備援 —— S 鍵佔視角＋滑鼠伸手；一指盲扯 ── */
+await page.waitForFunction(
+  () => window.__probe().transit === 'idle' && !window.__probe().over, null, { timeout: 90000 });
+await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(300);
 await page.evaluate(() => window.__solveDoor1());
 try {

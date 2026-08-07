@@ -80,8 +80,10 @@ export function doRelease(i) {
    第二根手指＝伸手：落點在鬆脫段附近就算抓到，之後往下拖每 tugPx 再扯一下。
    單手時仍可用第一根手指盲扯（往下拖），保留原本的一手操作路徑。
 
-   桌機只有一個滑鼠，所以視角要交給 S 鍵：按住 S 佔住視角，滑鼠就空出來當第二根手指。
-   左鍵按住轉過去之後補按 S、再放開左鍵，視角不會彈回來 —— 只要還有人佔著就繼續看。 */
+   桌機主路徑：左鍵按住回頭，**右鍵點一下＝扯一下** —— 左手完全不用動。
+   同一顆滑鼠加按右鍵不會產生 pointerdown（規格：和弦按鍵走 pointermove，
+   e.button 標示變化的那顆鍵），所以在 pointermove 裡接。
+   S 鍵仍可佔住視角（此時滑鼠左鍵＝伸手），當替代路徑保留。 */
 let lookId = null;     // 佔住視角的 pointerId
 let keyLook = false;   // 桌機用 S 佔住視角
 let pullY = null;      // 視角手指的盲扯累積基準
@@ -96,10 +98,13 @@ function syncLook() {
   if (!on) { grabId = null; pullY = null; }
 }
 
+view.addEventListener('contextmenu', e => e.preventDefault());   // 右鍵已被徵用為「伸手」
+
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
   view.setPointerCapture(e.pointerId);
 
+  if (e.button === 2) { tug(); return; }        // 右鍵單獨按下（S 佔視角時）＝扯，永不搶視角
   if (lookId !== null || keyLook) {             // 已經有人佔著視角 → 這一下是伸手
     if (tugAt(e.clientX, e.clientY)) { grabId = e.pointerId; grabY = e.clientY; }
     return;
@@ -111,6 +116,10 @@ view.addEventListener('pointerdown', e => {
 
 view.addEventListener('pointermove', e => {
   if (T.phase !== 'door2') return;
+  if (e.button === 2 && (e.buttons & 2)) {    // 左鍵按住中加按右鍵（和弦）＝扯一下
+    tug();
+    return;
+  }
   if (e.pointerId === grabId) {               // 抓住了就繼續拉，不再重判命中
     const dy = e.clientY - grabY;
     if (dy >= CFG.transit.tugPx) { grabY = e.clientY; tug(true); }
