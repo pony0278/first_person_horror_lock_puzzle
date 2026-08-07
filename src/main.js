@@ -56,7 +56,7 @@ window.__probe = () => ({
   // 量「暫停期間有沒有漏秒」時那個落差會被誤判成漏秒。
   pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.timer.elapsed,
   over: R.over, yaw: look.yaw, intro: intro.active,
-  transit: T.phase, tz: +intro.z.toFixed(2), seep: T.seep,
+  transit: T.phase, tz: +intro.z.toFixed(2), seep: T.seep, tug: T.tug,
   actx: audioState(),
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });

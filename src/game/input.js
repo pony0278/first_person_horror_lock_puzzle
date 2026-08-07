@@ -8,6 +8,7 @@ import { hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
+import { T, tug } from './transit.js';
 
 /* ═══════════════════════════════════════════════════════════
    輸入
@@ -69,14 +70,30 @@ export function doRelease(i) {
   renderPins();
 }
 
-/* 上方：長按觀察、放開回彈（議題 1 規格） */
+/* 上方：長按觀察、放開回彈（議題 1 規格）。
+   取件（v3 §4）：按住＝看；按住＋向下拖曳＝把看到的東西拿下來。
+   同一根手指、同一個按住 —— 不區分點按與長按，回頭的反應不能慢半拍。
+   每累積下拉 tugPx 算一次「扯」，扯不扯得動由 transit.tug() 判斷
+   （要在 door2 階段、而且真的看著鬆脫段）。 */
+let pullY = null;
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
   view.setPointerCapture(e.pointerId);
   look.holding = true;
   look.target = 180;
+  pullY = e.clientY;
 });
-export const stopLook = () => { look.holding = false; look.target = 0; };
+view.addEventListener('pointermove', e => {
+  if (!look.holding || pullY === null || T.phase !== 'door2') return;
+  const dy = e.clientY - pullY;
+  if (dy >= CFG.transit.tugPx) {
+    pullY = e.clientY;                        // 下一次扯從這裡重新累積
+    tug();
+  } else if (dy < 0) {
+    pullY = e.clientY;                        // 上移就重設基準，不做負累積
+  }
+});
+export const stopLook = () => { look.holding = false; look.target = 0; pullY = null; };
 view.addEventListener('pointerup', stopLook);
 view.addEventListener('pointercancel', stopLook);
 

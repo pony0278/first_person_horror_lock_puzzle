@@ -53,7 +53,7 @@ const tube = (z0, z1, y = CY) =>
 
 add(cylGeo, matMetal, 0.04, 0.75, 0.04, wallX + 0.06, 1.85 + 0.375, Z); // 機櫃頂垂直段
 tube(Z, ELECTRO.gapZ + 0.35);                                            // A 段：機櫃 → 缺口
-tube(ELECTRO.gapZ - 0.35, 1.15);                                         // B 段：缺口 → 門 2 方向
+tube(ELECTRO.gapZ - 1.05, 1.15);                                         // B 段殘餘：更遠處 → 門 2 方向
 add(cylGeo, matMetal, 0.03, 0.9, 0.03, wallX + 0.06, CY - 0.13, Z - 0.6, Math.PI / 2); // 副管
 
 /* 缺口兩端：空支架（C 形夾的上下兩爪）＋垂落線頭 */
@@ -63,3 +63,35 @@ for (const gz of [ELECTRO.gapZ + 0.35, ELECTRO.gapZ - 0.35]) {
 }
 const wire = add(boxGeo, matDark, 0.012, 0.34, 0.012, wallX + 0.07, CY - 0.19, ELECTRO.gapZ + 0.38);
 wire.rotation.z = 0.35;                       // 垂落的線頭，微斜
+
+/* ── 鬆脫段：缺口旁那 0.7m 的導管，就是玩家要扯下來的那一段 ──
+   上一個受害者已經扯走了一段（缺口），這一段的支架也鬆了 —— 微斜、微光邊緣
+   （v3 §4：可互動物帶微弱邊緣光，靜音與低亮度下可辨識）。
+   拉 2~3 下才會脫落（v3 §5），jerk 動畫由 game/transit.js 驅動。 */
+export const loosePiece = new THREE.Group();
+export const LOOSE = {
+  home: new THREE.Vector3(wallX + 0.075, CY - 0.012, ELECTRO.gapZ - 0.70),
+  homeRotZ: 0.05,
+};
+loosePiece.position.copy(LOOSE.home);
+loosePiece.rotation.z = LOOSE.homeRotZ;
+electroRoom.add(loosePiece);
+{
+  const matLoose = new THREE.MeshStandardMaterial({
+    color: 0x6a7178, roughness: 0.45, metalness: 0.5,
+    emissive: 0x1c3340, emissiveIntensity: 0.55,   // 微光邊緣
+  });
+  const seg = new THREE.Mesh(cylGeo, matLoose);
+  seg.scale.set(0.036, 0.7, 0.036); seg.rotation.x = Math.PI / 2;
+  loosePiece.add(seg);
+  // 兩端接頭（略粗）
+  for (const dz of [-0.33, 0.33]) {
+    const cap = new THREE.Mesh(cylGeo, matLoose);
+    cap.scale.set(0.045, 0.05, 0.045); cap.rotation.x = Math.PI / 2;
+    cap.position.z = dz; loosePiece.add(cap);
+  }
+  // 只剩一個支架還咬著（另一端懸空 —— 讀得出「鬆了」）
+  const brk = new THREE.Mesh(boxGeo, matMetal);
+  brk.scale.set(0.05, 0.02, 0.06); brk.position.set(-0.012, 0.055, 0.30);
+  loosePiece.add(brk);
+}

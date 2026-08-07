@@ -66,6 +66,18 @@ export interface TransitConfig {
   /** 門 2 廊道套用的站位衰變等級（環境跨門累進，v3 §10） */
   stationIndex: number;
   restartMs: number;
+  /** 取件（v3 §4/§5）：回頭轉超過這個角度，鬆脫段才算「在視野裡」 */
+  grabYawMin: number;
+  /** 每累積下拉多少 CSS px 算一次「扯」 */
+  tugPx: number;
+  /** 扯幾下脫落 */
+  tugsNeeded: number;
+  /** 脫落飛向手上的動畫秒數 */
+  grabFlySec: number;
+  /** 到手後停多久進結尾 */
+  retrievedHoldSec: number;
+  /** 在門 2 前閒置多久自動重開（線上版防卡死） */
+  door2IdleSec: number;
 }
 
 export interface StationConfig {
@@ -136,6 +148,8 @@ export const CFG: Config = {
     holdSec: 2.2,
     stationIndex: 2,      // 門 2 廊道：滲液 0.55、燈 0.55 —— 世界在壞掉
     restartMs: 1800,
+    grabYawMin: 130, tugPx: 48, tugsNeeded: 3,
+    grabFlySec: 0.55, retrievedHoldSec: 1.6, door2IdleSec: 45,
   },
   ui:     { style: 'cutaway' },   // 'cutaway' | 'bars'（按 U 即時切換做 A/B）
   lamp:   { z: 14, y: 2.75, intensity: 2.6, color: 0x8fa3c0 },

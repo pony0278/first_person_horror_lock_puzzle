@@ -14,12 +14,12 @@
 
 import { CFG } from '../logic/config.js';
 import { $fade } from '../dom.js';
-import { R, ST, hooks, intro, look } from '../state.js';
+import { R, ST, anim, hooks, intro, look } from '../state.js';
 import { doorHinge, keyEye, pickTool, wrench } from '../render/scene.js';
 import { marker, markerLight, paintPlane } from '../render/hintwall.js';
 import { decay, decayStages, reflection } from '../render/decay.js';
 import { monster } from '../render/monster.js';
-import { ELECTRO, electroRoom } from '../render/electroroom.js';
+import { ELECTRO, LOOSE, electroRoom, loosePiece } from '../render/electroroom.js';
 import { beep } from './audio.js';
 import { newRound } from './round.js';
 
@@ -28,8 +28,11 @@ const OPEN_RAD = 1.92;                       // 門片全開角（≈110°，貼
 const ease = x => x * x * (3 - 2 * x);
 const ss = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
 
-/** 過場狀態。phase: idle → open → through → corner → approach → arrive → done */
-export const T = { active: false, phase: 'idle', t: 0, dipT: -1, seep: 0 };
+/** 過場狀態。
+    phase: idle → open → through → corner → approach → arrive
+           → door2（互動：回頭取件）→ grab（脫落飛行）→ retrieved → done */
+export const T = { active: false, phase: 'idle', t: 0, dipT: -1, seep: 0,
+                   tug: 0, jerkT: 0, reachT: 0, flyT: 0 };
 
 export function startTransit() {
   T.active = true; T.phase = 'open'; T.t = 0; T.dipT = -1;
@@ -53,6 +56,11 @@ hooks.startTransit = startTransit;
 /** newRound 重置時呼叫：把過場動過的東西全部歸位。 */
 hooks.resetTransit = () => {
   T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
+  T.tug = 0; T.jerkT = 0; T.reachT = 0; T.flyT = 0;
+  anim.handsOverride = null;
+  loosePiece.visible = true;
+  loosePiece.position.copy(LOOSE.home);
+  loosePiece.rotation.set(0, 0, LOOSE.homeRotZ);
   swapped = false;
   doorHinge.rotation.y = 0;
   electroRoom.visible = false;
@@ -171,12 +179,81 @@ export function updateTransit(dt) {
 
   else if (T.phase === 'arrive') {
     if (T.t >= C.holdSec) {
-      T.phase = 'done';
-      swapped = false;
-      $fade.style.transition = '';
-      $fade.querySelector('div').textContent = '抵達門 2 —— 施工中';
-      $fade.classList.add('on');
-      setTimeout(newRound, C.restartMs);
+      // 交還視角控制：intro.active=false 讓上方的「按住＝回頭」重新生效。
+      // R.over 維持 true —— 撬鎖面板仍然停用、計時器仍然凍結。
+      T.phase = 'door2'; T.t = 0;
+      intro.active = false;
+      beep('falseSet');                       // 身後傳來一聲悶響 —— 火花的方向
     }
   }
+
+  else if (T.phase === 'door2') {
+    // 玩家自由回頭找鬆脫段；扯拽由 input 呼叫 tug()。
+    // reach 姿態在最後一次扯之後維持一小段，讀得出「手還搭在管子上」。
+    if (T.reachT > 0) { T.reachT -= dt; if (T.reachT <= 0) anim.handsOverride = null; }
+    if (T.jerkT > 0) {
+      T.jerkT -= dt;
+      const j = T.jerkT / 0.22;
+      loosePiece.rotation.z = LOOSE.homeRotZ + Math.sin(j * 28) * 0.10 * j;
+      loosePiece.position.x = LOOSE.home.x + Math.sin(j * 40) * 0.012 * j;
+    }
+    if (T.t >= C.door2IdleSec) finish('門 2 施工中');   // 線上版防卡死
+  }
+
+  else if (T.phase === 'grab') {
+    // 脫落：往玩家方向飛（玩家正回著頭，面向 +z），再沉出視野下緣
+    T.flyT += dt;
+    const p = Math.min(1, T.flyT / C.grabFlySec);
+    const e = ease(p);
+    loosePiece.position.lerpVectors(grabFrom, grabTo, e);
+    loosePiece.position.y -= 0.55 * p * p;               // 末段下沉出視野
+    loosePiece.rotation.z = LOOSE.homeRotZ + e * 1.2;
+    loosePiece.rotation.y = e * 0.8;
+    if (p >= 1) {
+      loosePiece.visible = false;
+      T.phase = 'retrieved'; T.t = 0;
+      anim.handsOverride = null;
+      beep('tap');
+    }
+  }
+
+  else if (T.phase === 'retrieved') {
+    if (T.t >= C.retrievedHoldSec) finish('導管到手 —— 門 2 施工中');
+  }
+}
+
+/* 結尾共用：切黑一句話，然後自動重開（線上版維持可循環）。 */
+function finish(msg) {
+  T.phase = 'done';
+  swapped = false;
+  anim.handsOverride = null;
+  $fade.style.transition = '';
+  $fade.querySelector('div').textContent = msg;
+  $fade.classList.add('on');
+  setTimeout(newRound, C.restartMs);
+}
+
+const grabFrom = loosePiece.position.clone();
+const grabTo = loosePiece.position.clone();
+
+/** 一次「扯」。input 在按住＋累積下拉每 tugPx 時呼叫；只在鬆脫段真的在視野裡時算數。 */
+export function tug() {
+  if (T.phase !== 'door2') return false;
+  if (Math.abs(look.yaw) < C.grabYawMin) return false;   // 要看著它才扯得到（v3 §4）
+
+  T.tug++;
+  T.jerkT = 0.22;
+  T.reachT = 0.45;
+  anim.handsOverride = 'reach';
+  markerLight.intensity = 2.6;                           // 火花猛一亮（呼吸機制隨後接手）
+  beep('thunk');
+
+  if (T.tug >= C.tugsNeeded) {
+    T.phase = 'grab'; T.flyT = 0;
+    grabFrom.copy(loosePiece.position);
+    // 玩家在 z=0 面向 +z：飛到臉前偏下
+    grabTo.set(0.12, 1.05, 0.85);
+    beep('release');
+  }
+  return true;
 }

@@ -45,9 +45,11 @@ const waitPhase = async (name, timeout = 60000) => {
   const t0 = Date.now();
   try {
     await page.waitForFunction(
-      n => ['approach', 'arrive', 'done', 'idle'].indexOf(window.__probe().transit) >=
-           ['approach', 'arrive', 'done', 'idle'].indexOf(n) ||
-           window.__probe().transit === n,
+      n => {
+        const seq = ['approach', 'arrive', 'door2', 'grab', 'retrieved', 'done', 'idle'];
+        return seq.indexOf(window.__probe().transit) >= seq.indexOf(n) ||
+               window.__probe().transit === n;
+      },
       name, { timeout });
     check(`階段抵達 ${name}`, true, `${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } catch {
@@ -79,6 +81,35 @@ try {
 
 await waitPhase('arrive');
 await page.screenshot({ path: `${OUT}/transit-door2.png` });
+
+/* ── 取件：按住回頭 → 累積下拉扯三下 → 鬆脫段到手 ── */
+await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 60000 });
+check('抵達後進入互動等待（door2）', true, 'phase=door2');
+
+/* 按住上方 —— 回頭 */
+await page.mouse.move(422, 110);
+await page.mouse.down();
+try {
+  await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+  check('按住回頭到取件角度', true, `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
+} catch { check('按住回頭到取件角度', false, '逾時'); }
+await page.screenshot({ path: `${OUT}/transit-lookback.png` });
+
+/* 未轉夠之前的下拉不該算（在 yaw 起步前已按住往下拖的情況由 grabYawMin 擋）——
+   這裡直接驗正路徑：轉夠之後連扯三下 */
+for (let i = 1; i <= 3; i++) {
+  await page.mouse.move(422, 110 + i * 60, { steps: 4 });
+  await page.waitForTimeout(150);
+}
+const tugN = await page.evaluate(() => window.__probe().tug);
+check('累積下拉觸發三次扯拽', tugN >= 3, `tug=${tugN}`);
+await page.mouse.up();
+
+await page.waitForFunction(
+  () => ['grab', 'retrieved', 'done', 'idle'].includes(window.__probe().transit),
+  null, { timeout: 30000 });
+check('第三扯後鬆脫段脫落（grab）', true,
+  `phase=${await page.evaluate(() => window.__probe().transit)}`);
 
 await waitPhase('done');
 

@@ -283,7 +283,9 @@ export function tick() {
     if (ST.phase === 'face') vis = true;
     if (vis && blind()) ST.seen = true;             // 記錄玩家真的看到過
     if (ST.index >= S.z.length - 1 && !ST.seen && ST.phase === 'off') vis = true;
-    monster.visible = (vis && ST.blink <= 0) || R.over;
+    // 「|| R.over」是死亡演出用的（死時牠留在原地）。過場也是 R.over=true，
+    // 但計時器凍結時牠不該出現 —— 怪物是計時器的唯一顯示（§6），不動的怪物是謊言。
+    monster.visible = ((vis && ST.blink <= 0) || R.over) && !T.active;
 
     // 貼臉：位置、升起演出、微微逼近
     if (ST.phase === 'face') {

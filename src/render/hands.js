@@ -356,6 +356,10 @@ export const handState = {
 
 export function hTargets() {
   if (hd.on) return { L: $hdPose.value, R: $hdPose.value };
+  if (anim.handsOverride)
+    return anim.handsOverride === 'reach'
+      ? { L: 'side', R: 'reach' }
+      : { L: anim.handsOverride, R: anim.handsOverride };
   if (blind()) return { L:'away', R:'away' };
   if (intro.active) {
     if (intro.phase === 'run')    return { L:'run',  R:'run' };
