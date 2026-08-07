@@ -91,6 +91,8 @@ export interface StationConfig {
   faceZ: number; faceGraceSec: number; faceRiseSec: number;
   frontMin: number; frontMax: number; frontGapSec: number;
   frontDurEye: number; frontDurRefl: number; frontDurLever: number;
+  /** 門 2 專屬的正面事件（門 2 沒有鑰匙孔與拉把，見 v3 §7 的門面換裝） */
+  frontDurBadge: number; frontDurGlitch: number;
   /** 各站位停留的時間比例，**總和必須為 1**（§6 總時間守恆，由 stationThresholds 檢查）。 */
   hold: number[];
   settleMs: number;
@@ -177,6 +179,8 @@ export const CFG: Config = {
     frontDurEye: 1.15,       // 鑰匙孔眼睛的持續秒數
     frontDurRefl: 1.30,      // 積水倒影
     frontDurLever: 0.85,     // 門把被轉動
+    frontDurBadge: 0.95,     // 門 2：有人從另一側刷卡
+    frontDurGlitch: 0.70,    // 門 2：LCD 抖動＋斷線迸火花
     // 各站位停留的時間比例（總和 1.0）。第一站最久 —— 空白是張力的蓄水池
     hold: [0.26, 0.16, 0.12, 0.46],   // 末段 0.46 是潛伏窗口（末站約 10.8s 抵達）
     settleMs: 260,           // 跳站的位移時間（很短，像瞬移不像走路）

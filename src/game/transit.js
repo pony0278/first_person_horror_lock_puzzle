@@ -36,6 +36,13 @@ const ss = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a)));
 export const T = { active: false, phase: 'idle', t: 0, dipT: -1, seep: 0,
                    tug: 0, jerkT: 0, reachT: 0, flyT: 0 };
 
+/* transit 拉著鏡頭沿走廊跑的那幾個階段。
+   door2 / grab / retrieved 不算 —— 那時鏡頭交還給玩家，門 2 是可以互動的。
+   以前 loop 用 T.active 當「運鏡中」的代名詞，門 2 一變成互動階段就失準
+   （怪物會永遠隱形）。 */
+const CINE = new Set(['open', 'through', 'corner', 'approach', 'arrive', 'done']);
+export const cinematic = () => T.active && CINE.has(T.phase);
+
 export function startTransit() {
   T.active = true; T.phase = 'open'; T.t = 0; T.dipT = -1;
 
@@ -66,6 +73,7 @@ hooks.resetTransit = () => {
   loosePiece.position.copy(LOOSE.home);
   loosePiece.rotation.set(0, 0, LOOSE.homeRotZ);
   swapped = false;
+  decay.floor = 0;                             // 衰變下限跨局重置（跨門才累進）
   doorHinge.rotation.y = 0;
   cylinder.visible = plate.visible = true;     // 門面交還門 1 的機械鎖
   doorLever.visible = doorLeverRose.visible = true;
@@ -120,11 +128,17 @@ function doSwap() {
   markerLight.color.set(0x9fd8ff);
   markerLight.position.set(-CFG.world.corridorW / 2 + 0.35, ELECTRO.gapY, ELECTRO.gapZ);
 
-  // 環境衰變跳到門 2 等級（v3 §10：跨門累進）。
-  // 走既有的站位衰變機制，在黑幕下一次套完，避免裝飾在眼前突然出現。
-  ST.index = C.stationIndex;
-  ST.z = ST.targetZ = CFG.stations.z[0];       // 站位歸最遠 —— 這一段不追
-  while (decay.applied < ST.index) {
+  // 環境衰變跳到門 2 等級（v3 §10：跨門累進），在黑幕下一次套完，
+  // 避免裝飾在眼前突然出現。
+  //
+  // 衰變等級與站位索引在這裡分家：環境進到等級 2 並且不再回頭（decay.floor），
+  // 但怪物的站位從 0 重新開始 —— 你剛剛跑掉了，牠得重新走過來。
+  // 以前兩者共用 ST.index，計時器一解凍怪物會從 22m 一次跳到 2.6m（§6 禁止的橡皮筋）。
+  decay.floor = C.stationIndex;
+  ST.index = 0;
+  ST.z = ST.targetZ = CFG.stations.z[0];       // 站位歸最遠
+  ST.phase = 'off'; ST.seen = false; ST.emptyGot = 0; ST.stareT = 0;
+  while (decay.applied < decay.floor) {
     decayStages[decay.applied]?.();
     decay.applied++;
     T.seep = CFG.seep.level[decay.applied] ?? 0;

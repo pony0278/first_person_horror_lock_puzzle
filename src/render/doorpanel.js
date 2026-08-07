@@ -16,6 +16,8 @@
 import * as THREE from 'three';
 import { LEAF_Z, LOCK_X, LOCK_Y, boxGeo, cylGeo, doorLeaf } from './scene.js';
 import { matDark, matMetal } from './materials.js';
+import { CFG } from '../logic/config.js';
+import { ST } from '../state.js';
 
 export const doorPanel2 = new THREE.Group();
 doorPanel2.visible = false;
@@ -59,15 +61,20 @@ add(lcdGreen, boxGeo, matGreen, 0.085, 0.014, 0.004, 0, -0.030, 0);  // 下
 add(lcdGreen, boxGeo, matGreen, 0.014, 0.074, 0.004, -0.036, 0, 0);  // 左（右側缺口＝出口）
 
 /* ── 讀卡機（拉把的位置）：被砸壞、外殼半脫落 ─────────── */
-const RX = 0.56, RY = 1.02;
+// RY 比門 1 的拉把（1.02）高一些：拉把是一根細桿，讀卡機是 0.21 高的盒子，
+// 沿用同樣高度會讓刷卡區落到畫面下緣之外 —— badge 事件就變成看不到的事件。
+const RX = 0.56, RY = 1.13;
 add(doorPanel2, boxGeo, matBezel, 0.15, 0.21, 0.022, RX, RY, Z);        // 底座
 // 裸露的上半：電路板＋晶片＋排線座（外殼被扯掉的那一半）
 add(doorPanel2, boxGeo, matPcb, 0.125, 0.095, 0.006, RX, RY + 0.048, Z + 0.012);
 add(doorPanel2, boxGeo, matDark, 0.032, 0.032, 0.008, RX - 0.028, RY + 0.058, Z + 0.016);
 add(doorPanel2, boxGeo, matDark, 0.05, 0.014, 0.008, RX + 0.024, RY + 0.032, Z + 0.016);
 add(doorPanel2, boxGeo, matMetal, 0.012, 0.05, 0.008, RX + 0.045, RY + 0.062, Z + 0.016);
-// 外殼下半還在：刷卡感應區的框
-add(doorPanel2, boxGeo, matGlass, 0.11, 0.062, 0.006, RX, RY - 0.055, Z + 0.013);
+// 外殼下半還在：刷卡感應區的框。獨立材質 —— badge 事件要讓它亮起來
+export const matBadge = new THREE.MeshStandardMaterial({
+  color: 0x05070a, emissive: 0x1b6ea8, emissiveIntensity: 0, roughness: 0.15, metalness: 0.5,
+});
+add(doorPanel2, boxGeo, matBadge, 0.11, 0.062, 0.006, RX, RY - 0.055, Z + 0.013);
 // 被砸歪的上蓋：掛在右下那顆螺絲上，旋轉 ~24°
 {
   const cover = new THREE.Mesh(boxGeo, matBezel);
@@ -97,6 +104,29 @@ add(doorPanel2, cylGeo, matMetal, 0.016, 0.16, 0.016, RX + 0.002, RY + 0.19, Z -
    reach01：電流爬到第幾欄；solved：通電；lampF：走廊燈即時亮度。 */
 export function setDoorPanel(reach01, solved, lampF, t) {
   if (!doorPanel2.visible) return;
+
+  /* 門 2 的正面事件（§10：絕不致命、絕不擋操作，純粹告訴你正面也不安全）。
+     生命期由 game/loop.js 管，視覺在這裡 —— 這批材質本來就由這個函式每幀驅動，
+     兩邊各畫各的會打架。
+     刻意沒有「假的綠燈」：LCD 是 §9 的事實層，怪物可以嚇你，門上的儀表不能騙你。 */
+  const S = CFG.stations;
+  if (ST.front === 'badge') {
+    // 有人從門的另一側刷了卡：感應區亮起、閃兩下、熄掉
+    const p = Math.min(1, ST.frontT / S.frontDurBadge);
+    const flick = p < 0.55 ? 1 : (Math.sin(p * 46) > 0 ? 1 : 0.15);
+    matBadge.emissiveIntensity = 2.2 * (1 - p * p) * flick;
+  } else {
+    matBadge.emissiveIntensity = 0;
+  }
+  if (ST.front === 'glitch') {
+    // 電路被從另一側動了一下：紅槓劇烈抖動、斷線迸火花
+    const p = Math.min(1, ST.frontT / S.frontDurGlitch);
+    matRed.emissiveIntensity = 2.6 * (1 - p) * (Math.sin(ST.frontT * 97) > -0.3 ? 1 : 0.05);
+    lcdRed.visible = true; lcdGreen.visible = false;
+    sparkMesh.visible = (ST.frontT % 0.09) < 0.05;
+    return;                                    // glitch 期間完全接管 LCD
+  }
+
   if (solved) {
     lcdRed.visible = false;
     lcdGreen.visible = true;
@@ -122,4 +152,5 @@ export function resetDoorPanel() {
   lcdGreen.visible = false;
   sparkMesh.visible = false;
   matRed.emissiveIntensity = 0.9;
+  matBadge.emissiveIntensity = 0;
 }

@@ -37,7 +37,7 @@ import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
-import { R, anim, intro, look } from './state.js';
+import { R, ST, anim, intro, look } from './state.js';
 import { door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
@@ -47,6 +47,8 @@ import { D2 } from './game/door2.js';
 import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
 import { cellCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
+import { decay } from './render/decay.js';
+import { monster } from './render/monster.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 
@@ -63,6 +65,8 @@ window.__probe = () => ({
   pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.timer.elapsed,
   over: R.over, yaw: look.yaw, intro: intro.active,
   transit: T.phase, tz: +intro.z.toFixed(2), seep: T.seep, tug: T.tug,
+  door: R.door, limit: R.limit, station: ST.index, decayFloor: decay.floor,
+  monster: monster.visible, front: ST.front, frontT: +ST.frontT.toFixed(2),
   actx: audioState(),
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
@@ -94,6 +98,9 @@ window.__doorPanel = () => ({
   visible: doorPanel2.visible,
   mode: !doorPanel2.visible ? 'off' : lcdGreen.visible ? 'green' : 'red',
 });
+/* 直接觸發一次正面事件。時鐘還沒接上門 2 之前，正常路徑打不到 badge/glitch，
+   但畫面對不對現在就得驗 —— 不然那兩顆會像 eye/lever 一樣默默變成啞彈。 */
+window.__fireFront = kind => { ST.front = kind; ST.frontT = 0; };
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };

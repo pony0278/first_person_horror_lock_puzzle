@@ -110,6 +110,33 @@ check('抵達後進入互動等待（door2）', true, 'phase=door2');
 const dp0 = await page.evaluate(() => window.__doorPanel());
 check('門 2 門面是 LCD（紅槓鎖定）', dp0.visible && dp0.mode === 'red', `mode=${dp0.mode}`);
 
+/* ── R.over 拆分後的三顆地雷（詳見設計文件 §6 補充） ── */
+const s0 = await page.evaluate(() => window.__probe());
+check('門 2 有自己的身分（R.door）', s0.door === 2, `door=${s0.door} limit=${s0.limit}`);
+// 衰變等級跨門累進，但站位從 0 重新開始 —— 綁在一起的話怪物會一次跳 20 公尺
+check('衰變下限停在門 2 等級', s0.decayFloor === 2, `floor=${s0.decayFloor}`);
+check('怪物站位從最遠重新開始', s0.station === 0, `station=${s0.station}`);
+// T.active 在 door2 階段仍為 true —— 拿它當「運鏡中」會讓怪物永遠隱形
+check('門 2 互動階段怪物不再被強制隱形', s0.monster === false,
+  `monster=${s0.monster}（站位 0 本來就看不到，但不是被 T.active 壓住的）`);
+
+/* 門 2 專屬的正面事件：門 2 沒有鑰匙孔也沒有拉把，eye / lever 會是啞彈。
+   時鐘還沒接上，正常路徑打不到，用 __fireFront 直接驗生命期。
+   等待一律用 frontT（動畫時間）—— 這裡是軟體渲染，dt 被夾在 0.05，
+   動畫比真實時間慢好幾倍（M1）。 */
+for (const kind of ['badge', 'glitch']) {
+  try {
+    await page.evaluate(k => window.__fireFront(k), kind);
+    await page.waitForFunction(t => window.__probe().frontT >= t, 0.1, { timeout: 60000 });
+    await page.screenshot({ path: `${OUT}/front-${kind}.png` });
+    await page.waitForFunction(() => window.__probe().front === null, null, { timeout: 60000 });
+    check(`門 2 正面事件 ${kind} 會結束`, true, '生命期正常');
+  } catch {
+    check(`門 2 正面事件 ${kind} 會結束`, false,
+      `卡住（front=${await page.evaluate(() => window.__probe().front)}）`);
+  }
+}
+
 /* 滑鼠按住上方＝第一根手指，回頭 */
 await page.mouse.move(422, 110);
 await page.mouse.down();
@@ -192,8 +219,11 @@ try {
     tug: window.__probe().tug,
   }));
   const dpReset = await page.evaluate(() => window.__doorPanel());
+  const sReset = await page.evaluate(() => window.__probe());
   check('自動重開且歸位', reset.tug === 0 && !dpReset.visible,
     `seep=${reset.seep} tug=${reset.tug} lcd=${dpReset.mode} elapsed=${reset.elapsed.toFixed(2)}`);
+  check('門身分與衰變下限跨局重置', sReset.door === 1 && sReset.decayFloor === 0,
+    `door=${sReset.door} floor=${sReset.decayFloor}`);
 } catch {
   check('自動重開且歸位', false, `逾時（phase=${await phase()}）`);
 }

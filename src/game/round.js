@@ -16,6 +16,7 @@ import { beep } from './audio.js';
 /* ── 新回合 ─────────────────────────────────────────── */
 export function newRound() {
   hooks.resetTransit?.();                      // 過場動過的東西先歸位
+  R.door = 1; R.limit = CFG.round.limit;
   R.lock = new LockState({ ...CFG.lock });
   R.timer.start(); R.elapsed = 0;
   R.over = false; R.won = false;
@@ -41,9 +42,9 @@ export function newRound() {
 
   // 站位時刻表：把 hold 比例累加成切換時間點。總時間守恆（議題 14）
   const S = CFG.stations;
-  ST.thresholds = stationThresholds(S.hold, CFG.round.limit);
+  ST.thresholds = stationThresholds(S.hold, R.limit);
   ST.index = 0; ST.z = S.z[0]; ST.targetZ = S.z[0];
-  decay.applied = 0;
+  decay.applied = 0; decay.floor = 0;
   window.__applySeep(0);
   for (const m of decayGroup.children) m.visible = false;
   decayGroup.userData.farLight.intensity = 1.0;
@@ -82,7 +83,7 @@ export function win() {
   if (R.over) return;
   R.over = true; R.won = true;
   beep('solved');
-  const clutch = R.elapsed > CFG.round.limit;
+  const clutch = R.elapsed > R.limit;
   const msg = clutch ? '極限逃脫' : '逃脫成功';
   if (hooks.startTransit) {
     // v3 §3：成功不切黑 —— 統計照記，然後直接開門跑向門 2（game/transit.js）

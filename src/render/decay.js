@@ -28,7 +28,14 @@ scene.add(lampFixture);
 /* 走廊劣化 rig：每過一站，回頭看到的走廊更不對勁（PEGI 12：
    刮痕、傾倒、失靈與污漬，不用血腥）。變化只在玩家低頭時發生。 */
 
-export const decay = { applied: 0 };
+/* applied：已經套用到第幾級衰變。
+   floor：這一扇門的**衰變下限** —— 跨門累進、跨局重置（v3 §10）。
+   兩者分開的理由：門 2 的環境等級是 2，但怪物的站位要從 0 重新開始
+   （牠被你跑掉了）。以前用 ST.index 同時表示這兩件事，一旦計時器解凍，
+   怪物會從 22 公尺一次跳到 2.6 公尺 —— §6 明文禁止的橡皮筋。 */
+export const decay = { applied: 0, floor: 0 };
+/** 當前環境等級：門內隨站位升壓，但永遠不低於這扇門的下限。 */
+export const envLevel = (stationIndex) => Math.max(decay.floor, stationIndex);
 export const decayGroup = new THREE.Group();
 scene.add(decayGroup);
 export const decayStages = [];

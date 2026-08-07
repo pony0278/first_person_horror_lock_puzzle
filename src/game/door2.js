@@ -15,7 +15,8 @@ import { newBoard, pickSpec } from '../logic/pipe.js';
 import { $panel } from '../dom.js';
 import { PB, cellAt, drawPipe, pieceLand, pipeCanvas, showPipe, spinCell } from '../render/pipeboard.js';
 import { setDoorPanel } from '../render/doorpanel.js';
-import { blind, hooks } from '../state.js';
+import { CFG } from '../logic/config.js';
+import { R, ST, blind, hooks } from '../state.js';
 import { beep, zap } from './audio.js';
 import { interrupted } from './halt.js';
 import { T, finishTransit } from './transit.js';
@@ -25,6 +26,18 @@ export const D2 = { active: false, board: null, doneT: -1 };
 hooks.startDoor2 = () => {
   D2.board = newBoard(pickSpec());          // §11：只抽不生成
   D2.active = true; D2.doneT = -1;
+
+  // 這一扇門的身分。R.over 以前一體兩用，拆開之後由 R.door 決定
+  // 「下方該畫哪一種面板」「正面事件用哪一組」。
+  // R.limit 目前與門 1 同值（20s）—— 依據見 v3 §3：時限＝熟練時間＋逐門遞減的餘裕。
+  R.door = 2; R.limit = CFG.round.limit;
+
+  // 正面事件換成門 2 的：門 2 沒有鑰匙孔也沒有拉把，eye / lever 會變成
+  // 「有聲音沒畫面」的啞彈（事件照樣觸發、照樣消耗配額，玩家什麼都看不到）。
+  const S = CFG.stations;
+  ST.frontPool = ['refl', 'badge', 'glitch'].sort(() => Math.random() - 0.5);
+  ST.frontLeft = S.frontMin + Math.floor(Math.random() * (S.frontMax - S.frontMin + 1));
+  ST.front = null; ST.frontT = 0; ST.frontCool = 0;
   $panel.classList.add('door2');            // 先收 chrome 列（#pins 會長高），再量尺寸
   showPipe(D2.board);
   PB.onAdvance = (_n, reach01) => zap(reach01);   // 爬多遠、音多高 —— 回頭時用聽的
@@ -41,6 +54,7 @@ hooks.door2Insert = () => {
 
 hooks.resetDoor2 = () => {
   D2.active = false; D2.board = null; D2.doneT = -1;
+  R.door = 1; R.limit = CFG.round.limit;
   PB.onAdvance = null;
   $panel.classList.remove('door2');
 };

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
 import { $dev, $panel, $pins, view } from '../dom.js';
 import { drawCutaway, renderPins, sizeCut, tracks } from '../render/cutaway.js';
-import { decay, decayStages, lamp, lampFixture, reflection, seepUni } from '../render/decay.js';
+import { decay, decayStages, envLevel, lamp, lampFixture, reflection, seepUni } from '../render/decay.js';
 import { hd, updateHands } from '../render/hands.js';
 import { flash3d, markerLight, markerMat, vig, vigMat } from '../render/hintwall.js';
 import { FACE_DROP, MP, monster, monsterHead, monsterTorso } from '../render/monster.js';
@@ -13,7 +13,7 @@ import { R, ST, anim, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
 import { die } from './round.js';
-import { T, updateTransit } from './transit.js';
+import { T, cinematic, updateTransit } from './transit.js';
 import { D2, updateDoor2 } from './door2.js';
 
 /* ═══════════════════════════════════════════════════════════
@@ -159,7 +159,7 @@ export function tick() {
   dust.position.y = Math.sin(performance.now() / 4200) * 0.05;
 
   // 怪物：誠實的等速接近
-  const f = Math.min(1, R.elapsed / CFG.round.limit);
+  const f = Math.min(1, R.elapsed / R.limit);
 
   // ── 怪物：離散站位。移動只發生在玩家低頭時 ──────────
   {
@@ -184,8 +184,9 @@ export function tick() {
       if (stareForced) { ST.blink = S.blinkSec; ST.stareT = 0; }
     }
     if (ST.blink > 0) ST.blink -= dt;
-    // 環境劣化：同一條規則，只在低頭時發生
-    while (decay.applied < ST.index && !blind()) {
+    // 環境劣化：同一條規則，只在低頭時發生。
+    // 讀 envLevel 而不是 ST.index —— 門 2 的環境已經是等級 2，但怪物的站位從 0 重新開始。
+    while (decay.applied < envLevel(ST.index) && !blind()) {
       decayStages[decay.applied]?.();
       decay.applied++;
       window.__applySeep(CFG.seep.level[decay.applied] ?? 0);
@@ -226,7 +227,8 @@ export function tick() {
       // 保底：整局沒遇過正面事件的人（例如全程盯著走廊），
       // 在極限窗口轉回門鎖的瞬間補一次門把 —— 出路也不安全。
       if (ST.frontLeft > 0 && !ST.front && !blind() && ST.faceT > 0.05) {
-        ST.front = 'lever'; ST.frontT = 0; ST.frontLeft = 0; beep('thunk');
+        ST.front = R.door === 2 ? 'glitch' : 'lever';
+        ST.frontT = 0; ST.frontLeft = 0; beep('thunk');
       }
     }
 
@@ -237,13 +239,16 @@ export function tick() {
         (ST.phase === 'lurk' || ST.phase === 'armed') && !blind() && !R.over) {
       ST.front = ST.frontPool[(S.frontMax - ST.frontLeft) % ST.frontPool.length];
       ST.frontT = 0; ST.frontLeft--;
-      if (ST.front === 'lever') beep('thunk');
+      if (ST.front === 'lever' || ST.front === 'glitch') beep('thunk');
+      if (ST.front === 'badge') beep('error');      // 讀卡機拒絕的短促電子雜音
     }
 
     if (ST.front) {
       ST.frontT += dt;
-      const dur = ST.front === 'eye'   ? S.frontDurEye
-                : ST.front === 'refl'  ? S.frontDurRefl : S.frontDurLever;
+      const dur = ST.front === 'eye'    ? S.frontDurEye
+                : ST.front === 'refl'   ? S.frontDurRefl
+                : ST.front === 'badge'  ? S.frontDurBadge
+                : ST.front === 'glitch' ? S.frontDurGlitch : S.frontDurLever;
       const p = Math.min(1, ST.frontT / dur);
       const fade = Math.min(1, p / 0.12) * (1 - Math.min(1, Math.max(0, (p - 0.80) / 0.20)));
 
@@ -269,6 +274,11 @@ export function tick() {
         reflection.mesh.scale.y = 1.15 + Math.sin(ST.frontT * 1.7) * 0.03;
         if (p >= 1) { reflection.mesh.visible = false; ST.front = null; ST.frontCool = S.frontGapSec; }
       }
+      else if (ST.front === 'badge' || ST.front === 'glitch') {
+        // 門 2 專屬。視覺在 render/doorpanel.js —— 它已經每幀在驅動同一批材質，
+        // 兩邊各畫各的會打架，所以這裡只管生命期。
+        if (p >= 1) { ST.front = null; ST.frontCool = S.frontGapSec; }
+      }
       else {  // lever：門把從另一側被壓下，門在框裡晃
         const press = Math.sin(Math.min(1, p / 0.7) * Math.PI);
         doorLever.rotation.z = -0.5 * press;
@@ -286,9 +296,12 @@ export function tick() {
     if (ST.phase === 'face') vis = true;
     if (vis && blind()) ST.seen = true;             // 記錄玩家真的看到過
     if (ST.index >= S.z.length - 1 && !ST.seen && ST.phase === 'off') vis = true;
-    // 「|| R.over」是死亡演出用的（死時牠留在原地）。過場也是 R.over=true，
-    // 但計時器凍結時牠不該出現 —— 怪物是計時器的唯一顯示（§6），不動的怪物是謊言。
-    monster.visible = ((vis && ST.blink <= 0) || R.over) && !T.active;
+    // R.over 以前一體兩用（死亡演出／過場凍結），這裡拆開：
+    //   死亡演出 = R.over && !R.won —— 死時牠留在原地讓你看清楚。
+    //   運鏡中   = cinematic() —— 只有 transit 拉著鏡頭跑的那幾個階段，
+    //              計時器凍結時牠不該出現（怪物是計時器的唯一顯示，§6，
+    //              不動的怪物是謊言）。門 2 的互動階段不算運鏡，牠照站位規則走。
+    monster.visible = ((vis && ST.blink <= 0) || (R.over && !R.won)) && !cinematic();
 
     // 貼臉：位置、升起演出、微微逼近
     if (ST.phase === 'face') {
@@ -328,7 +341,7 @@ export function tick() {
   // 燈：壞掉的日光燈嗡嗡閃爍，且逐站變暗（世界在失去光）
   let lampF = 1;                               // 門 2 盤面吃同一條壞電路（v3 §7 燈閃耦合）
   {
-    const dim = (CFG.seep.lampDim[ST.index] ?? 1) * (ST.blink > 0 ? 0.04 : 1);
+    const dim = (CFG.seep.lampDim[envLevel(ST.index)] ?? 1) * (ST.blink > 0 ? 0.04 : 1);
     const buzz = 0.82 + 0.18 * Math.abs(Math.sin(R.elapsed * 23.7) * Math.sin(R.elapsed * 5.1));
     lamp.intensity = CFG.lamp.intensity * buzz * dim;
     lampFixture.userData.tube.material.color.setScalar(0.75 * buzz * dim);
@@ -339,7 +352,8 @@ export function tick() {
   updateDoor2(dt, lampF);
 
   // ── 撬鎖面板承載威脅（Iron Lung 路線）──────────────
-  if (!R.over) {
+  // 門 2 的下方是管線盤面（render/pipeboard.js 自己畫），這一段只屬於門 1。
+  if (!R.over && R.door === 1) {
     const D = CFG.dread, i = ST.index;
     const amp = D.trackShake[i], hz = D.shakeHz[i], tint = D.tint[i];
     const t = performance.now() / 1000;
@@ -391,7 +405,7 @@ export function tick() {
   //  · 潛伏中但玩家一直不回頭 → 超時後強制兌現貼臉，再走同一條窗口
   if (!R.over) {
     const S2 = CFG.stations;
-    const overtime = R.elapsed > CFG.round.limit + CFG.round.grabMs / 1000;
+    const overtime = R.elapsed > R.limit + CFG.round.grabMs / 1000;
     if (ST.phase === 'face') {
       if (ST.faceT > S2.faceGraceSec) {
         ST.z = ST.targetZ = S2.faceZ;
@@ -410,7 +424,7 @@ export function tick() {
   {
     const runF = intro.active && intro.phase === 'run' ? Math.min(1, intro.z / 2.5) : 0;
     const turnF = Math.max(runF, Math.min(1, Math.abs(look.yaw) / 110));
-    const farDim = (intro.active ? 1 : (CFG.seep.farDim[ST.index] ?? 1)) * (ST.blink > 0 ? 0.10 : 1);
+    const farDim = (intro.active ? 1 : (CFG.seep.farDim[envLevel(ST.index)] ?? 1)) * (ST.blink > 0 ? 0.10 : 1);
     const L = CFG.light, lerp = (a, b) => a + (b - a) * turnF;
     const flick = 1 - L.flicker * (Math.sin(performance.now() / 46) * .5 + .5);
     flash3d.intensity = lerp(L.near.intensity, L.far.intensity * farDim) * flick;
@@ -424,7 +438,7 @@ export function tick() {
 
   if (ui.devOn) {
     $dev.textContent =
-      `elapsed ${R.elapsed.toFixed(1)} / ${CFG.round.limit}   dist ${dist.toFixed(1)}m\n` +
+      `door ${R.door}  elapsed ${R.elapsed.toFixed(1)} / ${R.limit}   dist ${dist.toFixed(1)}m\n` +
       `look ${(R.lookTime/1000).toFixed(1)}s   jam ${(R.jamTime/1000).toFixed(1)}s   err ${R.errorCount}\n` +
       `attempts ${R.attempts.length}   won ${R.attempts.filter(a=>a.won).length}` +
       (R.timer.paused ? `\npaused: ${R.timer.pauseReasons.join(', ')}` : '');
