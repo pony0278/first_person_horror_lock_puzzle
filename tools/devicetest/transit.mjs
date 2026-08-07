@@ -162,9 +162,17 @@ await page.evaluate(() => window.__solveDoor1());
 try {
   await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
 
-  /* 桌機：S 鍵等同第一根手指，滑鼠就是伸手的那一手 */
-  await page.keyboard.down('s');
+  /* 桌機：左鍵按住轉過去 → 補按 S → 放開左鍵（視角不該彈回）→ 滑鼠空出來伸手。
+     這是桌機唯一可行的順序：只有一個滑鼠，視角必須先交接出去。 */
+  await page.mouse.move(422, 110);
+  await page.mouse.down();
   await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
+  await page.keyboard.down('s');
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  check('左鍵交接給 S 後視角沒有彈回',
+    await page.evaluate(() => Math.abs(window.__probe().yaw) >= 130),
+    `yaw=${await page.evaluate(() => window.__probe().yaw.toFixed(0))}°`);
   const gp2 = await page.evaluate(() => window.__grabPoint());
   if (gp2) await page.mouse.click(gp2.x, gp2.y);
   await page.waitForTimeout(140);

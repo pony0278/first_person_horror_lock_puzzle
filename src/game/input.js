@@ -80,27 +80,33 @@ export function doRelease(i) {
    第二根手指＝伸手：落點在鬆脫段附近就算抓到，之後往下拖每 tugPx 再扯一下。
    單手時仍可用第一根手指盲扯（往下拖），保留原本的一手操作路徑。
 
-   桌機：按住 S 佔住視角，滑鼠就是那第二根手指。 */
+   桌機只有一個滑鼠，所以視角要交給 S 鍵：按住 S 佔住視角，滑鼠就空出來當第二根手指。
+   左鍵按住轉過去之後補按 S、再放開左鍵，視角不會彈回來 —— 只要還有人佔著就繼續看。 */
 let lookId = null;     // 佔住視角的 pointerId
 let keyLook = false;   // 桌機用 S 佔住視角
 let pullY = null;      // 視角手指的盲扯累積基準
 let grabId = null;     // 已經抓在鬆脫段上的 pointerId
 let grabY = 0;
 
-const looking = () => lookId !== null || keyLook;
+/** 視角由「手指」與「S 鍵」共同持有，任何一方還在就維持回頭。 */
+function syncLook() {
+  const on = lookId !== null || keyLook;
+  look.holding = on;
+  look.target = on ? 180 : 0;
+  if (!on) { grabId = null; pullY = null; }
+}
 
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
   view.setPointerCapture(e.pointerId);
 
-  if (looking() && e.pointerId !== lookId) {   // 第二根手指：伸手，不搶視角
+  if (lookId !== null || keyLook) {             // 已經有人佔著視角 → 這一下是伸手
     if (tugAt(e.clientX, e.clientY)) { grabId = e.pointerId; grabY = e.clientY; }
     return;
   }
   lookId = e.pointerId;
-  look.holding = true;
-  look.target = 180;
   pullY = e.clientY;
+  syncLook();
 });
 
 view.addEventListener('pointermove', e => {
@@ -121,14 +127,11 @@ view.addEventListener('pointermove', e => {
   }
 });
 
-/** 放開視角：彈回正面。抓著的手也跟著鬆開 —— 看不到就抓不住。 */
-export const stopLook = () => {
-  lookId = null; grabId = null; pullY = null; keyLook = false;
-  look.holding = false; look.target = 0;
-};
+/** 強制放開視角（手指與 S 鍵都放）：彈回正面，抓著的手也鬆開 —— 看不到就抓不住。 */
+export const stopLook = () => { lookId = null; keyLook = false; syncLook(); };
 const onUp = e => {
-  if (e.pointerId === grabId) grabId = null;   // 伸手那根放開 —— 視角不動
-  if (e.pointerId === lookId) stopLook();      // 視角那根放開 —— 全部收工
+  if (e.pointerId === grabId) grabId = null;                 // 伸手那根放開 —— 視角不動
+  if (e.pointerId === lookId) { lookId = null; syncLook(); } // 視角那根放開（S 還按著就繼續看）
 };
 view.addEventListener('pointerup', onUp);
 view.addEventListener('pointercancel', onUp);
@@ -136,7 +139,7 @@ view.addEventListener('pointercancel', onUp);
 addEventListener('keydown', e => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= CFG.lock.pinCount) { e.shiftKey ? doRelease(n - 1) : doPush(n - 1); }
-  if (e.key === 's') { keyLook = true; look.holding = true; look.target = 180; }
+  if (e.key === 's') { keyLook = true; syncLook(); }
   if (e.key === ' ') { e.preventDefault(); document.getElementById('dump').click(); }
   if (e.key === 'd') { ui.devOn = !ui.devOn; $dev.style.display = ui.devOn ? 'block' : 'none'; }
   if (e.key === 'h') {
@@ -150,4 +153,4 @@ addEventListener('keydown', e => {
     buildPins(); renderPins();
   }
 });
-addEventListener('keyup', e => { if (e.key === 's') stopLook(); });
+addEventListener('keyup', e => { if (e.key === 's') { keyLook = false; syncLook(); } });
