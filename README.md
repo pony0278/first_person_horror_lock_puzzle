@@ -6,6 +6,7 @@
 （`main` 有新 commit 就自動重新發布；手機請橫向）
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
+v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
 目前階段：**F0**（單門原型，待實機測試與 5~8 人驗收）
 
 ## 自動化
