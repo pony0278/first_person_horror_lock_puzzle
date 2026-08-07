@@ -10,11 +10,12 @@ import { decay, decayGroup, reflection } from '../render/decay.js';
 import { repaint } from '../render/hintwall.js';
 import { monster } from '../render/monster.js';
 import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scene.js';
-import { R, ST, anim, intro, look, ui } from '../state.js';
+import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { beep } from './audio.js';
 
 /* ── 新回合 ─────────────────────────────────────────── */
 export function newRound() {
+  hooks.resetTransit?.();                      // 過場動過的東西先歸位
   R.lock = new LockState({ ...CFG.lock });
   R.timer.start(); R.elapsed = 0;
   R.over = false; R.won = false;
@@ -82,7 +83,16 @@ export function win() {
   R.over = true; R.won = true;
   beep('solved');
   const clutch = R.elapsed > CFG.round.limit;
-  endRound(clutch ? '極限逃脫' : '逃脫成功');
+  const msg = clutch ? '極限逃脫' : '逃脫成功';
+  if (hooks.startTransit) {
+    // v3 §3：成功不切黑 —— 統計照記，然後直接開門跑向門 2（game/transit.js）
+    if (R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
+    R.attempts.push({
+      won: true, sec: R.elapsed, look: R.lookTime / 1000,
+      jam: R.jamTime / 1000, errors: R.errorCount, msg,
+    });
+    hooks.startTransit();
+  } else endRound(msg);
 }
 
 export function primaryCause() {

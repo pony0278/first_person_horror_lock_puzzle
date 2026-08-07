@@ -41,3 +41,7 @@ export const pick = { x: 0, lift: 0 };
 /* 視角轉超過門檻時，下方停止接受輸入（設計文件 §5）。
    放在這裡而不是輸入模組 —— 它讀的是視角狀態，輸入層只是消費者。 */
 export const blind = () => Math.abs(look.yaw) > CFG.look.blindAt;
+
+/* 跨層回呼。round 在勝利時要啟動過場，但 transit 已 import round（拿 newRound），
+   round 再 import transit 就成循環 —— round 改呼叫這裡的掛鉤，transit 載入時填入。 */
+export const hooks = {};

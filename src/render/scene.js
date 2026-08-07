@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
 import { view } from '../dom.js';
-import { matCeil, matDoor, matFloor, matMetal, matWall } from './materials.js';
+import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
 
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
@@ -101,43 +101,52 @@ export const DW = W * 0.86, DH = 2.15, FRAME = 0.13;
   mk(W, H - DH - FRAME, 0, DH + FRAME + (H - DH - FRAME) / 2, 0.02, matWall);
 }
 
+/* 門片掛在鉸鍊組上才能擺開（F1 過場）。鉸鍊在左框內緣；
+   doorLeaf 把原點移回門中心，底下子物件沿用原本的座標。 */
+export const doorHinge = new THREE.Group();
+doorHinge.position.set(-DW / 2, 0, 0);
+door.add(doorHinge);
+export const doorLeaf = new THREE.Group();
+doorLeaf.position.set(DW / 2, 0, 0);
+doorHinge.add(doorLeaf);
+
 // 門片：往內凹 0.07，門面在 z = -0.07
 export const LEAF_Z = -0.07;
 export const panelMesh = new THREE.Mesh(boxGeo, matDoor);
 panelMesh.scale.set(DW, DH, 0.09);
 panelMesh.position.set(0, DH / 2, LEAF_Z - 0.045);
-door.add(panelMesh);
+doorLeaf.add(panelMesh);
 
 // 門片上的兩塊凹槽（工業門的壓紋），讓它讀得出是「一扇門」
 for (const [yy, hh] of [[DH * 0.70, DH * 0.34], [DH * 0.28, DH * 0.30]]) {
   const g = new THREE.Mesh(boxGeo, matDoor);
   g.scale.set(DW * 0.74, hh, 0.02);
   g.position.set(0, yy, LEAF_Z - 0.012);
-  door.add(g);
+  doorLeaf.add(g);
 }
 // 底部踢板
 {
   const kick = new THREE.Mesh(boxGeo, matMetal);
   kick.scale.set(DW * 0.94, 0.26, 0.015);
   kick.position.set(0, 0.14, LEAF_Z + 0.004);
-  door.add(kick);
+  doorLeaf.add(kick);
 }
 // 鉸鍊
 for (const yy of [DH * 0.16, DH * 0.5, DH * 0.86]) {
   const hg = new THREE.Mesh(boxGeo, matMetal);
   hg.scale.set(0.05, 0.16, 0.05);
   hg.position.set(-DW / 2 + 0.02, yy, LEAF_Z + 0.01);
-  door.add(hg);
+  doorLeaf.add(hg);
 }
 // 把手（壓下式）
 export let doorLever;
 {
   const rose = new THREE.Mesh(cylGeo, matMetal);
   rose.scale.set(0.055, 0.02, 0.055); rose.rotation.x = Math.PI / 2;
-  rose.position.set(0.60, 1.02, LEAF_Z + 0.012); door.add(rose);
+  rose.position.set(0.60, 1.02, LEAF_Z + 0.012); doorLeaf.add(rose);
   doorLever = new THREE.Mesh(boxGeo, matMetal);
   doorLever.scale.set(0.16, 0.032, 0.032);
-  doorLever.position.set(0.52, 1.02, LEAF_Z + 0.03); door.add(doorLever);
+  doorLever.position.set(0.52, 1.02, LEAF_Z + 0.03); doorLeaf.add(doorLever);
 }
 
 /* ── 鎖組：固定座（含基準刻痕）＋ 會轉的鎖芯 ─────────── */
@@ -166,18 +175,18 @@ export const matPlate = new THREE.MeshStandardMaterial({
 export const plate = new THREE.Mesh(cylGeo, matPlate);
 plate.scale.set(0.16, 0.022, 0.16); plate.rotation.x = Math.PI / 2;
 plate.position.set(LOCK_X, LOCK_Y, LEAF_Z + 0.012);
-door.add(plate);
+doorLeaf.add(plate);
 
 // 固定的基準刻痕：唯一能量出鎖芯轉角的東西（議題 10 的事實層）
 export const refMark = new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0xb9c0c8, roughness: .5 }));
 refMark.scale.set(0.014, 0.045, 0.016);
 refMark.position.set(LOCK_X, LOCK_Y + 0.145, LEAF_Z + 0.028);
-door.add(refMark);
+doorLeaf.add(refMark);
 
 // 會轉的鎖芯：鑰匙孔與工具都掛在它底下，所以一起轉
 export const cylinder = new THREE.Group();
 cylinder.position.set(LOCK_X, LOCK_Y, LEAF_Z + 0.026);
-door.add(cylinder);
+doorLeaf.add(cylinder);
 {
   const plug = new THREE.Mesh(cylGeo, matPlate);
   plug.scale.set(0.108, 0.016, 0.108); plug.rotation.x = Math.PI / 2;
@@ -286,6 +295,39 @@ cylinder.add(wrench);
 }
 
 /* ── 空氣中的灰塵：最便宜的陰森感 ─────────────────────── */
+/* ── 門後前室：開門後看得到的深度（F1 過場） ─────────────
+   平時整段藏在門片後面。左牆後半是開口 —— 「拐彎」的去向；
+   轉頭時前室端牆填滿視野，電力驟暗的瞬間完成場景換裝（見 game/transit.js）。 */
+export const vestibule = new THREE.Group();
+{
+  const VZ0 = -1.0, VL = 3.4;                  // 前室從門後延伸到 z = -4.4
+  const midZ = VZ0 - VL / 2;
+  const fl = new THREE.Mesh(planeGeo, matFloor);
+  fl.rotation.x = -Math.PI / 2; fl.scale.set(W, VL, 1);
+  fl.position.set(0, 0, midZ); vestibule.add(fl);
+  const ce = new THREE.Mesh(planeGeo, matCeil);
+  ce.rotation.x = Math.PI / 2; ce.scale.set(W, VL, 1);
+  ce.position.set(0, H, midZ); vestibule.add(ce);
+  // 右牆整段
+  const wr = new THREE.Mesh(planeGeo, matWall);
+  wr.rotation.y = -Math.PI / 2; wr.scale.set(VL, H, 1);
+  wr.position.set(W / 2, H / 2, midZ); vestibule.add(wr);
+  // 左牆只有前半，後半是轉角開口
+  const solid = 1.4;
+  const wl = new THREE.Mesh(planeGeo, matWall);
+  wl.rotation.y = Math.PI / 2; wl.scale.set(solid, H, 1);
+  wl.position.set(-W / 2, H / 2, VZ0 - solid / 2); vestibule.add(wl);
+  // 端牆：面向玩家，轉頭時填滿視野的那面
+  const back = new THREE.Mesh(planeGeo, matWall);
+  back.scale.set(W, H, 1);
+  back.position.set(0, H / 2, VZ0 - VL); vestibule.add(back);
+  // 開口外的黑：一大片吸光板，讓轉角看起來通向更深的地方
+  const void_ = new THREE.Mesh(planeGeo, matDark);
+  void_.rotation.y = Math.PI / 2; void_.scale.set(VL + 2, H + 1, 1);
+  void_.position.set(-W / 2 - 1.4, H / 2, midZ - 0.6); vestibule.add(void_);
+}
+scene.add(vestibule);
+
 export const dust = (() => {
   const N = 420, pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {

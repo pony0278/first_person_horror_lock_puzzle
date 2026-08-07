@@ -22,11 +22,13 @@ import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
 import './render/hintwall.js';
+import './render/electroroom.js';
 import './render/hands.js';
 import './game/audio.js';
 import './render/cutaway.js';
 import './render/viewport.js';
 import './game/round.js';
+import './game/transit.js';
 import './game/halt.js';
 import './game/input.js';
 import './game/loop.js';
@@ -38,6 +40,7 @@ import { door, doorLever, pickTool, renderer, scene, wrench } from './render/sce
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
+import { T } from './game/transit.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 
@@ -53,11 +56,14 @@ window.__probe = () => ({
   // 量「暫停期間有沒有漏秒」時那個落差會被誤判成漏秒。
   pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.timer.elapsed,
   over: R.over, yaw: look.yaw, intro: intro.active,
+  transit: T.phase, tz: +intro.z.toFixed(2), seep: T.seep,
   actx: audioState(),
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
 window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場景圖結構
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
+/* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
+window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };
 /* 直接跳到開場演出的結束狀態。
    演出是 dt 驅動的，低幀率下會等比拉長（見報告 M1）—— CI 的軟體渲染上
    本來 4.45 秒的演出可能跑掉快一分鐘，測試若用固定或有上限的等待，

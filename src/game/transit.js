@@ -1,0 +1,182 @@
+/* 門 1 → 門 2 過場（F1 切片）：開門 → 穿過門洞 → 轉角 → 經過變電室 → 停在門 2 前。
+ *
+ * 轉角是接縫，不是幾何（v3 §3 的討論）：轉頭時前室端牆填滿視野，
+ * 電力驟暗約 0.2 秒 —— 黑的那一瞬間把鏡頭傳回同一條直走廊的起點，
+ * 換上門 2 的裝扮（變電室上牆、衰變跳兩級、提示牆收走）。
+ * 驟暗不是欺騙：門 2 的主題就是電力（v3 §7），燈不穩是這段走廊的事實。
+ *
+ * 站位、怪物、回頭機制全部原封不動 —— 門 2 仍是一條直走廊。
+ * 真的彎的走廊要重寫整套站位系統，那是 F3 的事。
+ *
+ * 姿態借用 intro 的欄位（phase='handle' → 伸手、'run' → 奔跑），
+ * 但每幀積分全部在這裡做：R.over=true 讓 loop 裡的 intro 機器停著，不會搶。
+ */
+
+import { CFG } from '../logic/config.js';
+import { $fade } from '../dom.js';
+import { R, ST, hooks, intro, look } from '../state.js';
+import { doorHinge, keyEye, pickTool, wrench } from '../render/scene.js';
+import { marker, markerLight, paintPlane } from '../render/hintwall.js';
+import { decay, decayStages, reflection } from '../render/decay.js';
+import { monster } from '../render/monster.js';
+import { ELECTRO, electroRoom } from '../render/electroroom.js';
+import { beep } from './audio.js';
+import { newRound } from './round.js';
+
+const C = CFG.transit;
+const OPEN_RAD = 1.92;                       // 門片全開角（≈110°，貼向前室左牆）
+const ease = x => x * x * (3 - 2 * x);
+const ss = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+
+/** 過場狀態。phase: idle → open → through → corner → approach → arrive → done */
+export const T = { active: false, phase: 'idle', t: 0, dipT: -1, seep: 0 };
+
+export function startTransit() {
+  T.active = true; T.phase = 'open'; T.t = 0; T.dipT = -1;
+
+  // 姿態：站在門前，一手伸向門
+  intro.active = true; intro.phase = 'handle';
+  intro.t = 0; intro.z = 0; intro.bobPhase = 0; intro.bobY = 0; intro.roll = 0;
+  intro.arriveF = 1; intro.press = 0;
+  look.yaw = 0; look.target = 0; look.holding = false;
+
+  wrench.visible = pickTool.visible = false;   // 工具收起
+  monster.visible = false;                     // 贏了 —— 這一段不追
+  keyEye.visible = false;
+  reflection.mesh.visible = false;
+  ST.front = null; ST.blink = 0; ST.pendingJump = false; ST.phase = 'off';
+
+  beep('thunk');                               // 鎖舌退開
+}
+hooks.startTransit = startTransit;
+
+/** newRound 重置時呼叫：把過場動過的東西全部歸位。 */
+hooks.resetTransit = () => {
+  T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
+  swapped = false;
+  doorHinge.rotation.y = 0;
+  electroRoom.visible = false;
+  paintPlane.visible = true; marker.visible = true;
+  markerLight.color.set(0xd8b25a);
+  markerLight.position.copy(marker.position); markerLight.position.x += 0.12;
+  $fade.style.transition = '';
+};
+
+/* 電力驟暗：借 #fade 當黑幕。時序獨立於 phase，全黑的那一格做換裝。 */
+let swapped = false;
+function dip(dt) {
+  if (T.dipT < 0) return;
+  T.dipT += dt;
+  const { dipDown, dipHold, dipUp } = C;
+  if (T.dipT < dipDown) {
+    $fade.querySelector('div').textContent = '';
+    $fade.style.transition = 'opacity 60ms linear';
+    $fade.classList.add('on');
+  } else if (T.dipT < dipDown + dipHold) {
+    if (!swapped) { swapped = true; doSwap(); }
+  } else {
+    $fade.style.transition = `opacity ${Math.round(C.dipUp * 1000)}ms`;
+    $fade.classList.remove('on');
+    if (T.dipT > dipDown + dipHold + dipUp + 0.2) T.dipT = -1;
+  }
+}
+
+/* 場景換裝：只在全黑時執行一次。 */
+function doSwap() {
+  // 鏡頭傳回走廊起點，面向門 2
+  look.yaw = 0;
+  intro.phase = 'run';
+  intro.z = C.runFrom;
+  intro.arriveF = 0;
+  T.phase = 'approach'; T.t = 0;
+
+  doorHinge.rotation.y = 0;                    // 門 2 是關著的
+
+  // 門 2 廊道的裝扮：提示牆收走（門 2 不需要提示，v3 §8），變電室上牆
+  paintPlane.visible = false; marker.visible = false;
+  electroRoom.visible = true;
+  // 火花燈移到導管缺口 —— 亮的是缺的那一段
+  markerLight.color.set(0x9fd8ff);
+  markerLight.position.set(-CFG.world.corridorW / 2 + 0.35, ELECTRO.gapY, ELECTRO.gapZ);
+
+  // 環境衰變跳到門 2 等級（v3 §10：跨門累進）。
+  // 走既有的站位衰變機制，在黑幕下一次套完，避免裝飾在眼前突然出現。
+  ST.index = C.stationIndex;
+  ST.z = ST.targetZ = CFG.stations.z[0];       // 站位歸最遠 —— 這一段不追
+  while (decay.applied < ST.index) {
+    decayStages[decay.applied]?.();
+    decay.applied++;
+    T.seep = CFG.seep.level[decay.applied] ?? 0;
+    window.__applySeep(T.seep);
+  }
+}
+
+export function updateTransit(dt) {
+  if (!T.active) return;
+  T.t += dt;
+  dip(dt);
+
+  if (T.phase === 'open') {
+    const p = Math.min(1, T.t / C.openSec);
+    doorHinge.rotation.y = OPEN_RAD * ease(p);
+    intro.arriveF = 1 - p * 0.5;               // 視線抬平、站位偏移收回一半
+    if (p >= 1) { T.phase = 'through'; T.t = 0; intro.phase = 'run'; }
+  }
+
+  else if (T.phase === 'through') {
+    const p = Math.min(1, T.t / C.throughSec);
+    intro.z = -C.throughDist * ease(p);
+    intro.arriveF = Math.max(0, 0.5 - p);
+    intro.bobPhase += dt * CFG.intro.bobFreq * 0.85;
+    intro.bobY = Math.sin(intro.bobPhase * 2) * CFG.intro.bobAmp * 0.85;
+    intro.roll = Math.sin(intro.bobPhase) * CFG.intro.rollAmp * 0.85;
+    if (p >= 1) { T.phase = 'corner'; T.t = 0; }
+  }
+
+  else if (T.phase === 'corner') {
+    const p = Math.min(1, T.t / C.cornerSec);
+    look.yaw = C.cornerYaw * ease(p);          // 轉向左側開口
+    intro.bobY *= 0.9; intro.roll *= 0.9;
+    if (p >= 0.6 && T.dipT < 0 && !swapped) T.dipT = 0;   // 轉到一半，燈滅
+  }
+
+  else if (T.phase === 'approach') {
+    const p = Math.min(1, T.t / C.runSec);
+    intro.z = C.runFrom * Math.pow(1 - p, 1.55);
+    const speedF = 0.35 + (1 - p);
+    intro.bobPhase += dt * CFG.intro.bobFreq * speedF;
+    intro.bobY = Math.sin(intro.bobPhase * 2) * CFG.intro.bobAmp * speedF;
+    intro.roll = Math.sin(intro.bobPhase) * CFG.intro.rollAmp * speedF;
+    intro.arriveF = p * p;
+
+    // 經過變電室：頭轉過去（同 intro 的提示牆掃視，目標換成導管缺口）
+    const d = intro.z - C.electroZ;
+    const g = d >= C.glanceIn ? 0
+            : d >= C.glanceOut ? ss(C.glanceIn, C.glanceOut, d)
+            : d >= -0.7 ? 1
+            : d >= -1.5 ? ss(-1.5, -0.7, d)
+            : 0;
+    const ahead = Math.max(0.2, d);
+    look.yaw = Math.min(C.glanceMaxYaw,
+      (Math.atan2(CFG.world.corridorW / 2, ahead) * 180) / Math.PI) * g;
+
+    if (p >= 1) {
+      T.phase = 'arrive'; T.t = 0;
+      intro.phase = 'handle'; intro.z = 0; intro.arriveF = 1;
+      intro.bobY = 0; intro.roll = 0;
+      look.yaw = 0;
+      beep('tap');
+    }
+  }
+
+  else if (T.phase === 'arrive') {
+    if (T.t >= C.holdSec) {
+      T.phase = 'done';
+      swapped = false;
+      $fade.style.transition = '';
+      $fade.querySelector('div').textContent = '抵達門 2 —— 施工中';
+      $fade.classList.add('on');
+      setTimeout(newRound, C.restartMs);
+    }
+  }
+}

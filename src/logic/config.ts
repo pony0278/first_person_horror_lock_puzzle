@@ -33,6 +33,8 @@ export interface Config {
           blindAt: number };
   paint: { wallZ: number; width: number; height: number; baseY: number; erosion: number; drips: number };
   intro: IntroConfig;
+  /** 門 1 → 門 2 過場（F1 切片）。時間單位秒，角度單位度。 */
+  transit: TransitConfig;
   ui: { style: UiStyle };
   lamp: { z: number; y: number; intensity: number; color: number };
   stations: StationConfig;
@@ -50,6 +52,20 @@ export interface IntroConfig {
   glanceSlow: number; glanceMaxYaw: number;
   handleSec: number; toolSec: number;
   bobFreq: number; bobAmp: number; rollAmp: number;
+}
+
+export interface TransitConfig {
+  openSec: number; throughSec: number; throughDist: number;
+  cornerSec: number; cornerYaw: number;
+  /** 電力驟暗：下沉、全黑、回升（秒）。全黑的瞬間完成場景換裝。 */
+  dipDown: number; dipHold: number; dipUp: number;
+  runFrom: number; runSec: number;
+  /** 變電室在左牆的 z 位置與經過時的轉頭參數 */
+  electroZ: number; glanceMaxYaw: number; glanceIn: number; glanceOut: number;
+  holdSec: number;
+  /** 門 2 廊道套用的站位衰變等級（環境跨門累進，v3 §10） */
+  stationIndex: number;
+  restartMs: number;
 }
 
 export interface StationConfig {
@@ -110,6 +126,16 @@ export const CFG: Config = {
     handleSec: 1.3,      // 壓門把 ×2、拉不開
     toolSec: 0.95,       // 工具插入鎖孔的演出
     bobFreq: 6.0, bobAmp: 0.05, rollAmp: 0.9,
+  },
+  transit: {
+    openSec: 0.85, throughSec: 0.95, throughDist: 2.5,
+    cornerSec: 0.6, cornerYaw: 68,
+    dipDown: 0.10, dipHold: 0.10, dipUp: 0.24,
+    runFrom: 9, runSec: 3.4,
+    electroZ: 5.2, glanceMaxYaw: 52, glanceIn: 2.4, glanceOut: 1.0,
+    holdSec: 2.2,
+    stationIndex: 2,      // 門 2 廊道：滲液 0.55、燈 0.55 —— 世界在壞掉
+    restartMs: 1800,
   },
   ui:     { style: 'cutaway' },   // 'cutaway' | 'bars'（按 U 即時切換做 A/B）
   lamp:   { z: 14, y: 2.75, intensity: 2.6, color: 0x8fa3c0 },

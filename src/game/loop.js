@@ -13,6 +13,7 @@ import { R, ST, anim, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
 import { die } from './round.js';
+import { T, updateTransit } from './transit.js';
 
 /* ═══════════════════════════════════════════════════════════
    主迴圈
@@ -28,6 +29,9 @@ export function tick() {
   // 中斷期間不推進任何演出。clock.getDelta() 仍要照呼叫，
   // 否則恢復那一刻會累積出一個超大的 dt。
   if (interrupted()) dt = 0;
+
+  // 門與門之間的過場（R.over=true 期間由這裡驅動鏡頭與姿態）
+  if (T.active) updateTransit(dt);
 
   if (!R.over) {
     if (hd.on) R.timer.hold();                     // debug 中計時凍結

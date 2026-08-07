@@ -136,6 +136,12 @@ jobs:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/interrupt.mjs
 
+      - name: 門 1 → 門 2 過場
+        if: always()
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: node tools/devicetest/transit.mjs
+
       - name: 撞針可讀性（僅記錄）
         if: always()
         env:
