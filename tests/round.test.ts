@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HiddenTimer, primaryCause, stationThresholds } from '../src/logic/round';
+import { HiddenTimer, door2Cause, primaryCause, stationThresholds } from '../src/logic/round';
 
 /** 可控的時鐘，免得測試去睡真的秒數。 */
 function fakeClock() {
@@ -184,5 +184,15 @@ describe('失敗原因（§12：只講一個原因）', () => {
   it('剛好在門檻上不算 —— 要嚴格大於', () => {
     expect(primaryCause({ ...base, jamSec: 1.5 })).toBe('時間不夠');
     expect(primaryCause({ ...base, jamSec: 1.6 })).toBe('卡在假針太久');
+  });
+});
+
+describe('門 2 失敗原因', () => {
+  it('缺件還沒取回時點名取件太晚', () => {
+    expect(door2Cause(false)).toBe('你太晚去拿零件');
+  });
+
+  it('缺件已取回後只歸因時間不足', () => {
+    expect(door2Cause(true)).toBe('時間不夠');
   });
 });

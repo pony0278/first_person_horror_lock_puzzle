@@ -119,9 +119,9 @@ export function tick() {
   const camZ = intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(standX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
-  // 門 2 解謎期間 R.over 仍為 true（計時凍結），但面板要能操作 —— 回頭失能照舊。
+  // 回頭、運鏡、中斷或回合已結束時一律鎖住面板；門 2 現在與門 1 共用 R.over 語意。
   $panel.classList.toggle('blind',
-    blind() || (R.over && !D2.active) || intro.active || interrupted());
+    blind() || R.over || intro.active || interrupted());
 
   // 鎖芯：事實層。鑰匙孔與兩支工具都掛在它底下，一起轉。
   cylinder.rotation.z = -THREE.MathUtils.degToRad(R.lock.cylinderDeg);
@@ -301,7 +301,7 @@ export function tick() {
     //   運鏡中   = cinematic() —— 只有 transit 拉著鏡頭跑的那幾個階段，
     //              計時器凍結時牠不該出現（怪物是計時器的唯一顯示，§6，
     //              不動的怪物是謊言）。門 2 的互動階段不算運鏡，牠照站位規則走。
-    monster.visible = ((vis && ST.blink <= 0) || (R.over && !R.won)) && !cinematic();
+    monster.visible = ((!R.over && vis && ST.blink <= 0) || (R.over && !R.won)) && !cinematic();
 
     // 貼臉：位置、升起演出、微微逼近
     if (ST.phase === 'face') {

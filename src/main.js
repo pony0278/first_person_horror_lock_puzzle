@@ -63,7 +63,8 @@ window.__probe = () => ({
   // 在低幀率下（CI 的軟體渲染、多瀏覽器併行）會落後將近半秒，
   // 量「暫停期間有沒有漏秒」時那個落差會被誤判成漏秒。
   pins: R.lock.pins.slice(), progress: R.lock.progress, elapsed: R.timer.elapsed,
-  over: R.over, yaw: look.yaw, intro: intro.active,
+  over: R.over, won: R.won, paused: R.timer.paused, pauseReasons: R.timer.pauseReasons,
+  yaw: look.yaw, intro: intro.active,
   transit: T.phase, tz: +intro.z.toFixed(2), seep: T.seep, tug: T.tug,
   door: R.door, limit: R.limit, station: ST.index, decayFloor: decay.floor,
   monster: monster.visible, front: ST.front, frontT: +ST.frontT.toFixed(2),
@@ -98,9 +99,12 @@ window.__doorPanel = () => ({
   visible: doorPanel2.visible,
   mode: !doorPanel2.visible ? 'off' : lcdGreen.visible ? 'green' : 'red',
 });
-/* 直接觸發一次正面事件。時鐘還沒接上門 2 之前，正常路徑打不到 badge/glitch，
-   但畫面對不對現在就得驗 —— 不然那兩顆會像 eye/lever 一樣默默變成啞彈。 */
+/* 直接觸發一次正面事件：正常路徑要進入潛伏期才觸發，這個接點可個別驗素材生命期，
+   避免 badge / glitch 像收走的 eye / lever 一樣默默變成啞彈。 */
 window.__fireFront = kind => { ST.front = kind; ST.frontT = 0; };
+/* 計時／追逐驗收：加速到站位門檻，長流程測試期間可用具名原因暫停。 */
+window.__addThreatTime = seconds => R.timer.addPenalty(seconds);
+window.__setThreatPaused = on => on ? R.timer.pause('probe') : R.timer.resume('probe');
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };

@@ -134,3 +134,8 @@ export function primaryCause(input: CauseInput, thresholdSec = 1.5): string {
   const worst = [...candidates].sort((a, b) => b[1] - a[1])[0]!;
   return worst[1] > thresholdSec ? worst[0] : '時間不夠';
 }
+
+/** 門 2 沒有操作錯誤；死亡只區分是否把強制缺件拖到太晚。 */
+export function door2Cause(pieceRetrieved: boolean): string {
+  return pieceRetrieved ? '時間不夠' : '你太晚去拿零件';
+}

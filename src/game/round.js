@@ -3,7 +3,7 @@
 
 import { CFG } from '../logic/config.js';
 import { LockState } from '../logic/lock.js';
-import { primaryCause as primaryCauseOf, stationThresholds } from '../logic/round.js';
+import { door2Cause, primaryCause as primaryCauseOf, stationThresholds } from '../logic/round.js';
 import { $fade } from '../dom.js';
 import { buildPins, flashTrack, renderPins } from '../render/cutaway.js';
 import { decay, decayGroup, reflection } from '../render/decay.js';
@@ -13,17 +13,43 @@ import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scen
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { beep } from './audio.js';
 
-/* ── 新回合 ─────────────────────────────────────────── */
-export function newRound() {
-  hooks.resetTransit?.();                      // 過場動過的東西先歸位
-  R.door = 1; R.limit = CFG.round.limit;
-  R.lock = new LockState({ ...CFG.lock });
+const ROUND_PAUSE = 'round';
+
+/** 開始一扇門自己的威脅回合；跨門環境衰變由呼叫端保留。 */
+export function beginDoorRound(door, limit, frontPool) {
+  R.door = door; R.limit = limit;
+  R.timer.resume(ROUND_PAUSE);
   R.timer.start(); R.elapsed = 0;
   R.over = false; R.won = false;
   R.lookTime = 0; R.jamTime = 0; R.jamStart = 0;
   R.errorCount = 0; R.severeCount = 0;
   R.history = []; ui.sel = 0;
   look.yaw = 0; look.target = 0; look.holding = false;
+
+  const S = CFG.stations;
+  ST.thresholds = stationThresholds(S.hold, limit);
+  ST.index = 0; ST.z = S.z[0]; ST.targetZ = S.z[0];
+  monster.visible = false;
+  ST.moveT = 0; ST.pendingJump = false;
+  ST.stareT = 0; ST.blink = 0; ST.seen = false;
+  ST.phase = 'off'; ST.emptyGot = 0; ST.glanceT = 0; ST.counted = false;
+  ST.faceT = 0; ST.faceMode = 0; ST.readyOff = false; ST.armedT = 0;
+  ST.front = null; ST.frontT = 0; ST.frontCool = 0;
+  ST.frontLeft = S.frontMin + Math.floor(Math.random() * (S.frontMax - S.frontMin + 1));
+  ST.frontPool = frontPool.slice().sort(() => Math.random() - 0.5);
+  keyEye.visible = false;
+  reflection.mesh.visible = false; reflection.mat.opacity = 0;
+  ST.emptyNeed = S.lurkEmptyMin +
+    Math.floor(Math.random() * (S.lurkEmptyMax - S.lurkEmptyMin + 1));
+  R.nextKick = CFG.dread.kickbackSec;
+  R.nextDrop = CFG.dread.dropSec;
+}
+
+/* ── 新回合 ─────────────────────────────────────────── */
+export function newRound() {
+  hooks.resetTransit?.();                      // 過場動過的東西先歸位
+  R.lock = new LockState({ ...CFG.lock });
+  beginDoorRound(1, CFG.round.limit, ['eye', 'refl', 'lever']);
 
   R.lock.on('set', () => beep('set'));
   R.lock.on('falseSet', () => { beep('falseSet'); R.jamStart = performance.now(); });
@@ -40,30 +66,12 @@ export function newRound() {
   });
   R.lock.on('solved', () => win());
 
-  // 站位時刻表：把 hold 比例累加成切換時間點。總時間守恆（議題 14）
-  const S = CFG.stations;
-  ST.thresholds = stationThresholds(S.hold, R.limit);
-  ST.index = 0; ST.z = S.z[0]; ST.targetZ = S.z[0];
   decay.applied = 0; decay.floor = 0;
   window.__applySeep(0);
   for (const m of decayGroup.children) m.visible = false;
   decayGroup.userData.farLight.intensity = 1.0;
   decayGroup.userData.farTube.material.color.set(0x93a4bd);
   scene.fog.density = CFG.fog.density;
-  monster.visible = false;
-  ST.moveT = 0; ST.pendingJump = false;
-  ST.stareT = 0; ST.blink = 0; ST.seen = false;
-  ST.phase = 'off'; ST.emptyGot = 0; ST.glanceT = 0; ST.counted = false;
-  ST.faceT = 0; ST.faceMode = 0; ST.readyOff = false; ST.armedT = 0;
-  ST.front = null; ST.frontT = 0; ST.frontCool = 0;
-  ST.frontLeft = S.frontMin + Math.floor(Math.random() * (S.frontMax - S.frontMin + 1));
-  ST.frontPool = ['eye', 'refl', 'lever'].sort(() => Math.random() - 0.5);  // 每局輪替順序
-  keyEye.visible = false;
-  reflection.mesh.visible = false; reflection.mat.opacity = 0;
-  ST.emptyNeed = S.lurkEmptyMin +
-    Math.floor(Math.random() * (S.lurkEmptyMax - S.lurkEmptyMin + 1));
-  R.nextKick = CFG.dread.kickbackSec;
-  R.nextDrop = CFG.dread.dropSec;
 
   buildPins(); renderPins();
   repaint();
@@ -78,25 +86,45 @@ export function newRound() {
   $fade.classList.remove('on');
 }
 
+function freezeDoor(won) {
+  R.elapsed = R.timer.elapsed;
+  R.timer.pause(ROUND_PAUSE);
+  R.over = true; R.won = won;
+}
+
+function recordAttempt(msg) {
+  if (R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
+  R.attempts.push({
+    won: R.won, sec: R.elapsed, look: R.lookTime / 1000,
+    jam: R.jamTime / 1000, errors: R.errorCount, msg,
+  });
+}
+
 /* ── 結束 ───────────────────────────────────────────── */
 export function win() {
   if (R.over) return;
-  R.over = true; R.won = true;
+  freezeDoor(true);
   beep('solved');
   const clutch = R.elapsed > R.limit;
   const msg = clutch ? '極限逃脫' : '逃脫成功';
   if (hooks.startTransit) {
     // v3 §3：成功不切黑 —— 統計照記，然後直接開門跑向門 2（game/transit.js）
-    if (R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
-    R.attempts.push({
-      won: true, sec: R.elapsed, look: R.lookTime / 1000,
-      jam: R.jamTime / 1000, errors: R.errorCount, msg,
-    });
+    recordAttempt(msg);
     hooks.startTransit();
   } else endRound(msg);
 }
 
+/** 門 2 通電：凍結威脅並記錄，但讓門 2 自己播完電磁閂演出。 */
+export function completeDoor() {
+  if (R.over) return false;
+  freezeDoor(true);
+  beep('solved');
+  recordAttempt(R.elapsed > R.limit ? '極限通電' : '通電成功');
+  return true;
+}
+
 export function primaryCause() {
+  if (R.door === 2) return door2Cause(Boolean(hooks.door2HasPiece?.()));
   return primaryCauseOf({
     jamSec: R.jamTime / 1000,
     lookSec: R.lookTime / 1000,
@@ -107,17 +135,13 @@ export function primaryCause() {
 
 export function die() {
   if (R.over) return;
-  R.over = true; R.won = false;
+  freezeDoor(false);
   beep('death');
   endRound(primaryCause());
 }
 
 export function endRound(msg) {
-  if (R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
-  R.attempts.push({
-    won: R.won, sec: R.elapsed, look: R.lookTime / 1000,
-    jam: R.jamTime / 1000, errors: R.errorCount, msg,
-  });
+  recordAttempt(msg);
   $fade.querySelector('div').textContent = msg;
   $fade.classList.add('on');
   setTimeout(newRound, 1500);

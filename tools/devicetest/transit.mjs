@@ -80,7 +80,14 @@ const waitPhase = async (name, timeout = 60000) => {
 
 check('過場已啟動', ['open', 'through', 'corner'].includes(await phase()),
   `phase=${await phase()}`);
-check('勝利後 R.over 維持（計時凍結）', await page.evaluate(() => window.__probe().over), 'over=true');
+const transitClock0 = await page.evaluate(() => window.__probe());
+await page.waitForTimeout(350);
+const transitClock1 = await page.evaluate(() => window.__probe());
+check('門間奔跑維持回合凍結', transitClock1.over && transitClock1.paused &&
+  transitClock1.pauseReasons.includes('round'),
+  `over=${transitClock1.over} paused=${transitClock1.pauseReasons.join(',')}`);
+check('門間奔跑不偷吃下一扇門時間', Math.abs(transitClock1.elapsed - transitClock0.elapsed) < 0.15,
+  `elapsed ${transitClock0.elapsed.toFixed(2)} → ${transitClock1.elapsed.toFixed(2)}`);
 
 await waitPhase('approach');
 
@@ -120,9 +127,27 @@ check('怪物站位從最遠重新開始', s0.station === 0, `station=${s0.stati
 // T.active 在 door2 階段仍為 true —— 拿它當「運鏡中」會讓怪物永遠隱形
 check('門 2 互動階段怪物不再被強制隱形', s0.monster === false,
   `monster=${s0.monster}（站位 0 本來就看不到，但不是被 T.active 壓住的）`);
+check('門 2 抵達後正式放行回合', !s0.over && !s0.won && !s0.paused,
+  `over=${s0.over} won=${s0.won} paused=${s0.pauseReasons.join(',')}`);
+check('門 2 使用獨立 20 秒且從零開始', s0.limit === 20 && s0.elapsed < 1.5,
+  `elapsed=${s0.elapsed.toFixed(2)} limit=${s0.limit}`);
+const door2Clock0 = s0.elapsed;
+await page.waitForTimeout(450);
+const door2Clock1 = await page.evaluate(() => window.__probe().elapsed);
+check('門 2 隱藏計時器會前進', door2Clock1 - door2Clock0 > 0.2,
+  `elapsed ${door2Clock0.toFixed(2)} → ${door2Clock1.toFixed(2)}`);
+await page.evaluate(() => window.__addThreatTime(5.3));
+await page.waitForFunction(() => window.__probe().station >= 1, null, { timeout: 15000 });
+const chase1 = await page.evaluate(() => window.__probe());
+check('門 2 計時跨門檻會推進怪物站位', chase1.station === 1,
+  `station=${chase1.station} elapsed=${chase1.elapsed.toFixed(2)}`);
+check('門 2 第一站怪物實際加入追逐', chase1.monster === true,
+  `monster=${chase1.monster} station=${chase1.station}`);
+// 後續輸入路徑與動畫在 SwiftShader 上較慢；用具名測試原因暫停，避免驗收互相干擾。
+await page.evaluate(() => window.__setThreatPaused(true));
 
 /* 門 2 專屬的正面事件：門 2 沒有鑰匙孔也沒有拉把，eye / lever 會是啞彈。
-   時鐘還沒接上，正常路徑打不到，用 __fireFront 直接驗生命期。
+   正常路徑要進入潛伏期才觸發；這裡用 __fireFront 個別驗兩種素材的完整生命期。
    等待一律用 frontT（動畫時間）—— 這裡是軟體渲染，dt 被夾在 0.05，
    動畫比真實時間慢好幾倍（M1）。 */
 for (const kind of ['badge', 'glitch']) {
@@ -197,6 +222,7 @@ const pp1 = await pipe();
 check('零件自動落入空槽', pp1.slot === null, `cost=${pp1.cost}`);
 check('落槽是歪的 —— 還得再轉（v3 §4）', !pp1.solved && pp1.cost >= 1, `cost=${pp1.cost}`);
 
+await page.evaluate(() => window.__setThreatPaused(false));
 const done1 = await solvePipe();
 check('點轉管格到通電', done1.solved === true, `chain=${done1.chain}`);
 
@@ -205,6 +231,15 @@ try {
   await page.waitForFunction(() => window.__doorPanel().mode === 'green', null, { timeout: 15000 });
   check('通電後 LCD 跳綠', true, 'mode=green');
 } catch { check('通電後 LCD 跳綠', false, `mode=${await page.evaluate(() => window.__doorPanel().mode)}`); }
+
+const door2Win0 = await page.evaluate(() => window.__probe());
+check('通電瞬間凍結門 2 回合', door2Win0.over && door2Win0.won && door2Win0.paused &&
+  door2Win0.pauseReasons.includes('round'),
+  `over=${door2Win0.over} won=${door2Win0.won} paused=${door2Win0.pauseReasons.join(',')}`);
+await page.waitForTimeout(350);
+const door2Win1 = await page.evaluate(() => window.__probe().elapsed);
+check('通電演出期間牆鐘停止', Math.abs(door2Win1 - door2Win0.elapsed) < 0.15,
+  `elapsed ${door2Win0.elapsed.toFixed(2)} → ${door2Win1.toFixed(2)}`);
 
 await waitPhase('done');
 
@@ -218,10 +253,11 @@ try {
     seep: window.__probe().seep,
     elapsed: window.__probe().elapsed,
     tug: window.__probe().tug,
+    paused: window.__probe().paused,
   }));
   const dpReset = await page.evaluate(() => window.__doorPanel());
   const sReset = await page.evaluate(() => window.__probe());
-  check('自動重開且歸位', reset.tug === 0 && !dpReset.visible,
+  check('自動重開且歸位', reset.tug === 0 && !reset.paused && !dpReset.visible,
     `seep=${reset.seep} tug=${reset.tug} lcd=${dpReset.mode} elapsed=${reset.elapsed.toFixed(2)}`);
   check('門身分與衰變下限跨局重置', sReset.door === 1 && sReset.decayFloor === 0,
     `door=${sReset.door} floor=${sReset.decayFloor}`);
@@ -235,6 +271,7 @@ await page.waitForTimeout(300);
 await page.evaluate(() => window.__solveDoor1());
 try {
   await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
+  await page.evaluate(() => window.__setThreatPaused(true));
   await page.mouse.move(422, 110);
   await page.mouse.down();
   await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130, null, { timeout: 30000 });
@@ -255,6 +292,7 @@ try {
   check('右鍵路徑也會脫落', true, `phase=${await phase()}`);
   await page.waitForFunction(() => { const p = window.__pipe(); return p && p.slot === null; },
     null, { timeout: 30000 });
+  await page.evaluate(() => window.__setThreatPaused(false));
   const done2 = await solvePipe();
   check('第二趟盤面同樣可解到通電', done2.solved === true, `chain=${done2.chain}`);
 } catch {
@@ -269,6 +307,7 @@ await page.waitForTimeout(300);
 await page.evaluate(() => window.__solveDoor1());
 try {
   await page.waitForFunction(() => window.__probe().transit === 'door2', null, { timeout: 90000 });
+  await page.evaluate(() => window.__setThreatPaused(true));
 
   /* 中文輸入法開著時按 S：e.key 是 'Process'，只有 e.code 還是 'KeyS'。
      使用者實測就是栽在這裡 —— 用合成事件直接模擬輸入法狀態。 */
@@ -325,6 +364,33 @@ try {
     () => ['grab', 'retrieved', 'done', 'idle', 'door2'].includes(window.__probe().transit),
     null, { timeout: 30000 });
   check('一指路徑也會脫落', true, `phase=${await phase()}`);
+
+  // 取回零件後故意耗盡門 2 時限：驗死亡、死因、牆鐘凍結與整局重開。
+  await page.waitForFunction(() => { const p = window.__pipe(); return p && p.slot === null; },
+    null, { timeout: 30000 });
+  await page.evaluate(() => {
+    window.__setThreatPaused(false);
+    window.__addThreatTime(25);
+  });
+  await page.waitForFunction(() => window.__probe().over, null, { timeout: 30000 });
+  const dead0 = await page.evaluate(() => ({
+    ...window.__probe(), msg: document.querySelector('#fade div')?.textContent || '',
+  }));
+  check('門 2 超時會被怪物殺死並凍結牆鐘', !dead0.won && dead0.paused &&
+    dead0.pauseReasons.includes('round'),
+    `over=${dead0.over} won=${dead0.won} paused=${dead0.pauseReasons.join(',')}`);
+  check('零件已取回後死因是時間不夠', dead0.msg === '時間不夠', `msg=${dead0.msg}`);
+  await page.waitForTimeout(350);
+  const dead1 = await page.evaluate(() => window.__probe().elapsed);
+  check('死亡結算期間牆鐘停止', Math.abs(dead1 - dead0.elapsed) < 0.15,
+    `elapsed ${dead0.elapsed.toFixed(2)} → ${dead1.toFixed(2)}`);
+  await page.waitForFunction(() => {
+    const p = window.__probe();
+    return p.transit === 'idle' && !p.over;
+  }, null, { timeout: 30000 });
+  const afterDeath = await page.evaluate(() => window.__probe());
+  check('門 2 死亡後整局重開且解除回合暫停', afterDeath.door === 1 && !afterDeath.paused,
+    `door=${afterDeath.door} paused=${afterDeath.pauseReasons.join(',')}`);
 } catch {
   check('第二趟取件（桌機＋一指）', false, `逾時（phase=${await phase()}）`);
 }

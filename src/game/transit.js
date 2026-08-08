@@ -207,7 +207,7 @@ export function updateTransit(dt) {
   else if (T.phase === 'arrive') {
     if (T.t >= C.holdSec) {
       // 交還視角控制：intro.active=false 讓上方的「按住＝回頭」重新生效。
-      // R.over 維持 true —— 撬鎖面板仍然停用、計時器仍然凍結。
+      // startDoor2 會在盤面上桌的同一刻放行 R.over，重開門 2 的隱藏計時與追逐。
       T.phase = 'door2'; T.t = 0;
       intro.active = false;
       hooks.startDoor2?.();                   // 盤面上桌（game/door2.js）

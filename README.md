@@ -7,7 +7,7 @@
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
 v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
-目前階段：**F1 門 2 垂直切片**（F0 已完成；門 2 可解，計時器與怪物追逐待接；門 3 尚未實作）
+目前階段：**F1 門 2 垂直切片**（F0 已完成；門 2 管線、20 秒隱藏計時與怪物追逐已接通；門 3 尚未實作）
 
 ## 自動化
 
@@ -17,8 +17,8 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、78 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（42 項），共 130 項 | **否** |
+| **建置與發布** | `npm run check`（型別、相依分層、80 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（59 項），共 147 項 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
@@ -119,13 +119,13 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 | H5 | 資源依賴 CDN，離線白畫面 | 已修（建置內嵌） |
 
 v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` 保留作真機回歸清單。
-目前的下一步是替門 2 接回隱藏計時器與怪物追逐，再進入門 3。
+目前的下一步是用真機與小規模玩家驗收調校門 2 的 20 秒壓力，再進入門 3。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 78 個單元測試
+npm run check      # 型別 + 相依分層 + 80 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
-F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 42 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 59 項
 ```
