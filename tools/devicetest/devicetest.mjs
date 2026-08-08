@@ -3,6 +3,7 @@
    只驗證機器測得出來的部分；主觀項目（發熱、戶外可辨識度）留給真機。 */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /* CI 上沒有這個環境預裝的 Chromium，交給 Playwright 用它自己管理的那份
    （executablePath 給 undefined 就是這個意思）。本機則沿用預裝的，省下載。 */
@@ -11,7 +12,7 @@ const chromiumPath = process.env.CHROMIUM_PATH
   || (fs.existsSync(LOCAL_CHROMIUM) ? LOCAL_CHROMIUM : undefined);
 
 const PAGE_URL = process.env.F0_URL || 'http://127.0.0.1:8100/f0.html';
-const OUT = new URL('./build/shots', import.meta.url).pathname;
+const OUT = fileURLToPath(new URL('./build/shots/', import.meta.url));
 fs.mkdirSync(OUT, { recursive: true });
 
 const PROFILES = [

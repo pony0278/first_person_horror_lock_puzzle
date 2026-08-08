@@ -1,6 +1,7 @@
 /* 第三輪：音訊自動播放政策 + WebGL context loss + 面板高度修正驗證 */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /* CI 上沒有這個環境預裝的 Chromium，交給 Playwright 用它自己管理的那份
    （executablePath 給 undefined 就是這個意思）。本機則沿用預裝的，省下載。 */
@@ -103,7 +104,7 @@ console.log('\n──── B. WebGL context loss 恢復 ────');
   const state = await page.evaluate(() => window.__probe?.() ?? null);
   console.log(`  遊戲狀態是否存活: ${state ? `是（over=${state.over}, intro=${state.intro}）` : '無 probe'}`);
   console.log(`  錯誤訊息(${errs.length}):`, errs.slice(0, 4).join(' | ') || '無');
-  await page.screenshot({ path: new URL('./build/shots/contextlost.png', import.meta.url).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('./build/shots/contextlost.png', import.meta.url)) });
   await browser.close();
 }
 

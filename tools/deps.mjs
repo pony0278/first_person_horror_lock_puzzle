@@ -11,11 +11,15 @@ import path from 'node:path';
 
 const SRC = 'src';
 const files = new Map();
+/* Module IDs follow ES module specifiers and always use POSIX separators.
+   Normalize Windows paths before layer and import-graph checks. */
+const moduleId = p => p.split(path.sep).join('/');
+
 const walk = d => {
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     const p = path.join(d, e.name);
     if (e.isDirectory()) walk(p);
-    else if (/\.(js|ts)$/.test(e.name)) files.set(path.relative(SRC, p), fs.readFileSync(p, 'utf-8'));
+    else if (/\.(js|ts)$/.test(e.name)) files.set(moduleId(path.relative(SRC, p)), fs.readFileSync(p, 'utf-8'));
   }
 };
 walk(SRC);
@@ -36,7 +40,7 @@ for (const [f, body] of files) {
   const deps = new Set();
   const re = /(?:from\s+|^\s*import\s+)'(\.[^']+)'/gm;
   for (const m of body.matchAll(re)) {
-    let t = path.normalize(path.join(path.dirname(f), m[1]));
+    let t = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
     if (!files.has(t) && files.has(t.replace(/\.js$/, '.ts'))) t = t.replace(/\.js$/, '.ts');
     if (files.has(t)) deps.add(t);
   }

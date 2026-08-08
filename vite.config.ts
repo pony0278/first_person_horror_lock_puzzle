@@ -16,6 +16,5 @@ export default defineConfig({
     // three.js 是唯一的大型相依，全部內嵌
     assetsInlineLimit: 100_000_000,
     chunkSizeWarningLimit: 4000,
-    rollupOptions: { output: { inlineDynamicImports: true } },
   },
 });

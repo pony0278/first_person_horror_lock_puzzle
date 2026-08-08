@@ -12,13 +12,14 @@
  */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const chromiumPath = process.env.CHROMIUM_PATH
   || (fs.existsSync(LOCAL_CHROMIUM) ? LOCAL_CHROMIUM : undefined);
 
 const PAGE_URL = process.env.F0_URL || 'http://127.0.0.1:8100/index.html';
-const OUT = new URL('./build/shots', import.meta.url).pathname;
+const OUT = fileURLToPath(new URL('./build/shots/', import.meta.url));
 fs.mkdirSync(OUT, { recursive: true });
 
 let failures = 0;

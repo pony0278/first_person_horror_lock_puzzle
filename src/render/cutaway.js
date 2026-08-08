@@ -270,7 +270,7 @@ export function renderPins() {
     const pin = tr.querySelector('.pin');
     pin.style.bottom = `calc(${frac * 100}% * 0.80 + 2px)`;
     pin.style.opacity = frac === 0 ? .55 : 1;
-    tr.classList.toggle('ui.sel', i === ui.sel);
+    tr.classList.toggle('sel', i === ui.sel);
   });
 
   $seq.innerHTML = R.history.length

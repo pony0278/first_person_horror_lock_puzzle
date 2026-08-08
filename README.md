@@ -7,7 +7,7 @@
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
 v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
-目前階段：**F0**（單門原型，待實機測試與 5~8 人驗收）
+目前階段：**F1 門 2 垂直切片**（F0 已完成；門 2 可解，計時器與怪物追逐待接；門 3 尚未實作）
 
 ## 自動化
 
@@ -17,14 +17,16 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、38 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（14 項），跑真 Chromium + 軟體渲染 WebGL | **否** |
+| **建置與發布** | `npm run check`（型別、相依分層、78 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（42 項），共 130 項 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
 網站壞掉的成本是再推一次；擋住發布的成本是每次都要等。
 
 ## 快速開始
+
+需要 Node.js 20.19.x 或 22.12 以上；CI 固定使用 Node 22。
 
 ```bash
 npm install
@@ -48,18 +50,24 @@ src/
     round.ts                隱藏計時器、站位時刻表、失敗原因
     glyphs.ts               撞針的顏色＋形狀符號（§8）
     rng.ts                  可重現亂數
+    pipe.ts                 門 2 管線盤面、連通判定、盤面池與求解
   render/                 ── 場景建構與繪製 ──
     materials.js            程序化材質
     scene.js                走廊、門、鎖芯、工具
     monster.js              怪物網格
     decay.js                緊急照明、滲液、積水、倒影
     hintwall.js             提示牆、手電筒、暗角
+    electroroom.js          門 2 變電室與可取回導管
+    doorpanel.js            門 2 LCD 與損壞讀卡機
     hands.js                雙手 IK
     cutaway.js              下方面板的機構剖面圖
+    pipeboard.js            門 2 管線盤面繪製
     viewport.js             尺寸對齊
   game/                   ── 流程 ──
     audio.js                Web Audio 即時合成
     round.js                回合生命週期
+    transit.js              門 1 → 門 2 過場與取件狀態機
+    door2.js                門 2 管線流程
     halt.js                 中斷（切背景、context 遺失）
     input.js                觸控與鍵盤
     loop.js                 主迴圈
@@ -70,7 +78,7 @@ docs/                     設計文件與測試報告
 
 相依方向是單向的：`logic → state/dom → render → game → main`，沒有循環。
 `node tools/deps.mjs` 會驗證這兩件事並列出各模組行數，有違規就以結束碼 1 收場。
-最大的單一檔案是 420 行 —— 拆分前是一個 2670 行的 `main.js`。
+目前最大的單一檔案約 450 行 —— 拆分前是一個 2670 行的 `main.js`。
 
 
 凍結的 v28 單檔原型不再放在工作目錄裡（它會與 `src/` 產生兩份會漂移的同源程式碼）。
@@ -90,12 +98,12 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 場景 300 行）—— 這類程式碼的失效模式是「看起來不對」，不是型別錯誤，
 型別標註在上面收不到什麼，改動風險卻很高。
 
-反過來，`src/logic/` 是 F1 唯一會長大的地方：三扇門、滑落針、雙生針、多假針、
-六針全都是撞針狀態機的規則變體（§7）。所以型別與測試集中在這裡。
+反過來，`src/logic/` 已包含撬鎖、隱藏計時器與門 2 管線等會持續成長的規則，
+這些純邏輯都使用型別與單元測試保護。
 
-渲染層的 TS 化留到 F1 開工時再評估。
+渲染層仍維持 JavaScript；新增玩法時再按實際收益評估是否逐步 TS 化。
 
-## F0 現況
+## 開發現況
 
 `docs/f0_device_test_report.md` 有完整的發現與證據。摘要：
 
@@ -110,13 +118,14 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 | H4 | 洩壓鈕 66×27px，低於 44×44 | 已修（→ 70×44px） |
 | H5 | 資源依賴 CDN，離線白畫面 | 已修（建置內嵌） |
 
-自動化階段沒有已知未處理項目。下一步是拿真機跑 `docs/f0_device_test_checklist.md`，
-再做 5~8 人驗收（設計文件 §17）。
+v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` 保留作真機回歸清單。
+目前的下一步是替門 2 接回隱藏計時器與怪物追逐，再進入門 3。
 
 ```bash
-npm run check      # 型別 + 37 個單元測試
+npm run check      # 型別 + 相依分層 + 78 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
-F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 14 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 42 項
 ```
