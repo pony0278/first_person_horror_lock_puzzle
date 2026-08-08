@@ -28,7 +28,7 @@ export const R = {
      limit：這一扇門的隱藏時限 —— 站位門檻、超時判定、極限成功都讀它，
      不再直接讀 CFG.round.limit（三扇門各有各的長度，v3 §3）。 */
   door: 1, limit: CFG.round.limit,
-  lock: null, timer: new HiddenTimer(), elapsed: 0, over: false, won: false,
+  lock: null, puzzle: null, timer: new HiddenTimer(), elapsed: 0, over: false, won: false,
   lookTime: 0, jamTime: 0, jamStart: 0, errorCount: 0, severeCount: 0,
   history: [], attempts: [],
 };

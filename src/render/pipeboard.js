@@ -28,6 +28,7 @@ const C = {
 export const PB = {
   lit: 0, prevLen: 0,
   sparkT: 0,                 // 前緣電弧的節拍器（0.6s 一閃）
+  cueT: -1, cueSerial: 0,    // 缺件診斷脈衝；上桌與點空槽時重播
   ang: [], target: [],       // 每格的顯示角度與目標角度（度）—— 轉起來才像動手
   dropT: -1, dropCell: -1,   // 取回的零件落槽動畫
   latchT: 0,                 // 電磁閂退開
@@ -35,6 +36,20 @@ export const PB = {
   onAdvance: null,
 };
 
+const MISSING_CUE_SEC = 1.15;
+
+/** 重播缺件診斷脈衝；只強調空槽與所缺管型，不洩漏正確路徑。 */
+export function cueMissingPiece() {
+  PB.cueT = 0;
+  PB.cueSerial++;
+}
+
+/** 目前缺件脈衝強度（0~1），供盤面與身後缺口燈共用同一拍。 */
+export function missingCueLevel() {
+  if (PB.cueT < 0) return 0;
+  const life = Math.max(0, 1 - PB.cueT / MISSING_CUE_SEC);
+  return life * (0.68 + 0.32 * Math.cos(PB.cueT * 18) ** 2);
+}
 export function sizePipe() {
   const dpr = Math.min(devicePixelRatio, 2);
   pipeCanvas.width = $pins.clientWidth * dpr;
@@ -50,6 +65,7 @@ export function showPipe(board) {
   sizePipe();
   PB.lit = 0; PB.prevLen = 0; PB.sparkT = 0;
   PB.dropT = -1; PB.dropCell = -1; PB.latchT = 0;
+  cueMissingPiece();
   PB.ang = board.cells.map(c => c.rot * 90);
   PB.target = [...PB.ang];
 }
@@ -204,16 +220,19 @@ export function drawPipe(board, dt, dimF = 1) {
     }
 
     if (c.kind === 'empty') {
-      // 空槽：虛線框＋所缺管型的殘影，呼吸頻率跟牆上鬆脫段的邊緣光同拍（3.4）——
-      // 「這裡缺的」和「那裡拿的」是同一件事，用同一個節奏講。
+      // 空槽平時慢呼吸；上桌或玩家點空槽時，診斷脈衝把同一個管型短暫描亮。
+      // 它只說「這裡缺東西」，不沿解答路徑畫光，避免把正確轉法直接送給玩家。
       const breathe = 0.30 + 0.18 * (0.5 + 0.5 * Math.sin(performance.now() / 1000 * 3.4));
+      const cue = missingCueLevel();
       ctx.save(); ctx.translate(cx, cy);
-      ctx.globalAlpha = Math.max(unlit * breathe, 0.14);
+      ctx.globalAlpha = Math.max(unlit * breathe, 0.14, cue * 0.92);
       ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = C.ghost; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = cue > 0 ? C.live : C.ghost;
+      ctx.lineWidth = 1.5 + cue * 2.5;
       ctx.strokeRect(-cell * 0.40, -cell * 0.40, cell * 0.80, cell * 0.80);
-      strokePipe(c.slot ?? 'straight', cell * 0.9, pw * 0.8, C.ghost);
       ctx.setLineDash([]);
+      strokePipe(c.slot ?? 'straight', cell * 0.9, pw * 0.8 + cue * 5, cue > 0 ? C.liveHalo : C.ghost);
+      if (cue > 0) strokePipe(c.slot ?? 'straight', cell * 0.9, pw * 0.25, C.liveCore);
       ctx.restore(); ctx.globalAlpha = 1;
       continue;
     }
@@ -284,4 +303,8 @@ export function drawPipe(board, dt, dimF = 1) {
   }
 
   if (PB.dropT >= 0) PB.dropT += dt;
+  if (PB.cueT >= 0) {
+    PB.cueT += dt;
+    if (PB.cueT >= MISSING_CUE_SEC) PB.cueT = -1;
+  }
 }

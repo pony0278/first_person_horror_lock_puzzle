@@ -28,7 +28,7 @@ export interface Config {
   fog: { density: number; color: number };
   vig: { inner: number; outer: number };
   world: { seed: number; corridorW: number; corridorH: number; segLen: number; segCount: number };
-  look: { returnSpeed: number;
+  look: { returnSpeed: number; hintYaw: number;
           /** 視角轉超過這個角度，下方停止接受輸入（§5）。 */
           blindAt: number };
   paint: { wallZ: number; width: number; height: number; baseY: number; erosion: number; drips: number };
@@ -95,6 +95,8 @@ export interface StationConfig {
   frontDurBadge: number; frontDurGlitch: number;
   /** 各站位停留的時間比例，**總和必須為 1**（§6 總時間守恆，由 stationThresholds 檢查）。 */
   hold: number[];
+  /** 門 2 的閱讀型追逐曲線：同為 20 秒，但把第一次可見延後到 7 秒。 */
+  door2Hold: number[];
   settleMs: number;
 }
 
@@ -123,10 +125,10 @@ export const CFG: Config = {
   fog:    { density: 0.045, color: 0x05060a },
   vig:    { inner: 0.34, outer: 0.98 },
   world:  { seed: 1337, corridorW: 2.4, corridorH: 3.0, segLen: 4.0, segCount: 8 },
-  look:   { returnSpeed: 10, blindAt: 60 },
+  look:   { returnSpeed: 10, hintYaw: 134, blindAt: 60 }, // 門 1 對準門前左牆；門 2 仍看正後方
   paint:  {
-    wallZ: 4.6,          // 油漆在身後幾公尺的左牆上
-    width: 1.7, height: 1.05, baseY: 1.45,
+    wallZ: 1.5,          // 門前左牆：抵達後回看不會被透視壓成一條
+    width: 2.2, height: 1.30, baseY: 1.45,
     erosion: 0.34,       // 剝落程度 0~0.6
     drips: 7,            // 流掛條數
   },
@@ -182,7 +184,8 @@ export const CFG: Config = {
     frontDurBadge: 0.95,     // 門 2：有人從另一側刷卡
     frontDurGlitch: 0.70,    // 門 2：LCD 抖動＋斷線迸火花
     // 各站位停留的時間比例（總和 1.0）。第一站最久 —— 空白是張力的蓄水池
-    hold: [0.26, 0.16, 0.12, 0.46],   // 末段 0.46 是潛伏窗口（末站約 10.8s 抵達）
+    hold: [0.35, 0.20, 0.15, 0.30],   // 門 1：7 / 11 / 14 / 20s，規則推理先給讀牆時間
+    door2Hold: [0.35, 0.20, 0.15, 0.30], // 門 2：7 / 11 / 14 / 20s，先給讀盤再壓縮後段
     settleMs: 260,           // 跳站的位移時間（很短，像瞬移不像走路）
   },
   seams:  { y: [1.06, 2.12], spacingZ: 1.2, depth: 0.004, width: 0.004 },

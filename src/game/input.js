@@ -94,7 +94,7 @@ let grabY = 0;
 function syncLook() {
   const on = lookId !== null || keyLook;
   look.holding = on;
-  look.target = on ? 180 : 0;
+  look.target = on ? (R.door === 1 ? CFG.look.hintYaw : 180) : 0;
   if (!on) { grabId = null; pullY = null; }
 }
 

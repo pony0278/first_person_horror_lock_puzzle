@@ -12,6 +12,7 @@
     "wait-on": "^9.1.0"
   },
   "dependencies": {
+    "roughjs": "^4.6.6",
     "three": "^0.160.0"
   },
   "engines": {

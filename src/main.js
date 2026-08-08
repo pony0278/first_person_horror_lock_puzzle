@@ -21,7 +21,7 @@ import './render/materials.js';
 import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
-import './render/hintwall.js';
+import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
 import './render/electroroom.js';
 import './render/doorpanel.js';
 import './render/hands.js';
@@ -38,14 +38,15 @@ import './game/loop.js';
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
 import { R, ST, anim, intro, look } from './state.js';
-import { door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
+import { camera, door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2 } from './game/door2.js';
+import { invalidPuzzlePins, rowMatchesPinRule } from './logic/pin-puzzle.js';
 import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
-import { cellCentreClient } from './render/pipeboard.js';
+import { PB, cellCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
@@ -75,6 +76,28 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
+/* 門 1 規則牆：驗收「牆上規則、假針、撬鎖順序」是同一份答案，且材質真的畫出來。 */
+window.__lockPuzzle = () => {
+  const puzzle = R.puzzle; if (!puzzle) return null;
+  const wallPoint = paintPlane.getWorldPosition(paintPlane.position.clone()).project(camera);
+  return {
+    ruleId: puzzle.ruleId,
+    falsePin: puzzle.falsePin,
+    falsePins: [...R.lock.falsePins],
+    invalidPins: invalidPuzzlePins(puzzle),
+    displayOrder: puzzle.clues.map(row => row.pin),
+    inferredOrder: puzzle.clues.filter(row => rowMatchesPinRule(puzzle.ruleId, row)).map(row => row.pin),
+    trueOrder: [...R.lock.trueOrder],
+    examplesValid: puzzle.examples.every(row => rowMatchesPinRule(puzzle.ruleId, row)),
+    wall: {
+      ready: paintStatus.ready, ruleId: paintStatus.ruleId, coverage: paintStatus.coverage,
+      svgBytes: paintStatus.svgBytes, error: paintStatus.error, visible: paintPlane.visible,
+      ndcX: +wallPoint.x.toFixed(2), ndcY: +wallPoint.y.toFixed(2),
+      inView: paintPlane.visible && Math.abs(wallPoint.x) <= 1 && Math.abs(wallPoint.y) <= 1 &&
+              wallPoint.z >= -1 && wallPoint.z <= 1,
+    },
+  };
+};
 /* 門 2 盤面的測試接點：狀態、下一個該點的格子、格子的螢幕座標。
    跟 __grabPoint 同一個理由 —— 盤面佈局是抽的，座標寫死必成假通過。 */
 window.__pipe = () => {
@@ -82,6 +105,8 @@ window.__pipe = () => {
   const s = solve(D2.board);
   return { active: D2.active, chain: chain(D2.board).length,
            solved: isSolved(D2.board), slot: emptySlot(D2.board),
+           cueT: +PB.cueT.toFixed(2), cueSerial: PB.cueSerial,
+           cueLight: +markerLight.intensity.toFixed(2),
            cost: s ? s.cost : -1 };
 };
 window.__pipeNext = () => {

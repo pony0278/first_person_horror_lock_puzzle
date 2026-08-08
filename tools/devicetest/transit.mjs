@@ -42,8 +42,44 @@ page.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 
 await page.goto(PAGE_URL, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
+await page.waitForFunction(() => {
+  const p = window.__lockPuzzle?.();
+  return p && (p.wall.ready || p.wall.error);
+}, null, { timeout: 30000 });
+const door1Puzzle = await page.evaluate(() => window.__lockPuzzle());
+check('門 1 規則牆只有一根違規且對應真實假針',
+  door1Puzzle.examplesValid && door1Puzzle.invalidPins.length === 1 &&
+  door1Puzzle.invalidPins[0] === door1Puzzle.falsePin &&
+  door1Puzzle.falsePins[0] === door1Puzzle.falsePin,
+  `rule=${door1Puzzle.ruleId} false=${door1Puzzle.falsePin} invalid=${door1Puzzle.invalidPins.join(',')}`);
+check('門 1 跳過違規線索後仍是原撬鎖順序',
+  JSON.stringify(door1Puzzle.inferredOrder) === JSON.stringify(door1Puzzle.trueOrder),
+  `display=${door1Puzzle.displayOrder.join('→')} inferred=${door1Puzzle.inferredOrder.join('→')}`);
+check('Rough.js SVG 已合成為非空牆面 CanvasTexture',
+  door1Puzzle.wall.ready && !door1Puzzle.wall.error &&
+  door1Puzzle.wall.ruleId === door1Puzzle.ruleId &&
+  door1Puzzle.wall.coverage > 0.01 && door1Puzzle.wall.coverage < 0.35 &&
+  door1Puzzle.wall.svgBytes > 3000,
+  `ready=${door1Puzzle.wall.ready} coverage=${door1Puzzle.wall.coverage.toFixed(3)} svg=${door1Puzzle.wall.svgBytes} error=${door1Puzzle.wall.error || '無'}`);
 await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(300);
+
+/* 抵達門前後提示牆仍留在世界中；按住回頭必須能再次把它看進畫面。 */
+await page.evaluate(() => window.__setThreatPaused(true));
+await page.mouse.move(422, 110);
+await page.mouse.down();
+try {
+  await page.waitForFunction(() => { const w = window.__lockPuzzle().wall; return w.inView && Math.abs(w.ndcX) < 0.5; }, null, { timeout: 30000 });
+  await page.screenshot({ path: `${OUT}/door1-rule-wall.png` });
+  const revisit = await page.evaluate(() => window.__lockPuzzle());
+  check('門 1 抵達後仍能回頭重看規則牆', revisit.wall.visible && revisit.wall.inView,
+    `visible=${revisit.wall.visible} inView=${revisit.wall.inView} ndc=(${revisit.wall.ndcX},${revisit.wall.ndcY})`);
+} catch {
+  check('門 1 抵達後仍能回頭重看規則牆', false, '牆面未重新進入視野');
+}
+await page.mouse.up();
+await page.waitForFunction(() => Math.abs(window.__probe().yaw) < 100, null, { timeout: 30000 });
+await page.evaluate(() => window.__setThreatPaused(false));
 
 /* 解開門 1 → 過場開始 */
 await page.evaluate(() => window.__solveDoor1());
@@ -129,14 +165,24 @@ check('門 2 互動階段怪物不再被強制隱形', s0.monster === false,
   `monster=${s0.monster}（站位 0 本來就看不到，但不是被 T.active 壓住的）`);
 check('門 2 抵達後正式放行回合', !s0.over && !s0.won && !s0.paused,
   `over=${s0.over} won=${s0.won} paused=${s0.pauseReasons.join(',')}`);
-check('門 2 使用獨立 20 秒且從零開始', s0.limit === 20 && s0.elapsed < 1.5,
-  `elapsed=${s0.elapsed.toFixed(2)} limit=${s0.limit}`);
+const cue0 = await pipe();
+await page.screenshot({ path: `${OUT}/door2-missing-cue.png` });
+check('門 2 從零開始且空槽立即播放診斷脈衝',
+  s0.limit === 20 && s0.elapsed < 1.5 && cue0.cueT >= 0 && cue0.cueLight > 0.75,
+  `elapsed=${s0.elapsed.toFixed(2)} limit=${s0.limit} cue=${cue0.cueT} light=${cue0.cueLight}`);
 const door2Clock0 = s0.elapsed;
+const emptyCueCell = await page.evaluate(i => window.__pipeCellCentre(i), cue0.slot);
+await page.touchscreen.tap(emptyCueCell.x, emptyCueCell.y);
+await page.waitForFunction(serial => window.__pipe().cueSerial > serial,
+  cue0.cueSerial, { timeout: 15000 });
 await page.waitForTimeout(450);
-const door2Clock1 = await page.evaluate(() => window.__probe().elapsed);
-check('門 2 隱藏計時器會前進', door2Clock1 - door2Clock0 > 0.2,
-  `elapsed ${door2Clock0.toFixed(2)} → ${door2Clock1.toFixed(2)}`);
-await page.evaluate(() => window.__addThreatTime(5.3));
+const door2Clock1 = await page.evaluate(() => ({
+  elapsed: window.__probe().elapsed, cue: window.__pipe(),
+}));
+check('門 2 計時會前進且點空槽會重播提示',
+  door2Clock1.elapsed - door2Clock0 > 0.2 && door2Clock1.cue.cueSerial > cue0.cueSerial && door2Clock1.cue.cueLight > 0.75,
+  `elapsed ${door2Clock0.toFixed(2)} → ${door2Clock1.elapsed.toFixed(2)}; cue ${cue0.cueSerial} → ${door2Clock1.cue.cueSerial}; light=${door2Clock1.cue.cueLight}`);
+await page.evaluate(() => window.__addThreatTime(Math.max(0, 7.2 - window.__probe().elapsed)));
 await page.waitForFunction(() => window.__probe().station >= 1, null, { timeout: 15000 });
 const chase1 = await page.evaluate(() => window.__probe());
 check('門 2 計時跨門檻會推進怪物站位', chase1.station === 1,

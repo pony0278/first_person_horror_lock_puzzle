@@ -152,9 +152,11 @@ describe('隱藏計時器', () => {
 });
 
 describe('站位時刻表', () => {
-  it('把停留比例累加成切換時間點', () => {
-    expect(stationThresholds([0.26, 0.16, 0.12, 0.46], 20))
-      .toEqual([5.2, 8.4, 10.8, 20]);
+  it('門 1 與門 2 各自累加成總時間守恆的切換點', () => {
+    const door1 = stationThresholds([0.35, 0.20, 0.15, 0.30], 20);
+    [7, 11, 14, 20].forEach((t, i) => expect(door1[i]).toBeCloseTo(t));
+    const door2 = stationThresholds([0.35, 0.20, 0.15, 0.30], 20);
+    [7, 11, 14, 20].forEach((t, i) => expect(door2[i]).toBeCloseTo(t));
   });
 
   it('最後一個時間點正好是時限 —— 總時間守恆（§6）', () => {

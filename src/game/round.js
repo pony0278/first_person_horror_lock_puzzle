@@ -3,6 +3,7 @@
 
 import { CFG } from '../logic/config.js';
 import { LockState } from '../logic/lock.js';
+import { createPinPuzzle } from '../logic/pin-puzzle.js';
 import { door2Cause, primaryCause as primaryCauseOf, stationThresholds } from '../logic/round.js';
 import { $fade } from '../dom.js';
 import { buildPins, flashTrack, renderPins } from '../render/cutaway.js';
@@ -16,7 +17,7 @@ import { beep } from './audio.js';
 const ROUND_PAUSE = 'round';
 
 /** 開始一扇門自己的威脅回合；跨門環境衰變由呼叫端保留。 */
-export function beginDoorRound(door, limit, frontPool) {
+export function beginDoorRound(door, limit, frontPool, hold = CFG.stations.hold) {
   R.door = door; R.limit = limit;
   R.timer.resume(ROUND_PAUSE);
   R.timer.start(); R.elapsed = 0;
@@ -27,7 +28,7 @@ export function beginDoorRound(door, limit, frontPool) {
   look.yaw = 0; look.target = 0; look.holding = false;
 
   const S = CFG.stations;
-  ST.thresholds = stationThresholds(S.hold, limit);
+  ST.thresholds = stationThresholds(hold, limit);
   ST.index = 0; ST.z = S.z[0]; ST.targetZ = S.z[0];
   monster.visible = false;
   ST.moveT = 0; ST.pendingJump = false;
@@ -49,6 +50,9 @@ export function beginDoorRound(door, limit, frontPool) {
 export function newRound() {
   hooks.resetTransit?.();                      // 過場動過的東西先歸位
   R.lock = new LockState({ ...CFG.lock });
+  const falsePin = [...R.lock.falsePins][0];
+  const solvedDoors = R.attempts.filter(attempt => attempt.won).length;
+  R.puzzle = createPinPuzzle(falsePin, R.lock.trueOrder, Math.random, Math.min(2, solvedDoors));
   beginDoorRound(1, CFG.round.limit, ['eye', 'refl', 'lever']);
 
   R.lock.on('set', () => beep('set'));

@@ -121,7 +121,7 @@ function doSwap() {
   doorLever.visible = doorLeverRose.visible = false;
   doorPanel2.visible = true;
 
-  // 門 2 廊道的裝扮：提示牆收走（門 2 不需要提示，v3 §8），變電室上牆
+  // 門 2 廊道的裝扮：提示牆收走（門 2 不讀牆，缺件由盤面脈衝提示），變電室上牆
   paintPlane.visible = false; marker.visible = false;
   electroRoom.visible = true;
   // 火花燈移到導管缺口 —— 亮的是缺的那一段
@@ -210,8 +210,7 @@ export function updateTransit(dt) {
       // startDoor2 會在盤面上桌的同一刻放行 R.over，重開門 2 的隱藏計時與追逐。
       T.phase = 'door2'; T.t = 0;
       intro.active = false;
-      hooks.startDoor2?.();                   // 盤面上桌（game/door2.js）
-      beep('falseSet');                       // 身後傳來一聲悶響 —— 火花的方向
+      hooks.startDoor2?.();                   // 盤面上桌；空槽與身後火花由 door2 同拍提示
     }
   }
 

@@ -13,8 +13,9 @@
 import { emptySlot, insertPiece, isSolved, reach, rotate } from '../logic/pipe.js';
 import { newBoard, pickSpec } from '../logic/pipe.js';
 import { $panel } from '../dom.js';
-import { PB, cellAt, drawPipe, pieceLand, pipeCanvas, showPipe, spinCell } from '../render/pipeboard.js';
+import { PB, cellAt, cueMissingPiece, drawPipe, missingCueLevel, pieceLand, pipeCanvas, showPipe, spinCell } from '../render/pipeboard.js';
 import { setDoorPanel } from '../render/doorpanel.js';
+import { markerLight } from '../render/hintwall.js';
 import { CFG } from '../logic/config.js';
 import { R, blind, hooks } from '../state.js';
 import { beep, zap } from './audio.js';
@@ -22,7 +23,7 @@ import { interrupted } from './halt.js';
 import { beginDoorRound, completeDoor } from './round.js';
 import { T, finishTransit } from './transit.js';
 
-export const D2 = { active: false, board: null, doneT: -1 };
+export const D2 = { active: false, board: null, doneT: -1, cueSeen: 0 };
 
 hooks.door2HasPiece = () => Boolean(D2.board && emptySlot(D2.board) === null);
 
@@ -32,9 +33,10 @@ hooks.startDoor2 = () => {
 
   // 奔跑不計時；抵達後才開始門 2 自己的 20 秒，怪物也從最遠站重新追。
   // 正面事件改用門 2 看得見的 refl / badge / glitch，避開已收走的鑰匙孔與拉把。
-  beginDoorRound(2, CFG.round.limit, ['refl', 'badge', 'glitch']);
+  beginDoorRound(2, CFG.round.limit, ['refl', 'badge', 'glitch'], CFG.stations.door2Hold);
   $panel.classList.add('door2');            // 先收 chrome 列（#pins 會長高），再量尺寸
   showPipe(D2.board);
+  D2.cueSeen = PB.cueSerial - 1;            // 第一幀同步播放身後缺口火花
   PB.onAdvance = (_n, reach01) => zap(reach01);   // 爬多遠、音多高 —— 回頭時用聽的
 };
 
@@ -48,7 +50,7 @@ hooks.door2Insert = () => {
 };
 
 hooks.resetDoor2 = () => {
-  D2.active = false; D2.board = null; D2.doneT = -1;
+  D2.active = false; D2.board = null; D2.doneT = -1; D2.cueSeen = PB.cueSerial;
   PB.onAdvance = null;
   $panel.classList.remove('door2');
 };
@@ -66,6 +68,7 @@ pipeCanvas.addEventListener('pointerdown', e => {
     T.t = 0;                                      // 有在動就不算閒置（防卡死計時重來）
   } else if (D2.board.cells[i]?.kind === 'empty') {
     beep('thunk');
+    cueMissingPiece();                         // 再說一次：這裡缺的東西在身後
   }
 });
 
@@ -73,6 +76,12 @@ pipeCanvas.addEventListener('pointerdown', e => {
 export function updateDoor2(dt, lampF) {
   if (!D2.active || !D2.board) return;
   drawPipe(D2.board, dt, lampF);
+  const cueF = missingCueLevel();
+  if (PB.cueSerial !== D2.cueSeen) {
+    D2.cueSeen = PB.cueSerial;
+    beep('falseSet');                          // 空槽與身後缺口同一拍回應
+  }
+  if (cueF > 0) markerLight.intensity = Math.max(markerLight.intensity, 0.8 + cueF * 2.8);
   // 門面 LCD：紅槓隨 reach 越接越穩，通電跳綠（render/doorpanel.js）
   setDoorPanel(reach(D2.board), D2.doneT >= 0, lampF, performance.now() / 1000);
 
