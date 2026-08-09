@@ -9,6 +9,7 @@ import { $fade } from '../dom.js';
 import { buildPins, flashTrack, renderPins } from '../render/cutaway.js';
 import { decay, decayGroup, reflection } from '../render/decay.js';
 import { repaint } from '../render/hintwall.js';
+import { repaintDoorClue } from '../render/doorclue.js';
 import { monster } from '../render/monster.js';
 import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scene.js';
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
@@ -51,8 +52,7 @@ export function newRound() {
   hooks.resetTransit?.();                      // 過場動過的東西先歸位
   R.lock = new LockState({ ...CFG.lock });
   const falsePin = [...R.lock.falsePins][0];
-  const solvedDoors = R.attempts.filter(attempt => attempt.won).length;
-  R.puzzle = createPinPuzzle(falsePin, R.lock.trueOrder, Math.random, Math.min(2, solvedDoors));
+  R.puzzle = createPinPuzzle(falsePin, R.lock.trueOrder, Math.random);
   beginDoorRound(1, CFG.round.limit, ['eye', 'refl', 'lever']);
 
   R.lock.on('set', () => beep('set'));
@@ -79,6 +79,7 @@ export function newRound() {
 
   buildPins(); renderPins();
   repaint();
+  repaintDoorClue();
   intro.active = true; intro.phase = 'run'; intro.t = 0;
   intro.z = CFG.intro.runFrom; intro.bobPhase = 0; intro.arriveF = 0;
   intro.beeped = intro.th1 = intro.th2 = intro.thTool = false;

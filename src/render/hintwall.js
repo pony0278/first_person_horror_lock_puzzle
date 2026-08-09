@@ -1,19 +1,21 @@
-/* 提示牆與後製：規則推理筆記、指示燈、手電筒、補光、暗角。
-   牆只教共同規則與閱讀方向，不直接標出假針或答案；抵達門前後仍能回頭重看。 */
+/* 門 1 的牆上規律與後製。
+   四個等距位置依序留下 1、2、遭抹除、4 道刻痕。玩家一眼知道要數與補缺，
+   撞針映射仍留在門上；回頭時後方走廊維持在畫面中央。 */
 
 import * as THREE from 'three';
 import rough from 'roughjs/bundled/rough.esm.js';
 import { CFG } from '../logic/config.js';
-import { GLYPH } from '../logic/glyphs.js';
 import { mulberry32 } from '../logic/rng.js';
 import { R } from '../state.js';
 import { boxGeo, camera, planeGeo, scene } from './scene.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const PAINT_W = 768, PAINT_H = 480;
+const PAINT_W = 640, PAINT_H = 240;
 
 export const paintStatus = {
-  ready: false, serial: 0, ruleId: null, coverage: 0, svgBytes: 0, error: '',
+  ready: false, serial: 0, ruleId: null, visual: 'erased-tally-sequence',
+  sequenceCounts: [1, 2, null, 4], erasedCount: 3,
+  coverage: 0, svgBytes: 0, error: '',
 };
 
 const svgNode = (name, attrs = {}) => {
@@ -22,134 +24,76 @@ const svgNode = (name, attrs = {}) => {
   return node;
 };
 
-function addScratchText(svg, text, x, y, size, color, rotation = 0, anchor = 'start') {
-  const make = (dx, dy, opacity) => {
-    const node = svgNode('text', {
-      x: x + dx, y: y + dy, fill: color, stroke: color, 'stroke-width': 0.45,
-      'paint-order': 'stroke', opacity, 'font-size': size, 'font-weight': 700,
-      'font-family': 'Segoe Print, Bradley Hand, Comic Sans MS, cursive',
-      'text-anchor': anchor, 'dominant-baseline': 'middle',
-      transform: `rotate(${rotation} ${x} ${y})`,
-    });
-    node.textContent = text;
-    svg.appendChild(node);
-  };
-  make(1.1, -0.7, 0.22);
-  make(0, 0, 0.92);
-}
-
 function appendRough(svg, node) {
   svg.appendChild(node);
   return node;
 }
 
 function makeHintSvg(puzzle) {
-  if (!puzzle) throw new Error('門 1 規則題尚未建立');
+  if (!puzzle) throw new Error('門 1 分裂規律尚未建立');
   const svg = svgNode('svg', {
     xmlns: SVG_NS, viewBox: `0 0 ${PAINT_W} ${PAINT_H}`,
     width: PAINT_W, height: PAINT_H,
   });
   const rc = rough.svg(svg);
-  const layout = mulberry32(puzzle.wallSeed || 1);
   let seed = (puzzle.wallSeed % 0x7ffffffe) + 1;
-  const opt = (stroke, strokeWidth = 3, extra = {}) => ({
-    stroke, strokeWidth, roughness: 1.45, bowing: 1.7, seed: seed++, ...extra,
+  const option = (stroke, strokeWidth = 3, extra = {}) => ({
+    stroke, strokeWidth, roughness: 1.65, bowing: 1.9, seed: seed++, ...extra,
   });
-  const jitter = amount => (layout() - 0.5) * amount;
-  const ink = '#58482c', ghost = '#3f3a30';
-  const darken = (hex, factor) => {
-    const n = Number.parseInt(hex.slice(1), 16);
-    const c = shift => Math.round(((n >> shift) & 255) * factor).toString(16).padStart(2, '0');
-    return '#' + c(16) + c(8) + c(0);
-  };
+  const ink = '#241e1a', rust = '#6b2b23';
 
-  const arrow = (x0, y0, x1, y1, color = ghost, width = 2.4) => {
-    appendRough(svg, rc.line(x0, y0, x1, y1, opt(color, width)));
-    const ang = Math.atan2(y1 - y0, x1 - x0), head = 10;
-    appendRough(svg, rc.line(x1, y1, x1 - Math.cos(ang - 0.55) * head,
-      y1 - Math.sin(ang - 0.55) * head, opt(color, width)));
-    appendRough(svg, rc.line(x1, y1, x1 - Math.cos(ang + 0.55) * head,
-      y1 - Math.sin(ang + 0.55) * head, opt(color, width)));
-  };
-
-  const formula = (row, cx, y, size, color, rotation = 0) => {
-    const left = row.terms.join(' · ');
-    const leftW = Math.max(42, left.length * size * 0.53);
-    const totalW = leftW + 52 + String(row.result).length * size * 0.55;
-    const x = cx - totalW / 2;
-    addScratchText(svg, left, x, y, size, color, rotation);
-    arrow(x + leftW + 5, y + jitter(4), x + leftW + 35, y + jitter(4), color, Math.max(1.5, size * 0.075));
-    addScratchText(svg, String(row.result), x + leftW + 45, y, size * 1.06, color, rotation);
-  };
-
-  const glyph = (pin, cx, cy, radius) => {
-    const color = GLYPH[pin].c;
-    const common = opt('#302a24', 5, { fill: color, fillStyle: 'solid' });
-    if (pin % 4 === 0) appendRough(svg, rc.circle(cx, cy, radius * 1.8, common));
-    if (pin % 4 === 1) appendRough(svg, rc.rectangle(cx - radius * 0.82, cy - radius * 0.82,
-      radius * 1.64, radius * 1.64, common));
-    if (pin % 4 === 2) appendRough(svg, rc.polygon([
-      [cx, cy - radius], [cx + radius * 0.92, cy + radius * 0.78],
-      [cx - radius * 0.92, cy + radius * 0.78],
-    ], common));
-    if (pin % 4 === 3) appendRough(svg, rc.polygon([
-      [cx, cy - radius], [cx + radius * 0.78, cy], [cx, cy + radius], [cx - radius * 0.78, cy],
-    ], common));
-  };
-
-  // 上方兩個片段像前人反覆驗算的痕跡，不使用題號、表格或問號。
-  formula(puzzle.examples[0], 205 + jitter(18), 88 + jitter(16), 42, ink, jitter(5));
-  formula(puzzle.examples[1], 538 + jitter(18), 126 + jitter(16), 38, ink, jitter(5));
-  appendRough(svg, rc.path('M 92 151 C 220 178, 434 188, 664 158',
-    opt(ghost, 2.2, { strokeLineDash: [9, 10] })));
-  appendRough(svg, rc.path('M 300 50 C 352 22, 426 28, 472 62', opt(ghost, 1.8)));
-  arrow(468, 62, 493, 82, ghost, 1.8);
-
-  // 四個線索的物理順序就是撬鎖順序；玩家只需識破並跳過違規的那一個。
-  const xs = [94, 288, 482, 676];
-  const ys = [286, 323, 280, 318];
-  puzzle.clues.forEach((row, i) => {
-    const x = xs[i] + jitter(12), y = ys[i] + jitter(14);
-    glyph(row.pin, x, y, 28);
-    formula(row, x, y + 67, 27, darken(GLYPH[row.pin].c, 0.58), jitter(5));
-    if (i < puzzle.clues.length - 1) {
-      const nx = xs[i + 1], ny = ys[i + 1];
-      appendRough(svg, rc.path(`M ${x + 38} ${y - 4} C ${x + 86} ${y - 35}, ${nx - 72} ${ny - 35}, ${nx - 38} ${ny - 4}`,
-        opt(ghost, 2.3, { strokeLineDash: [7, 8] })));
-      arrow(nx - 47, ny - 8, nx - 31, ny - 1, ghost, 2.0);
+  // 四個位置等距排列；題型一眼就是「1、2、缺、4」，不需要先猜圖像語法。
+  const tally = (count, cx, outer = ink, inner = rust) => {
+    const gap = 23;
+    for (let i = 0; i < count; i++) {
+      const x = cx + (i - (count - 1) / 2) * gap;
+      const lean = i % 2 ? 5 : -3;
+      appendRough(svg, rc.line(x - 8, 174, x + 8 + lean, 66,
+        option(outer, 9.2, { roughness: 1.15, bowing: 0.65 })));
+      appendRough(svg, rc.line(x - 4, 170, x + 11 + lean, 70,
+        option(inner, 2.5, { roughness: 1.05, bowing: 0.45 })));
     }
+  };
+  const centres = [92, 242, 392, 542];
+  const erasedIndex = puzzle.wallSequence.findIndex(count => count === null);
+  if (erasedIndex < 0) throw new Error('門 1 牆面序列缺少抹除位置');
+  puzzle.wallSequence.forEach((count, index) => {
+    if (count !== null) tally(count, centres[index]);
   });
+  tally(puzzle.erasedCount, centres[erasedIndex], '#332923', '#512823');
 
-  // 邊角的無意義短劃與重描，破壞「考卷」般的整齊感，但不承載答案。
-  for (let i = 0; i < 11; i++) {
-    const x = 24 + layout() * (PAINT_W - 48), y = 28 + layout() * (PAINT_H - 56);
-    appendRough(svg, rc.line(x, y, x + 8 + layout() * 24, y + jitter(12),
-      opt('#38342d', 1.1 + layout())));
-  }
+  // 第三位原本有刻痕，但被焦黑污漬與一道猛烈刮除線破壞；上下殘端仍可辨認。
+  appendRough(svg, rc.polygon([
+    [338, 93], [355, 77], [385, 83], [407, 74], [438, 92],
+    [431, 113], [446, 132], [428, 158], [397, 153], [372, 162],
+    [342, 148], [348, 125], [331, 110],
+  ], option('#171310', 3.2, {
+    fill: '#171310', fillStyle: 'solid', roughness: 2.1, bowing: 1.2,
+  })));
+  appendRough(svg, rc.path('M 344 166 L 438 78',
+    option('#0f0c0b', 12.5, { roughness: 1.35, bowing: 0.7 })));
+  appendRough(svg, rc.path('M 347 163 L 435 81',
+    option('#6b2b23', 3.0, { roughness: 1.1, bowing: 0.5 })));
   return svg;
 }
 
 function distressCanvas(ctx, puzzle) {
   const rng = mulberry32((puzzle.wallSeed ^ 0x5f3759df) >>> 0);
-  const P = CFG.paint;
-  const colors = puzzle.clues.map(row => GLYPH[row.pin].c);
-
-  for (let i = 0; i < P.drips; i++) {
-    const x = 45 + rng() * (PAINT_W - 90), y = 290 + rng() * 90;
-    const len = 28 + rng() * 90, width = 2 + rng() * 4;
+  for (let i = 0; i < CFG.paint.drips; i++) {
+    const x = 80 + rng() * (PAINT_W - 160), y = 122 + rng() * 38;
+    const len = 18 + rng() * 48, width = 1.5 + rng() * 3;
     const g = ctx.createLinearGradient(0, y, 0, y + len);
-    const color = colors[i % colors.length];
-    g.addColorStop(0, color + 'b8');
-    g.addColorStop(1, color + '00');
+    g.addColorStop(0, '#6b211c90');
+    g.addColorStop(1, '#6b211c00');
     ctx.fillStyle = g;
     ctx.fillRect(x, y, width, len);
   }
 
   ctx.globalCompositeOperation = 'destination-out';
-  const holes = PAINT_W * PAINT_H * P.erosion / 115;
+  const holes = PAINT_W * PAINT_H * CFG.paint.erosion / 115;
   for (let i = 0; i < holes; i++) {
-    const x = rng() * PAINT_W, y = rng() * PAINT_H, radius = 0.8 + rng() * 4.2;
-    ctx.globalAlpha = 0.28 + rng() * 0.58;
+    const x = rng() * PAINT_W, y = rng() * PAINT_H, radius = 0.7 + rng() * 3.2;
+    ctx.globalAlpha = 0.24 + rng() * 0.50;
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalCompositeOperation = 'source-over';
@@ -160,6 +104,8 @@ export function makePaintTexture(puzzle) {
   const svg = makeHintSvg(puzzle);
   const xml = new XMLSerializer().serializeToString(svg);
   paintStatus.ruleId = puzzle.ruleId;
+  paintStatus.sequenceCounts = [...puzzle.wallSequence];
+  paintStatus.erasedCount = puzzle.erasedCount;
   paintStatus.svgBytes = xml.length;
 
   return new Promise((resolve, reject) => {
@@ -178,17 +124,18 @@ export function makePaintTexture(puzzle) {
       tex.colorSpace = THREE.SRGBColorSpace;
       resolve(tex);
     };
-    image.onerror = () => reject(new Error('SVG 規則筆記無法轉成牆面 Canvas'));
+    image.onerror = () => reject(new Error('SVG 分裂規律無法轉成牆面 Canvas'));
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   });
 }
+
 export const paintMat = new THREE.MeshStandardMaterial({
-  transparent: true, roughness: 0.9, metalness: 0,
-  color: 0x8a8a8a, emissive: 0x0c0907, emissiveIntensity: 0.08, depthWrite: false,
+  transparent: true, roughness: 0.92, metalness: 0,
+  color: 0x77736b, emissive: 0x080605, emissiveIntensity: 0.04, depthWrite: false,
   polygonOffset: true, polygonOffsetFactor: -1,
 });
 export const paintPlane = new THREE.Mesh(planeGeo, paintMat);
-paintPlane.rotation.y = Math.PI / 2;          // 左牆 (x = -W/2)，面朝走廊內
+paintPlane.rotation.y = Math.PI / 2;
 paintPlane.scale.set(CFG.paint.width, CFG.paint.height, 1);
 paintPlane.position.set(-CFG.world.corridorW / 2 + 0.012, CFG.paint.baseY, CFG.paint.wallZ);
 scene.add(paintPlane);
@@ -211,18 +158,18 @@ export function repaint() {
     console.error('提示牆生成失敗', err);
   });
 }
-/* 提示牆旁的故障指示燈：跑過時閃爍吸引注意（引導視線，不搶鏡頭） */
+
+/* 規律旁的故障指示燈只負責讓玩家掃到牆面，不把視線鎖住。 */
 export const markerMat = new THREE.MeshBasicMaterial({ color: 0xd8b25a });
 export const marker = new THREE.Mesh(boxGeo, markerMat);
 marker.scale.set(0.05, 0.05, 0.03);
-marker.position.set(-CFG.world.corridorW / 2 + 0.05, CFG.paint.baseY + 0.75, CFG.paint.wallZ);
+marker.position.set(-CFG.world.corridorW / 2 + 0.05, CFG.paint.baseY + 0.34, CFG.paint.wallZ);
 scene.add(marker);
-export const markerLight = new THREE.PointLight(0xd8b25a, 0, 2.6, 1.8);
+export const markerLight = new THREE.PointLight(0xd8b25a, 0, 2.2, 1.8);
 markerLight.position.copy(marker.position).x += 0.12;
 scene.add(markerLight);
 
-/* 開場序列：奔跑 → 撞門 → 壓門把拉不開 → 工具入孔 → 交出控制權 */
-
+/* 開場序列與照明。 */
 export const flash3d = new THREE.SpotLight(0xfff2d8, CFG.light.near.intensity, CFG.light.distance,
                                     CFG.light.near.angle, CFG.light.penumbra, CFG.light.near.decay);
 flash3d.castShadow = false;
@@ -234,7 +181,7 @@ export const fill = new THREE.PointLight(0x9db0c8, CFG.light.fill, 3.2, 1.6);
 camera.add(fill);
 scene.add(new THREE.HemisphereLight(0x2a3140, 0x05070b, CFG.light.ambient));
 
-/* ── 暗角 ───────────────────────────────────────────── */
+/* 暗角。 */
 export const vigMat = new THREE.ShaderMaterial({
   transparent: true, depthTest: false, depthWrite: false,
   uniforms: { uInner:{value:CFG.vig.inner}, uOuter:{value:CFG.vig.outer}, uAspect:{value:1} },

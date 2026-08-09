@@ -44,38 +44,62 @@ await page.goto(PAGE_URL, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
 await page.waitForFunction(() => {
   const p = window.__lockPuzzle?.();
-  return p && (p.wall.ready || p.wall.error);
+  return p && (p.wall.ready || p.wall.error) && (p.doorCue.ready || p.doorCue.error);
 }, null, { timeout: 30000 });
 const door1Puzzle = await page.evaluate(() => window.__lockPuzzle());
-check('門 1 規則牆只有一根違規且對應真實假針',
-  door1Puzzle.examplesValid && door1Puzzle.invalidPins.length === 1 &&
+const markCounts = door1Puzzle.doorMarks.map(mark => mark.count).sort((a, b) => a - b);
+const falseMark = door1Puzzle.doorMarks.find(mark => mark.pin === door1Puzzle.falsePin);
+check('門 1 門面四符號各綁 1～4 道刻痕，三道者是真實假針',
+  door1Puzzle.crossSource && JSON.stringify(markCounts) === JSON.stringify([1, 2, 3, 4]) &&
+  falseMark?.count === 3 && door1Puzzle.invalidPins.length === 1 &&
   door1Puzzle.invalidPins[0] === door1Puzzle.falsePin &&
   door1Puzzle.falsePins[0] === door1Puzzle.falsePin,
-  `rule=${door1Puzzle.ruleId} false=${door1Puzzle.falsePin} invalid=${door1Puzzle.invalidPins.join(',')}`);
-check('門 1 跳過違規線索後仍是原撬鎖順序',
+  `mode=${door1Puzzle.ruleId} false=${door1Puzzle.falsePin} marks=${door1Puzzle.doorMarks.map(m => `${m.pin}:${m.count}`).join(',')}`);
+check('門 1 讀出牆上缺格並查門面，可還原原撬鎖順序',
+  JSON.stringify(door1Puzzle.wallSequence) === JSON.stringify([1, 2, null, 4]) &&
+  door1Puzzle.erasedCount === 3 &&
   JSON.stringify(door1Puzzle.inferredOrder) === JSON.stringify(door1Puzzle.trueOrder),
-  `display=${door1Puzzle.displayOrder.join('→')} inferred=${door1Puzzle.inferredOrder.join('→')}`);
-check('Rough.js SVG 已合成為非空牆面 CanvasTexture',
+  `sequence=${door1Puzzle.wallSequence.map(count => count ?? '×').join('→')} erased=${door1Puzzle.erasedCount} inferred=${door1Puzzle.inferredOrder.join('→')} lock=${door1Puzzle.trueOrder.join('→')}`);
+check('牆面 1／2／抹除位／4 序列與門面對照都已合成為非空 CanvasTexture',
   door1Puzzle.wall.ready && !door1Puzzle.wall.error &&
   door1Puzzle.wall.ruleId === door1Puzzle.ruleId &&
-  door1Puzzle.wall.coverage > 0.01 && door1Puzzle.wall.coverage < 0.35 &&
-  door1Puzzle.wall.svgBytes > 3000,
-  `ready=${door1Puzzle.wall.ready} coverage=${door1Puzzle.wall.coverage.toFixed(3)} svg=${door1Puzzle.wall.svgBytes} error=${door1Puzzle.wall.error || '無'}`);
+  door1Puzzle.wall.visual === 'erased-tally-sequence' &&
+  JSON.stringify(door1Puzzle.wall.sequenceCounts) === JSON.stringify([1, 2, null, 4]) &&
+  door1Puzzle.wall.erasedCount === 3 &&
+  door1Puzzle.wall.coverage > 0.005 && door1Puzzle.wall.coverage < 0.20 &&
+  door1Puzzle.wall.svgBytes > 1800 &&
+  door1Puzzle.doorCue.ready && !door1Puzzle.doorCue.error &&
+  door1Puzzle.doorCue.coverage > 0.005 && door1Puzzle.doorCue.coverage < 0.25 &&
+  door1Puzzle.doorCue.svgBytes > 2500,
+  `wall=${door1Puzzle.wall.coverage.toFixed(3)}/${door1Puzzle.wall.svgBytes} door=${door1Puzzle.doorCue.coverage.toFixed(3)}/${door1Puzzle.doorCue.svgBytes}`);
 await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(300);
-
-/* 抵達門前後提示牆仍留在世界中；按住回頭必須能再次把它看進畫面。 */
+const doorFacing = await page.evaluate(() => window.__lockPuzzle());
+await page.screenshot({ path: `${OUT}/door1-door-mapping.png` });
+check('門 1 面向鎖操作時，門上四組對照完整留在安全範圍',
+  doorFacing.doorCue.visible && doorFacing.doorCue.inView &&
+  doorFacing.doorCue.leftNdcX > -0.90 && doorFacing.doorCue.rightNdcX < 0.90 &&
+  Math.abs(doorFacing.doorCue.ndcX) < 0.5 && Math.abs(doorFacing.doorCue.ndcY) < 0.8,
+  `visible=${doorFacing.doorCue.visible} inView=${doorFacing.doorCue.inView} span=${doorFacing.doorCue.leftNdcX}..${doorFacing.doorCue.rightNdcX} ndc=(${doorFacing.doorCue.ndcX},${doorFacing.doorCue.ndcY})`);
+/* 抵達後回看正後方：線索在側邊、走廊在中央，兩者必須同時留在畫面。 */
 await page.evaluate(() => window.__setThreatPaused(true));
 await page.mouse.move(422, 110);
 await page.mouse.down();
 try {
-  await page.waitForFunction(() => { const w = window.__lockPuzzle().wall; return w.inView && Math.abs(w.ndcX) < 0.5; }, null, { timeout: 30000 });
-  await page.screenshot({ path: `${OUT}/door1-rule-wall.png` });
+  await page.waitForFunction(() => {
+    const w = window.__lockPuzzle().wall;
+    return w.inView && Math.abs(w.ndcX) > 0.10 && Math.abs(w.ndcX) < 0.85 &&
+      w.corridorInView && Math.abs(w.corridorNdcX) < 0.35;
+  }, null, { timeout: 30000 });
+  await page.screenshot({ path: `${OUT}/door1-corridor-clue.png` });
   const revisit = await page.evaluate(() => window.__lockPuzzle());
-  check('門 1 抵達後仍能回頭重看規則牆', revisit.wall.visible && revisit.wall.inView,
-    `visible=${revisit.wall.visible} inView=${revisit.wall.inView} ndc=(${revisit.wall.ndcX},${revisit.wall.ndcY})`);
+  check('門 1 回看時線索在側邊且後方走廊維持中央',
+    revisit.wall.visible && revisit.wall.inView && revisit.wall.corridorInView,
+    `clue=(${revisit.wall.ndcX},${revisit.wall.ndcY}) corridor=(${revisit.wall.corridorNdcX},${revisit.wall.corridorNdcY})`);
 } catch {
-  check('門 1 抵達後仍能回頭重看規則牆', false, '牆面未重新進入視野');
+  const revisit = await page.evaluate(() => window.__lockPuzzle());
+  check('門 1 回看時線索在側邊且後方走廊維持中央', false,
+    `clue=(${revisit.wall.ndcX},${revisit.wall.ndcY}) corridor=(${revisit.wall.corridorNdcX},${revisit.wall.corridorNdcY})`);
 }
 await page.mouse.up();
 await page.waitForFunction(() => Math.abs(window.__probe().yaw) < 100, null, { timeout: 30000 });

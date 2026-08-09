@@ -125,12 +125,12 @@ export const CFG: Config = {
   fog:    { density: 0.045, color: 0x05060a },
   vig:    { inner: 0.34, outer: 0.98 },
   world:  { seed: 1337, corridorW: 2.4, corridorH: 3.0, segLen: 4.0, segCount: 8 },
-  look:   { returnSpeed: 10, hintYaw: 134, blindAt: 60 }, // 門 1 對準門前左牆；門 2 仍看正後方
+  look:   { returnSpeed: 10, hintYaw: 180, blindAt: 60 }, // 線索留在側邊，後方走廊維持中央
   paint:  {
-    wallZ: 1.5,          // 門前左牆：抵達後回看不會被透視壓成一條
-    width: 2.2, height: 1.30, baseY: 1.45,
-    erosion: 0.34,       // 剝落程度 0~0.6
-    drips: 7,            // 流掛條數
+    wallZ: 2.8,          // 回頭看正後方時位於左側視野，不遮住走廊中央
+    width: 1.35, height: 0.52, baseY: 1.45,
+    erosion: 0.24,       // 小面積線索避免侵蝕吃掉辨識度
+    drips: 3,
   },
   intro:  {
     runFrom: 10,         // 起跑點（門前公尺數）
@@ -140,8 +140,8 @@ export const CFG: Config = {
     glanceFull:  1.6,    // 進入全速慢動作
     glancePast: -0.5,    // 全速慢動作維持到牆後這裡
     glanceExit: -1.2,    // 完全恢復正常速度
-    glanceSlow: 0.16,    // 子彈時間的時間倍率（越小越慢）
-    glanceMaxYaw: 72,    // 轉頭角度上限（度）
+    glanceSlow: 0.48,    // 只輕微拖慢，不讓提示牆接管整段氣氛
+    glanceMaxYaw: 38,    // 掃到側邊線索，但走廊仍留在視野
     handleSec: 1.3,      // 壓門把 ×2、拉不開
     toolSec: 0.95,       // 工具插入鎖孔的演出
     bobFreq: 6.0, bobAmp: 0.05, rollAmp: 0.9,

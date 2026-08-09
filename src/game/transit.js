@@ -19,6 +19,7 @@ import { R, ST, anim, hooks, intro, look } from '../state.js';
 import { camera, cylinder, doorHinge, doorLever, doorLeverRose, keyEye, pickTool, plate, wrench } from '../render/scene.js';
 import { doorPanel2, resetDoorPanel } from '../render/doorpanel.js';
 import { marker, markerLight, paintPlane } from '../render/hintwall.js';
+import { doorClue } from '../render/doorclue.js';
 import { decay, decayStages, reflection } from '../render/decay.js';
 import { monster } from '../render/monster.js';
 import { ELECTRO, LOOSE, LOOSE_GLOW, electroRoom, loosePiece, matLoose } from '../render/electroroom.js';
@@ -76,7 +77,7 @@ hooks.resetTransit = () => {
   decay.floor = 0;                             // 衰變下限跨局重置（跨門才累進）
   doorHinge.rotation.y = 0;
   cylinder.visible = plate.visible = true;     // 門面交還門 1 的機械鎖
-  doorLever.visible = doorLeverRose.visible = true;
+  doorLever.visible = doorLeverRose.visible = doorClue.visible = true;
   resetDoorPanel();
   electroRoom.visible = false;
   paintPlane.visible = true; marker.visible = true;
@@ -118,7 +119,7 @@ function doSwap() {
   // 門面換裝：門 2 是電磁門 —— 機械鎖組收起，換上 LCD 與破碎的讀卡機。
   // 謎題在講電，門面不能還在講機械（v3 §9 事實層）。
   cylinder.visible = plate.visible = false;
-  doorLever.visible = doorLeverRose.visible = false;
+  doorLever.visible = doorLeverRose.visible = doorClue.visible = false;
   doorPanel2.visible = true;
 
   // 門 2 廊道的裝扮：提示牆收走（門 2 不讀牆，缺件由盤面脈衝提示），變電室上牆

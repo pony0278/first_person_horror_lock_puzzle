@@ -22,6 +22,7 @@ import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
 import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
+import { doorClue, doorClueStatus } from './render/doorclue.js';
 import './render/electroroom.js';
 import './render/doorpanel.js';
 import './render/hands.js';
@@ -44,7 +45,7 @@ import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2 } from './game/door2.js';
-import { invalidPuzzlePins, rowMatchesPinRule } from './logic/pin-puzzle.js';
+import { inferPinOrder, invalidPuzzlePins } from './logic/pin-puzzle.js';
 import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
 import { PB, cellCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
@@ -76,25 +77,45 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
-/* 門 1 規則牆：驗收「牆上規則、假針、撬鎖順序」是同一份答案，且材質真的畫出來。 */
+/* 門 1 雙來源推理：牆面給 1／2／抹除位／4，門面給四符號／刻痕對照。 */
 window.__lockPuzzle = () => {
   const puzzle = R.puzzle; if (!puzzle) return null;
   const wallPoint = paintPlane.getWorldPosition(paintPlane.position.clone()).project(camera);
+  const corridorPoint = paintPlane.position.clone().set(0, 1.55, 8).project(camera);
+  const doorPoint = doorClue.getWorldPosition(doorClue.position.clone()).project(camera);
+  const doorLeft = doorClue.localToWorld(doorClue.position.clone().set(-0.5, 0, 0)).project(camera);
+  const doorRight = doorClue.localToWorld(doorClue.position.clone().set(0.5, 0, 0)).project(camera);
   return {
     ruleId: puzzle.ruleId,
+    wallSequence: [...puzzle.wallSequence],
+    erasedCount: puzzle.erasedCount,
+    doorMarks: puzzle.doorMarks.map(mark => ({ ...mark })),
     falsePin: puzzle.falsePin,
     falsePins: [...R.lock.falsePins],
     invalidPins: invalidPuzzlePins(puzzle),
-    displayOrder: puzzle.clues.map(row => row.pin),
-    inferredOrder: puzzle.clues.filter(row => rowMatchesPinRule(puzzle.ruleId, row)).map(row => row.pin),
+    inferredOrder: inferPinOrder(puzzle),
     trueOrder: [...R.lock.trueOrder],
-    examplesValid: puzzle.examples.every(row => rowMatchesPinRule(puzzle.ruleId, row)),
+    crossSource: JSON.stringify(puzzle.wallSequence) === JSON.stringify([1, 2, null, 4]) &&
+                 puzzle.erasedCount === 3 && puzzle.doorMarks.length === CFG.lock.pinCount,
     wall: {
-      ready: paintStatus.ready, ruleId: paintStatus.ruleId, coverage: paintStatus.coverage,
+      ready: paintStatus.ready, ruleId: paintStatus.ruleId, visual: paintStatus.visual,
+      sequenceCounts: [...paintStatus.sequenceCounts], erasedCount: paintStatus.erasedCount,
+      coverage: paintStatus.coverage,
       svgBytes: paintStatus.svgBytes, error: paintStatus.error, visible: paintPlane.visible,
       ndcX: +wallPoint.x.toFixed(2), ndcY: +wallPoint.y.toFixed(2),
       inView: paintPlane.visible && Math.abs(wallPoint.x) <= 1 && Math.abs(wallPoint.y) <= 1 &&
               wallPoint.z >= -1 && wallPoint.z <= 1,
+      corridorNdcX: +corridorPoint.x.toFixed(2), corridorNdcY: +corridorPoint.y.toFixed(2),
+      corridorInView: Math.abs(corridorPoint.x) <= 1 && Math.abs(corridorPoint.y) <= 1 &&
+                      corridorPoint.z >= -1 && corridorPoint.z <= 1,
+    },
+    doorCue: {
+      ready: doorClueStatus.ready, coverage: doorClueStatus.coverage,
+      svgBytes: doorClueStatus.svgBytes, error: doorClueStatus.error, visible: doorClue.visible,
+      ndcX: +doorPoint.x.toFixed(2), ndcY: +doorPoint.y.toFixed(2),
+      leftNdcX: +doorLeft.x.toFixed(2), rightNdcX: +doorRight.x.toFixed(2),
+      inView: doorClue.visible && Math.abs(doorPoint.x) <= 1 && Math.abs(doorPoint.y) <= 1 &&
+              doorPoint.z >= -1 && doorPoint.z <= 1,
     },
   };
 };
