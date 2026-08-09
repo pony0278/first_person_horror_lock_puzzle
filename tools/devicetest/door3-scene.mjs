@@ -46,8 +46,24 @@ for (const profile of profiles) {
   const started = await page.evaluate(() => window.__startDoor3());
   check('scene starts', started, 'start=' + started);
 
-  await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 20000 });
   let state = await page.evaluate(() => window.__door3());
+  check('transition opens Door 2 before swapping worlds',
+    state.phase === 'open' && state.walking && !state.visible,
+    `phase=${state.phase} walking=${state.walking} visible=${state.visible}`);
+
+  await page.waitForFunction(() => window.__door3?.().phase === 'walk', null, { timeout: 90000 });
+  const walkStart = await page.evaluate(() => window.__door3());
+  await page.waitForFunction(startZ => {
+    const state = window.__door3?.();
+    return state?.phase === 'walk' && state.z < startZ - 0.45;
+  }, walkStart.z, { timeout: 10000 });
+  const walkMoved = await page.evaluate(() => window.__door3());
+  check('camera walks in from the rear pump corridor',
+    walkStart.visible && walkStart.z > 6 && walkMoved.z < walkStart.z,
+    `z=${walkStart.z}>${walkMoved.z}`);
+
+  await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
+  state = await page.evaluate(() => window.__door3());
   check('hub replaces corridor', state.active && state.visible, JSON.stringify(state));
   check('puzzle panel hidden', state.panelHidden, 'panelHidden=' + state.panelHidden);
 

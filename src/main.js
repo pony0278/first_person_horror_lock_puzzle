@@ -174,13 +174,15 @@ window.__door3 = () => ({
   phase: D3.phase,
   visible: pumpHub.visible,
   yaw: +look.yaw.toFixed(1),
+  z: +intro.z.toFixed(2),
+  walking: intro.active,
   panelHidden: document.body.classList.contains('door3'),
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
 window.__door3Look = yaw => {
-  if (!D3.active) return false;
+  if (!D3.active || intro.active) return false;
   look.yaw = Math.max(-180, Math.min(180, Number(yaw) || 0));
   look.target = look.yaw;
   return true;

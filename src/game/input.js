@@ -128,7 +128,7 @@ addEventListener('keydown', e => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= CFG.lock.pinCount) { e.shiftKey ? doRelease(n - 1) : doPush(n - 1); }
 
-  if (R.door === 3) {
+  if (R.door === 3 && !intro.active) {
     const door3Yaw = {
       KeyW: 0, ArrowUp: 0,
       KeyA: 90, ArrowLeft: 90,
