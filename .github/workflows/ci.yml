@@ -142,6 +142,12 @@ jobs:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/transit.mjs
 
+      - name: 門 3 十字泵房場景
+        if: always()
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: node tools/devicetest/door3-scene.mjs
+
       - name: 撞針可讀性（僅記錄）
         if: always()
         env:

@@ -22,7 +22,7 @@ const check = (label, ok, detail) => {
 
 const browser = await chromium.launch({
   executablePath: chromiumPath,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+  args: ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
 });
 const ctx = await browser.newContext({
   viewport: { width: 844, height: 390 }, deviceScaleFactor: 2,
@@ -232,13 +232,19 @@ try {
 }
 
 await page.waitForFunction(() => {
+  const state = window.__door3?.();
+  return state?.phase === 'explore' && state.visible;
+}, null, { timeout: 90000 });
+const door3 = await page.evaluate(() => ({ ...window.__door3(), probe: window.__probe() }));
+check('完成 Door 2 後真正進入可環視的 Door 3 泵房',
+  door3.active && door3.visible && door3.panelHidden && door3.probe.door === 3,
+  'active=' + door3.active + ' visible=' + door3.visible + ' door=' + door3.probe.door);
+
+await page.evaluate(() => window.__newRound());
+await page.waitForFunction(() => {
   const state = window.__probe();
   return state.transit === 'idle' && !state.over && state.door === 1;
-}, null, { timeout: 90000 });
-const reset = await probe();
-check('完成後整局重開並清除 Door 2 狀態',
-  reset.door === 1 && reset.tug === 0 && !reset.paused && reset.decayFloor === 0,
-  `door=${reset.door} tug=${reset.tug} floor=${reset.decayFloor}`);
+}, null, { timeout: 30000 });
 
 /* 再跑一趟，只驗證取回零件後的 Door 2 超時死亡與死因。 */
 await page.evaluate(() => window.__skipIntro());

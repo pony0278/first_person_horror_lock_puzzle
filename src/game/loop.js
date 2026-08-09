@@ -16,6 +16,7 @@ import { die } from './round.js';
 import { T, cinematic, updateTransit } from './transit.js';
 import { D2, updateDoor2 } from './door2.js';
 
+import { updateDoor3 } from './door3.js';
 /* ═══════════════════════════════════════════════════════════
    主迴圈
    ═══════════════════════════════════════════════════════════ */
@@ -352,6 +353,7 @@ export function tick() {
 
   // 門 2 盤面：R.over 期間剖面圖那一段不會跑，盤面在這裡畫
   updateDoor2(dt, lampF);
+  updateDoor3(dt);
 
   // ── 撬鎖面板承載威脅（Iron Lung 路線）──────────────
   // 門 2 的下方是管線盤面（render/pipeboard.js 自己畫），這一段只屬於門 1。

@@ -74,9 +74,15 @@ export function doRelease(i) {
    不再要求第二指、右鍵或拖拉手勢。 */
 let lookId = null;
 let keyLook = false;
+let door3Drag = null;
+const clampYaw = yaw => Math.max(-180, Math.min(180, yaw));
 
-/** 視角由「手指」與「S 鍵」共同持有，任何一方還在就維持回頭。 */
+/** Door 1/2 保留按住回頭；Door 3 改為可停留在任一岔路的拖曳環視。 */
 function syncLook() {
+  if (R.door === 3) {
+    look.holding = lookId !== null;
+    return;
+  }
   const on = lookId !== null || keyLook;
   look.holding = on;
   look.target = on ? (R.door === 1 ? CFG.look.hintYaw : 180) : 0;
@@ -84,16 +90,36 @@ function syncLook() {
 
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
-  if (e.button !== 0 || lookId !== null || keyLook) return;
+  if (e.button !== 0 || lookId !== null || (keyLook && R.door !== 3)) return;
   view.setPointerCapture(e.pointerId);
   lookId = e.pointerId;
-  syncLook();
+
+  if (R.door === 3) {
+    door3Drag = { x: e.clientX, yaw: look.target };
+    look.holding = true;
+  } else syncLook();
 });
 
-/** 強制放開視角（手指與 S 鍵都放）：彈回正面。 */
-export const stopLook = () => { lookId = null; keyLook = false; syncLook(); };
+view.addEventListener('pointermove', e => {
+  if (e.pointerId !== lookId || R.door !== 3 || !door3Drag) return;
+  const dx = e.clientX - door3Drag.x;
+  look.target = clampYaw(door3Drag.yaw + dx / Math.max(1, view.clientWidth) * 300);
+});
+
+/** 強制放開視角。Door 1/2 回彈正面；Door 3 保留玩家選定方向。 */
+export const stopLook = () => {
+  lookId = null;
+  keyLook = false;
+  door3Drag = null;
+  if (R.door === 3) look.holding = false;
+  else syncLook();
+};
 const onUp = e => {
-  if (e.pointerId === lookId) { lookId = null; syncLook(); } // 視角那根放開（S 還按著就繼續看）
+  if (e.pointerId !== lookId) return;
+  lookId = null;
+  door3Drag = null;
+  if (R.door === 3) look.holding = false;
+  else syncLook();
 };
 view.addEventListener('pointerup', onUp);
 view.addEventListener('pointercancel', onUp);
@@ -101,6 +127,23 @@ view.addEventListener('pointercancel', onUp);
 addEventListener('keydown', e => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= CFG.lock.pinCount) { e.shiftKey ? doRelease(n - 1) : doPush(n - 1); }
+
+  if (R.door === 3) {
+    const door3Yaw = {
+      KeyW: 0, ArrowUp: 0,
+      KeyA: 90, ArrowLeft: 90,
+      KeyD: -90, ArrowRight: -90,
+      KeyS: look.yaw < 0 ? -180 : 180,
+      ArrowDown: look.yaw < 0 ? -180 : 180,
+    }[e.code];
+    if (door3Yaw !== undefined) {
+      e.preventDefault();
+      look.target = door3Yaw;
+      look.holding = false;
+      return;
+    }
+  }
+
   // 用 e.code 認實體按鍵：中文輸入法開著時 e.key 是 'Process'、
   // Shift/CapsLock 下是 'S' —— 視角交接不能被輸入法狀態綁架。
   if (e.code === 'KeyS') { keyLook = true; syncLook(); }
@@ -117,6 +160,8 @@ addEventListener('keydown', e => {
     buildPins(); renderPins();
   }
 });
-addEventListener('keyup', e => { if (e.code === 'KeyS') { keyLook = false; syncLook(); } });
-// 切走視窗時 keyup 會漏接 —— 回來時 S 不該還「卡在按下」。
-addEventListener('blur', () => { if (keyLook) { keyLook = false; syncLook(); } });
+addEventListener('keyup', e => {
+  if (R.door !== 3 && e.code === 'KeyS') { keyLook = false; syncLook(); }
+});
+// 切走視窗時 keyup 會漏接；回來時不保留任何按住／拖曳狀態。
+addEventListener('blur', stopLook);

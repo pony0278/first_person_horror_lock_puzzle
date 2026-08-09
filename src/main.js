@@ -23,6 +23,7 @@ import './render/monster.js';
 import './render/decay.js';
 import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
 import './render/electroroom.js';
+import './render/pumphub.js';
 import './render/doorpanel.js';
 import './render/hands.js';
 import './game/audio.js';
@@ -31,23 +32,26 @@ import './render/viewport.js';
 import './game/round.js';
 import './game/transit.js';
 import './game/door2.js';
+import './game/door3.js';
 import './game/halt.js';
 import './game/input.js';
 import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
-import { R, ST, anim, intro, look } from './state.js';
+import { R, ST, anim, hooks, intro, look } from './state.js';
 import { camera, door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2, testDoor2 } from './game/door2.js';
+import { D3 } from './game/door3.js';
 import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
 import { emptySlot, isPhaseSolved, phaseChain, solvePhase, tracePhase } from './logic/pipe.js';
 import { PB, cellCentreClient, testCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
+import { door3Anchors, pumpHub } from './render/pumphub.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
 import { resize } from './render/viewport.js';
@@ -152,8 +156,35 @@ window.__doorPanel = () => ({
   visible: doorPanel2.visible,
   mode: !doorPanel2.visible ? 'off' : lcdGreen.visible ? 'green' : 'red',
 });
-/* 直接觸發一次正面事件：正常路徑要進入潛伏期才觸發，這個接點可個別驗素材生命期，
-   避免 badge / glitch 像收走的 eye / lever 一樣默默變成啞彈。 */
+/* Door 3 scene probes. */
+function door3AnchorProbe(anchor) {
+  const point = anchor.getWorldPosition(anchor.position.clone()).project(camera);
+  return {
+    ndcX: +point.x.toFixed(2),
+    ndcY: +point.y.toFixed(2),
+    depth: +point.z.toFixed(2),
+    inView: Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1 &&
+            point.z >= -1 && point.z <= 1,
+  };
+}
+window.__door3 = () => ({
+  active: D3.active,
+  phase: D3.phase,
+  visible: pumpHub.visible,
+  yaw: +look.yaw.toFixed(1),
+  panelHidden: document.body.classList.contains('door3'),
+  anchors: Object.fromEntries(Object.entries(door3Anchors)
+    .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
+});
+window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
+window.__door3Look = yaw => {
+  if (!D3.active) return false;
+  look.yaw = Math.max(-180, Math.min(180, Number(yaw) || 0));
+  look.target = look.yaw;
+  return true;
+};
+
+/* Trigger one front-side scare directly for material lifetime tests. */
 window.__fireFront = kind => { ST.front = kind; ST.frontT = 0; };
 /* 計時／追逐驗收：加速到站位門檻，長流程測試期間可用具名原因暫停。 */
 window.__addThreatTime = seconds => R.timer.addPenalty(seconds);
@@ -161,6 +192,7 @@ window.__setThreatPaused = on => on ? R.timer.pause('probe') : R.timer.resume('p
 window.__setPins = states => { R.lock.pins = states.slice(); renderPins(); };
 /* 直接解開門 1 —— 過場（transit）的測試入口。照正確順序推真針，觸發 solved → win。 */
 window.__solveDoor1 = () => { R.lock.getHint().order.forEach(i => R.lock.push(i)); };
+window.__newRound = () => newRound();
 /* 直接跳到開場演出的結束狀態。
    演出是 dt 驅動的，低幀率下會等比拉長（見報告 M1）—— CI 的軟體渲染上
    本來 4.45 秒的演出可能跑掉快一分鐘，測試若用固定或有上限的等待，

@@ -27,6 +27,8 @@ export const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 16);
 
 /* ── 走廊：玩家站在門前，走廊往身後延伸 ─────────────── */
 const { corridorW: W, corridorH: H, segLen: L, segCount: N } = CFG.world;
+export const corridorShell = new THREE.Group();
+scene.add(corridorShell);
 for (let i = 0; i < N; i++) {
   const g = new THREE.Group();
   g.position.z = i * L;
@@ -40,11 +42,13 @@ for (let i = 0; i < N; i++) {
     wl.position.set(side * W / 2, H / 2, 0);
     wl.scale.set(L, H, 1); g.add(wl);
   }
-  scene.add(g);
+  corridorShell.add(g);
 }
 
 /* ── 牆面接縫：水平板縫 + 垂直板縫。滲透必須有來源。 ───── */
 export const SEAM_Z0 = -1.2, SEAM_Z1 = 30;
+export const corridorSeams = new THREE.Group();
+scene.add(corridorSeams);
 {
   const seamMat = new THREE.MeshStandardMaterial({ color: 0x4a4d52, roughness: 0.95 });
   const len = SEAM_Z1 - SEAM_Z0, midZ = (SEAM_Z0 + SEAM_Z1) / 2;
@@ -55,14 +59,14 @@ export const SEAM_Z0 = -1.2, SEAM_Z1 = 30;
       const m = new THREE.Mesh(boxGeo, seamMat);
       m.scale.set(CFG.seams.depth, CFG.seams.width, len);
       m.position.set(x, y, midZ);
-      scene.add(m);
+      corridorSeams.add(m);
     }
     // 垂直接縫
     for (let z = SEAM_Z0; z < SEAM_Z1; z += CFG.seams.spacingZ) {
       const m = new THREE.Mesh(boxGeo, seamMat);
       m.scale.set(CFG.seams.depth, CFG.world.corridorH, CFG.seams.width);
       m.position.set(x, CFG.world.corridorH / 2, z);
-      scene.add(m);
+      corridorSeams.add(m);
     }
   }
   // 牆腳線
@@ -70,7 +74,7 @@ export const SEAM_Z0 = -1.2, SEAM_Z1 = 30;
     const m = new THREE.Mesh(boxGeo, seamMat);
     m.scale.set(0.035, 0.035, len);
     m.position.set(side * (CFG.world.corridorW / 2 - 0.018), 0.018, midZ);
-    scene.add(m);
+    corridorSeams.add(m);
   }
 }
 
@@ -262,17 +266,19 @@ cylinder.add(wrench);
 }
 
 /* ── 門周圍的環境：讓這裡像個廢棄設施而不是一堵牆 ───── */
+export const doorEnvironment = new THREE.Group();
+scene.add(doorEnvironment);
 {
   // 門上方壞掉的照明（不發光，只是一具屍體）
   const dead = new THREE.Mesh(boxGeo, matMetal);
   dead.scale.set(0.5, 0.09, 0.18);
   dead.position.set(0, DH + FRAME + 0.30, DOOR_Z + 0.22);
   dead.rotation.z = 0.14;
-  scene.add(dead);
+  doorEnvironment.add(dead);
   const wire = new THREE.Mesh(cylGeo, matMetal);
   wire.scale.set(0.008, 0.22, 0.008);
   wire.position.set(0.12, DH + FRAME + 0.45, DOOR_Z + 0.22);
-  scene.add(wire);
+  doorEnvironment.add(wire);
 
   // 天花板管線，通到門的上方
   for (let i = 0; i < 3; i++) {
@@ -280,7 +286,7 @@ cylinder.add(wrench);
     const r = 0.05 + i * 0.012;
     p.scale.set(r, 8, r); p.rotation.x = Math.PI / 2;
     p.position.set(-W / 2 + 0.28 + i * 0.16, H - 0.22 - (i % 2) * 0.1, DOOR_Z + 4.2);
-    scene.add(p);
+    doorEnvironment.add(p);
   }
   // 門邊的雜物
   for (let i = 0; i < 5; i++) {
@@ -292,7 +298,7 @@ cylinder.add(wrench);
                    DOOR_Z + 0.5 + Math.random() * 1.6);
     d.rotation.y = Math.random() * Math.PI;
     d.userData.debris = true;
-    scene.add(d);
+    doorEnvironment.add(d);
   }
 }
 

@@ -16,6 +16,7 @@ F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/probe3.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/pinread.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/door3-scene.mjs
 ```
 
 `interrupt.mjs` 與 `safearea.mjs` 會用結束碼表示成敗（FAIL 就 exit 1），適合掛進 CI。
@@ -48,6 +49,7 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
 | `signature.mjs` | Three.js 場景圖的**結構**指紋（型別、幾何、材質、階層）＋ 全域接點與事件監聽。純程式碼搬移時用來確認什麼都沒漏，用法見檔頭 |
 | `transit.mjs` | 門 1 缺格與門間過場；Door 2 找件期間凍結、注視自動拾取、四選擇器三步充電、全點不通、bypass 跳電、充電→兩步解鎖、插入後追逐、死亡與重開（32 項） |
+| `door3-scene.mjs` | 門 3 泵房換場、全螢幕版面、四向視線錨點與拖曳停留（橫向／直向共 20 項） |
 | `safearea.mjs` | 四種瀏海配置下，可操作元素是否避開瀏海與 home indicator、洩壓鈕命中區、可操作區比例、撞針高度差有沒有被吃掉 |
 
 ## 幾個容易踩的量測陷阱

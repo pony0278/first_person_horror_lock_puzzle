@@ -92,6 +92,13 @@
      但操作提示不能被切掉。 */
   #turnCue { padding-left:var(--sa-l); padding-right:var(--sa-r); }
 
+  /* Door 3 greybox uses the full viewport; its puzzle panel is not active yet. */
+  body.door3 #view { flex:1 1 100%; }
+  body.door3 #panel { display:none; }
+  body.door3 #turnCue {
+    bottom:10px; color:#6f8587; text-shadow:0 1px 5px #000; letter-spacing:.13em;
+  }
+
   /* ── 黑幕 ───────────────────────────────────────── */
   /* 門 2 短路跳電：獨立於過場／死亡黑幕，避免兩套狀態互相解除。 */
   #trip { position:fixed; inset:0; background:rgba(0,5,10,.88); opacity:0; pointer-events:none;

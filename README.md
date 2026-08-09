@@ -7,7 +7,8 @@
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
 v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
-目前階段：**F1 門 1＋門 2 垂直切片**（門 1 符號＋點數中央缺格與撬鎖已接通；門 2「充電→解鎖」兩階段、可恢復跳電與插入零件後才開始的 20 秒追逐已接通；門 3 尚未實作）
+門 3 泵房決策與灰盒契約：[`docs/door3-pump-hub.md`](docs/door3-pump-hub.md)
+目前階段：**F2 門 3 場景灰盒**（門 1、門 2 玩法已接通；門 2 成功後會進入可環視的淹水十字泵房。門 3 水量謎題與三向怪物仍刻意保持凍結）
 
 ## 自動化
 
@@ -18,7 +19,7 @@ CI 分成兩個**並行**的 job：
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
 | **建置與發布** | `npm run check`（型別、相依分層、82 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（32 項），共 120 項 | **否** |
+| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（32 項）、`door3-scene`（20 項），共 140 項 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
@@ -59,6 +60,7 @@ src/
     decay.js                緊急照明、滲液、積水、倒影
     hintwall.js             Rough.js＋SVG＋Canvas 側邊符號＋點數缺格、手電筒、暗角
     electroroom.js          門 2 變電室與可取回導管
+    pumphub.js              門 3 十字泵房、防洪閘門、三向走廊與壓力設備灰盒
     doorpanel.js            門 2 LCD 與損壞讀卡機
     hands.js                雙手 IK
     cutaway.js              下方面板的機構剖面圖
@@ -69,6 +71,7 @@ src/
     round.js                回合生命週期
     transit.js              門 1 → 門 2 過場與注視自動取件狀態機
     door2.js                門 2 充電→解鎖測試、跳電與追逐啟動流程
+    door3.js                門 2 → 門 3 換場與灰盒環視生命週期
     halt.js                 中斷（切背景、context 遺失）
     input.js                觸控與鍵盤
     loop.js                 主迴圈
@@ -122,7 +125,8 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` 保留作真機回歸清單。
 門 1 已改為符號＋點數中央缺格＋原撬鎖執行：牆面單排三格，兩端皆為「符號在上、點數在下」，中央整格連符號與點數一起被拔走；鎖面四個固定符號各帶一組點數。玩家從兩端推理等差中項，找出帶該點數的中央符號，再依完成後的三格順序撬動真針；序列外的點數是假針。
 門 2 現為 2×8 兩階段電路：只有四個黃銅選擇器能轉，開局距離充電解固定三步；先從指定方向替蓄電器充電，再翻兩個選擇器、經保險絲抵達門閂。四個全亂點一次不會通，直接把電送向門鎖會跳電切黑 1.2 秒。零件只需回頭注視 0.42 秒便自動取下、落槽自動對正；20 秒倒數與怪物追逐延後到零件插入後才開始。
-目前下一步是用真機與小規模玩家驗收「蓄電器暖色→充電後冷色、再切兩個選擇器」是否一眼可讀，以及 20 秒內兩階段思考與跳電代價是否公平，再進入門 3。
+門 3 已先完成淹水十字泵房灰盒：正面是防洪閘門與三缸壓力組，左／右／後分別以暖色粗管、冷色電纜、鐵鏈來區分方向；操作區收起後可用拖曳或 W/A/S/D 環視。這一輪沒有啟動怪物與水量規則，避免在空間尚未驗證前把兩套狀態機綁死。
+目前下一步是先用真機確認 Door 3 的方向辨識、閘門可見度與拖曳手感，再設計可在 4～6 步內完成的均壓盤面，最後接入誠實但不完整的三向怪物提示。
 
 ```bash
 npm run check      # 型別 + 相依分層 + 82 個單元測試
@@ -132,3 +136,4 @@ F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     #
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 32 項
 ```
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/door3-scene.mjs  # Door 3 四向視線與環視

@@ -17,7 +17,7 @@ import { R, blind, hooks } from '../state.js';
 import { beep, zap } from './audio.js';
 import { interrupted } from './halt.js';
 import { beginDoorRound, completeDoor } from './round.js';
-import { T, finishTransit } from './transit.js';
+import { T } from './transit.js';
 
 const OPEN_HOLD_SEC = 0.42;
 const TRIP_HOLD_SEC = 1.20;
@@ -185,7 +185,7 @@ export function updateDoor2(dt, lampF) {
     D2.doneT += dt;
     if (D2.doneT >= 1.2) {
       hooks.resetDoor2();
-      finishTransit('通電 —— 門 3 施工中');
+      hooks.startDoor3?.();
     }
   }
 }

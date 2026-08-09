@@ -64,6 +64,7 @@ hooks.startTransit = startTransit;
 
 /** newRound 重置時呼叫：把過場動過的東西全部歸位。 */
 hooks.resetTransit = () => {
+  hooks.resetDoor3?.();
   hooks.resetDoor2?.();                        // 盤面先收走
   T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
   T.tug = 0; T.focusT = 0; T.reachT = 0; T.flyT = 0;
