@@ -1,11 +1,12 @@
-/* 門 1 的圖形等差題與後製。
-   四個等距位置直接使用鎖內同款圖形；移除唯一破壞刻點等差規律的圖形後，
-   剩餘圖形由左到右就是撬鎖順序，不再經過門面轉譯。 */
+/* 門 1 的缺格圖形序列與後製。
+   牆面只有三格：兩端是同款撞針圖形，中間是一塊真的被拔走的牆皮。
+   玩家補回四邊形後，完成的左到右順序就是撬鎖順序。 */
 
 import * as THREE from 'three';
 import rough from 'roughjs/bundled/rough.esm.js';
 import { CFG } from '../logic/config.js';
-import { GLYPH } from '../logic/glyphs.js';
+import { DOOR1_GLYPHS } from '../logic/glyphs.js';
+import { missingPuzzlePins } from '../logic/pin-puzzle.js';
 import { mulberry32 } from '../logic/rng.js';
 import { R } from '../state.js';
 import { boxGeo, camera, planeGeo, scene } from './scene.js';
@@ -14,8 +15,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAINT_W = 640, PAINT_H = 240;
 
 export const paintStatus = {
-  ready: false, serial: 0, ruleId: null, visual: 'graphic-arithmetic',
-  pins: [], counts: [], difference: 0, invalidPins: [],
+  ready: false, serial: 0, ruleId: null, visual: 'missing-shape-sequence',
+  slots: [], pinShapes: [], missingIndex: -1, missingPins: [], step: 0,
   coverage: 0, svgBytes: 0, error: '',
 };
 
@@ -30,8 +31,15 @@ function appendRough(svg, node) {
   return node;
 }
 
+function polygonPoints(cx, cy, radius, sides) {
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / sides;
+    return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
+  });
+}
+
 function makeHintSvg(puzzle) {
-  if (!puzzle) throw new Error('門 1 圖形等差題尚未建立');
+  if (!puzzle) throw new Error('門 1 缺格圖形序列尚未建立');
   const svg = svgNode('svg', {
     xmlns: SVG_NS, viewBox: `0 0 ${PAINT_W} ${PAINT_H}`,
     width: PAINT_W, height: PAINT_H,
@@ -41,37 +49,64 @@ function makeHintSvg(puzzle) {
   const option = (stroke, strokeWidth = 3, extra = {}) => ({
     stroke, strokeWidth, roughness: 1.65, bowing: 1.9, seed: seed++, ...extra,
   });
-  const centres = [80, 240, 400, 560];
-  const glyph = (pin, cx, cy, radius) => {
-    const common = option('#171716', 5.2, { fill: GLYPH[pin].c, fillStyle: 'solid' });
-    if (pin % 4 === 0) appendRough(svg, rc.circle(cx, cy, radius * 1.8, common));
-    if (pin % 4 === 1) appendRough(svg, rc.rectangle(cx - radius * 0.82, cy - radius * 0.82,
-      radius * 1.64, radius * 1.64, common));
-    if (pin % 4 === 2) appendRough(svg, rc.polygon([
-      [cx, cy - radius], [cx + radius * 0.92, cy + radius * 0.78],
-      [cx - radius * 0.92, cy + radius * 0.78],
-    ], common));
-    if (pin % 4 === 3) appendRough(svg, rc.polygon([
-      [cx, cy - radius], [cx + radius * 0.78, cy], [cx, cy + radius], [cx - radius * 0.78, cy],
-    ], common));
-  };
-  const punchDots = (count, cx, cy) => {
-    const gap = 24;
-    for (let i = 0; i < count; i++) {
-      const x = cx + (i - (count - 1) / 2) * gap;
-      appendRough(svg, rc.circle(x, cy, 12, option('#211b18', 3.0, {
-        fill: '#3b2822', fillStyle: 'solid', roughness: 1.3, bowing: 0.7,
-      })));
-      appendRough(svg, rc.circle(x + 1, cy - 1, 4.5, option('#a36c50', 1.0, {
-        fill: '#a36c50', fillStyle: 'solid', roughness: 1.0, bowing: 0.4,
-      })));
+  const centres = [108, 320, 532];
+  const glyph = (shape, cx, cy, radius) => {
+    const common = option('#171716', 5.2, {
+      fill: DOOR1_GLYPHS[shape].c, fillStyle: 'solid',
+    });
+    if (shape === 'circle') {
+      appendRough(svg, rc.circle(cx, cy, radius * 1.8, common));
+      return;
     }
+    const sides = shape === 'triangle' ? 3 : shape === 'square' ? 4 : 5;
+    appendRough(svg, rc.polygon(polygonPoints(cx, cy, radius, sides), common));
+  };
+  const nailHole = (cx, cy) => {
+    appendRough(svg, rc.circle(cx, cy, 11, option('#312c28', 2.6, {
+      fill: '#443d37', fillStyle: 'solid', roughness: 1.2, bowing: 0.7,
+    })));
+    appendRough(svg, rc.circle(cx + 1, cy - 1, 3.5, option('#a29888', 0.8, {
+      fill: '#a29888', fillStyle: 'solid', roughness: 0.8, bowing: 0.4,
+    })));
+  };
+  const missingSlot = (cx, cy) => {
+    // 中央保持透明，直接露出原牆；只留不對稱的剝落邊與固定件。
+    // 狹長比例刻意避開「四邊形答案」的正方形輪廓。
+    const scars = [
+      [[cx - 41, cy - 65], [cx + 31, cy - 68], [cx + 41, cy - 57],
+       [cx + 9, cy - 52], [cx - 36, cy - 55]],
+      [[cx - 43, cy - 61], [cx - 34, cy - 48], [cx - 36, cy + 48],
+       [cx - 46, cy + 61], [cx - 51, cy + 12]],
+      [[cx + 36, cy - 54], [cx + 45, cy - 43], [cx + 43, cy + 18],
+       [cx + 36, cy + 50], [cx + 31, cy + 29]],
+      [[cx - 36, cy + 52], [cx - 7, cy + 57], [cx + 35, cy + 49],
+       [cx + 27, cy + 62], [cx - 25, cy + 66]],
+    ];
+    scars.forEach(points => appendRough(svg, rc.polygon(points, option('#655c53', 2.8, {
+      fill: '#91877a', fillStyle: 'hachure', hachureGap: 6, hachureAngle: -22,
+      roughness: 2.2, bowing: 2.5,
+    }))));
+    nailHole(cx - 34, cy - 49);
+    nailHole(cx + 34, cy - 49);
+    nailHole(cx - 34, cy + 49);
+    nailHole(cx + 34, cy + 49);
+    // 被扯斷後仍黏在牆上的一小片標牌，不封閉中央空間。
+    appendRough(svg, rc.polygon([
+      [cx + 35, cy + 17], [cx + 52, cy + 29], [cx + 42, cy + 58], [cx + 34, cy + 47],
+    ], option('#514a43', 2.4, {
+      fill: '#766d63', fillStyle: 'solid', roughness: 2.0, bowing: 2.0,
+    })));
   };
 
-  // 同一個位置同時帶撞針身分與等差資料；辨認後可直接回鎖內操作。
+  // 同一道斷裂刮痕把三個位置串成一個序列，不使用箭頭或問號。
+  appendRough(svg, rc.line(160, 112, 242, 112,
+    option('#6b211c', 4.0, { roughness: 2.1, bowing: 2.7 })));
+  appendRough(svg, rc.line(398, 112, 480, 112,
+    option('#6b211c', 4.0, { roughness: 2.1, bowing: 2.7 })));
+
   puzzle.clues.forEach((clue, index) => {
-    glyph(clue.pin, centres[index], 76, 29);
-    punchDots(clue.count, centres[index], 166);
+    if (clue.missing) missingSlot(centres[index], 104);
+    else glyph(clue.shape, centres[index], 104, 43);
   });
   return svg;
 }
@@ -79,7 +114,7 @@ function makeHintSvg(puzzle) {
 function distressCanvas(ctx, puzzle) {
   const rng = mulberry32((puzzle.wallSeed ^ 0x5f3759df) >>> 0);
   for (let i = 0; i < CFG.paint.drips; i++) {
-    const x = 60 + rng() * (PAINT_W - 120), y = 190 + rng() * 18;
+    const x = 60 + rng() * (PAINT_W - 120), y = 180 + rng() * 18;
     const len = 18 + rng() * 48, width = 1.5 + rng() * 3;
     const g = ctx.createLinearGradient(0, y, 0, y + len);
     g.addColorStop(0, '#6b211c90');
@@ -103,10 +138,11 @@ export function makePaintTexture(puzzle) {
   const svg = makeHintSvg(puzzle);
   const xml = new XMLSerializer().serializeToString(svg);
   paintStatus.ruleId = puzzle.ruleId;
-  paintStatus.pins = puzzle.clues.map(clue => clue.pin);
-  paintStatus.counts = puzzle.clues.map(clue => clue.count);
-  paintStatus.difference = puzzle.difference;
-  paintStatus.invalidPins = [puzzle.falsePin];
+  paintStatus.slots = puzzle.clues.map(clue => clue.shape);
+  paintStatus.pinShapes = [...puzzle.pinShapes];
+  paintStatus.missingIndex = puzzle.missingIndex;
+  paintStatus.missingPins = missingPuzzlePins(puzzle);
+  paintStatus.step = puzzle.step;
   paintStatus.svgBytes = xml.length;
 
   return new Promise((resolve, reject) => {
@@ -125,7 +161,7 @@ export function makePaintTexture(puzzle) {
       tex.colorSpace = THREE.SRGBColorSpace;
       resolve(tex);
     };
-    image.onerror = () => reject(new Error('SVG 圖形等差題無法轉成牆面 Canvas'));
+    image.onerror = () => reject(new Error('SVG 缺格圖形序列無法轉成牆面 Canvas'));
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   });
 }
@@ -160,7 +196,7 @@ export function repaint() {
   });
 }
 
-/* 題列旁只留故障光、隱去燈體，避免它被誤認成第五個圖形。 */
+/* 題列旁只留故障光、隱去燈體，避免它被誤認成額外圖形。 */
 export const markerMat = new THREE.MeshBasicMaterial({ color: 0xd8b25a, transparent: true, opacity: 0 });
 export const marker = new THREE.Mesh(boxGeo, markerMat);
 marker.scale.set(0.018, 0.065, 0.015);

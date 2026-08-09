@@ -44,7 +44,7 @@ import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2 } from './game/door2.js';
-import { inferPinOrder, invalidPuzzlePins } from './logic/pin-puzzle.js';
+import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
 import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
 import { PB, cellCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
@@ -76,7 +76,7 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
-/* 門 1 單來源圖形等差：牆面圖形就是撞針身分，刻點數只負責規則推理。 */
+/* 門 1 缺格圖形序列：牆面兩端與門鎖候選使用完全相同的圖形語言。 */
 window.__lockPuzzle = () => {
   const puzzle = R.puzzle; if (!puzzle) return null;
   const wallPoint = paintPlane.getWorldPosition(paintPlane.position.clone()).project(camera);
@@ -84,19 +84,22 @@ window.__lockPuzzle = () => {
   return {
     ruleId: puzzle.ruleId,
     clues: puzzle.clues.map(clue => ({ ...clue })),
-    difference: puzzle.difference,
+    pinShapes: [...puzzle.pinShapes],
+    missingIndex: puzzle.missingIndex,
+    step: puzzle.step,
     falsePin: puzzle.falsePin,
     falsePins: [...R.lock.falsePins],
-    invalidPins: invalidPuzzlePins(puzzle),
+    missingPins: missingPuzzlePins(puzzle),
     inferredOrder: inferPinOrder(puzzle),
     trueOrder: [...R.lock.trueOrder],
-    singleSource: puzzle.clues.length === CFG.lock.pinCount &&
-                  new Set(puzzle.clues.map(clue => clue.pin)).size === CFG.lock.pinCount,
+    singleSource: puzzle.clues.length === 3 &&
+                  puzzle.clues.filter(clue => clue.missing).length === 1 &&
+                  puzzle.pinShapes.length === CFG.lock.pinCount,
     wall: {
       ready: paintStatus.ready, ruleId: paintStatus.ruleId, visual: paintStatus.visual,
-      pins: [...paintStatus.pins], counts: [...paintStatus.counts],
-      difference: paintStatus.difference, invalidPins: [...paintStatus.invalidPins],
-      coverage: paintStatus.coverage,
+      slots: [...paintStatus.slots], pinShapes: [...paintStatus.pinShapes],
+      missingIndex: paintStatus.missingIndex, missingPins: [...paintStatus.missingPins],
+      step: paintStatus.step, coverage: paintStatus.coverage,
       svgBytes: paintStatus.svgBytes, error: paintStatus.error, visible: paintPlane.visible,
       ndcX: +wallPoint.x.toFixed(2), ndcY: +wallPoint.y.toFixed(2),
       inView: paintPlane.visible && Math.abs(wallPoint.x) <= 1 && Math.abs(wallPoint.y) <= 1 &&
@@ -105,7 +108,6 @@ window.__lockPuzzle = () => {
       corridorInView: Math.abs(corridorPoint.x) <= 1 && Math.abs(corridorPoint.y) <= 1 &&
                       corridorPoint.z >= -1 && corridorPoint.z <= 1,
     },
-
   };
 };
 /* 門 2 盤面的測試接點：狀態、下一個該點的格子、格子的螢幕座標。

@@ -1,33 +1,35 @@
-/** 門 1 的單來源圖形等差推理：牆面直接使用撞針圖形；移除唯一違規圖形後，
- * 其刻點數形成等差數列，剩餘圖形由左到右就是撬鎖順序。 */
+/** 門 1 的缺格圖形序列：牆面顯示三格，中間一格被拔走。
+ * 玩家由三角形／五邊形推回四邊形，再依完整序列撬動三根真針。 */
 import type { PinIndex } from './pins';
 
-export type PinPuzzleRuleId = 'graphic-arithmetic';
+export type PinPuzzleRuleId = 'missing-shape-sequence';
+export type PinPuzzleShape = 'circle' | 'triangle' | 'square' | 'pentagon';
 
 export interface PinPuzzleClue {
-  readonly pin: PinIndex;
-  readonly count: number;
+  /** 空缺格不暴露對應撞針；玩家必須從門上的候選圖形推回來。 */
+  readonly pin: PinIndex | null;
+  readonly shape: PinPuzzleShape | null;
+  readonly missing: boolean;
 }
 
 export interface PinPuzzle {
   readonly ruleId: PinPuzzleRuleId;
   readonly falsePin: PinIndex;
-  /** 牆面由左到右；圖形就是撞針身分，count 是周圍刻點數。 */
-  readonly clues: readonly PinPuzzleClue[];
-  readonly difference: 2;
+  /** 牆面由左到右；固定只有中間一格缺失。 */
+  readonly clues: readonly [PinPuzzleClue, PinPuzzleClue, PinPuzzleClue];
+  /** 以撞針索引查出門鎖上實際顯示的圖形。 */
+  readonly pinShapes: readonly PinPuzzleShape[];
+  readonly missingIndex: 1;
+  /** 多邊形邊數每格的變化；正反向皆可能。 */
+  readonly step: 1 | -1;
   readonly wallSeed: number;
 }
 
-export function isArithmeticProgression(values: readonly number[]): boolean {
-  if (values.length < 3) return false;
-  const difference = values[1]! - values[0]!;
-  return difference > 0 && values.slice(2).every((value, index) =>
-    value - values[index + 1]! === difference);
-}
-
-export function arithmeticRemovalIndices(values: readonly number[]): number[] {
-  return values.flatMap((_, index) =>
-    isArithmeticProgression(values.filter((__, candidate) => candidate !== index)) ? [index] : []);
+export function shapeSides(shape: PinPuzzleShape): number {
+  if (shape === 'circle') return 0;
+  if (shape === 'triangle') return 3;
+  if (shape === 'square') return 4;
+  return 5;
 }
 
 export function createPinPuzzle(falsePin: PinIndex, trueOrder: readonly PinIndex[],
@@ -40,39 +42,44 @@ export function createPinPuzzle(falsePin: PinIndex, trueOrder: readonly PinIndex
     throw new RangeError('門 1 必須由三根真針與一根假針恰好涵蓋 0～3，且不得重複');
   }
 
-  const trueCounts = [1, 3, 5] as const;
-  const falseIndex = Math.floor(rng() * pinCount);
-  const displayPins = [...trueOrder];
-  displayPins.splice(falseIndex, 0, falsePin);
-  const candidates = [2, 4].filter(candidate => {
-    const counts = displayPins.map(pin => pin === falsePin
-      ? candidate : trueCounts[trueOrder.indexOf(pin)]!);
-    const removals = arithmeticRemovalIndices(counts);
-    return removals.length === 1 && removals[0] === falseIndex;
-  });
-  if (!candidates.length) throw new Error('無法建立唯一解的門 1 圖形等差題目');
-  const falseCount = candidates[Math.floor(rng() * candidates.length)]!;
-  const clues = displayPins.map(pin => ({
-    pin,
-    count: pin === falsePin ? falseCount : trueCounts[trueOrder.indexOf(pin)]!,
-  }));
+  const step = rng() < 0.5 ? 1 : -1;
+  const sequence: readonly PinPuzzleShape[] = step === 1
+    ? ['triangle', 'square', 'pentagon']
+    : ['pentagon', 'square', 'triangle'];
+  const pinShapes: PinPuzzleShape[] = Array(pinCount).fill('circle');
+  trueOrder.forEach((pin, index) => { pinShapes[pin] = sequence[index]!; });
+  pinShapes[falsePin] = 'circle';
 
   return {
-    ruleId: 'graphic-arithmetic',
+    ruleId: 'missing-shape-sequence',
     falsePin,
-    clues,
-    difference: 2,
+    clues: [
+      { pin: trueOrder[0]!, shape: sequence[0]!, missing: false },
+      { pin: null, shape: null, missing: true },
+      { pin: trueOrder[2]!, shape: sequence[2]!, missing: false },
+    ],
+    pinShapes,
+    missingIndex: 1,
+    step,
     wallSeed: Math.floor(rng() * 0x7fffffff),
   };
 }
 
-export function inferPinOrder(puzzle: PinPuzzle): PinIndex[] {
-  const invalid = invalidPuzzlePins(puzzle);
-  if (invalid.length !== 1) throw new Error('門 1 圖形等差題目沒有唯一違規圖形');
-  return puzzle.clues.filter(clue => clue.pin !== invalid[0]).map(clue => clue.pin);
+export function missingPuzzlePins(puzzle: PinPuzzle): PinIndex[] {
+  const missing = puzzle.clues.flatMap((clue, index) => clue.missing ? [index] : []);
+  if (missing.length !== 1 || missing[0] !== puzzle.missingIndex) return [];
+  const before = puzzle.clues[puzzle.missingIndex - 1]?.shape;
+  const after = puzzle.clues[puzzle.missingIndex + 1]?.shape;
+  if (!before || !after) return [];
+  const expectedSides = (shapeSides(before) + shapeSides(after)) / 2;
+  if (!Number.isInteger(expectedSides)) return [];
+  const visiblePins = new Set(puzzle.clues.flatMap(clue => clue.pin === null ? [] : [clue.pin]));
+  return puzzle.pinShapes.flatMap((shape, pin) =>
+    !visiblePins.has(pin) && shapeSides(shape) === expectedSides ? [pin] : []);
 }
 
-export function invalidPuzzlePins(puzzle: PinPuzzle): PinIndex[] {
-  const indices = arithmeticRemovalIndices(puzzle.clues.map(clue => clue.count));
-  return indices.map(index => puzzle.clues[index]!.pin);
+export function inferPinOrder(puzzle: PinPuzzle): PinIndex[] {
+  const missingPins = missingPuzzlePins(puzzle);
+  if (missingPins.length !== 1) throw new Error('門 1 缺格圖形序列沒有唯一答案');
+  return puzzle.clues.map(clue => clue.pin ?? missingPins[0]!);
 }

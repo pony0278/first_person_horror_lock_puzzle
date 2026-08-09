@@ -4,11 +4,16 @@
 
 import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
-import { GLYPH } from '../logic/glyphs.js';
+import { DOOR1_GLYPHS, GLYPH } from '../logic/glyphs.js';
 import { $pins, $seq } from '../dom.js';
 import { R, ST, pick, ui } from '../state.js';
 
 export let tracks = [];
+
+function glyphForPin(pin) {
+  const shape = R.puzzle?.pinShapes?.[pin];
+  return shape ? DOOR1_GLYPHS[shape] : GLYPH[pin];
+}
 
 /* 跨模組會被重新賦值的狀態放進物件 —— ES module 的 import 是唯讀綁定，
    直接 export let 的話別的模組改不動它。 */
@@ -34,7 +39,7 @@ export function buildPins() {
     const tr = document.createElement('div');
     tr.className = 'track'; tr.dataset.i = i;
     tr.innerHTML = `<div class="flash"></div>
-      <div class="pin" style="background:${GLYPH[i].c}">${GLYPH[i].s}</div>`;
+      <div class="pin" style="background:${glyphForPin(i).c}">${glyphForPin(i).s}</div>`;
     $pins.appendChild(tr); tracks.push(tr);
   }
 }
@@ -194,10 +199,10 @@ export function drawCutaway(tint = 0) {
     }
 
     // 檢修漆點（殼體上緣）
-    ctx.fillStyle = GLYPH[i].c; ctx.globalAlpha = 0.9;
+    ctx.fillStyle = glyphForPin(i).c; ctx.globalAlpha = 0.9;
     ctx.font = `${Math.min(cell * 0.24, 17)}px ui-monospace, Menlo, monospace`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(GLYPH[i].s, cx, TOP + h * 0.022 + 8);
+    ctx.fillText(glyphForPin(i).s, cx, TOP + h * 0.022 + 8);
     ctx.globalAlpha = 1;
 
     // 選中框
@@ -277,7 +282,7 @@ export function renderPins() {
     ? R.history.map(h => {
         const cls = h.r === 'set' ? 'ok' : h.r === 'falseSet' ? 'fake' : 'err';
         const m = h.r === 'set' ? '✓' : h.r === 'falseSet' ? '?' : '✕';
-        return `<span class="step ${cls}" style="color:${GLYPH[h.i].c}">${GLYPH[h.i].s}<small>${m}</small></span>`;
+        return `<span class="step ${cls}" style="color:${glyphForPin(h.i).c}">${glyphForPin(h.i).s}<small>${m}</small></span>`;
       }).join('')
     : '';
 }

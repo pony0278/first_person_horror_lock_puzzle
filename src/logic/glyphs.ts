@@ -1,23 +1,30 @@
 /**
  * 撞針的顏色＋形狀符號（設計文件 §8）。
  *
- * 不用數字：形狀是色盲輔助，成本極低；零文字所以不需在地化；
- * 也省掉「數針」的轉換成本，1 秒內可讀。
- *
- * §8 明訂**資訊單位上限 4 個**，這裡放 6 組是為了 F1 的六針變體（§7），
- * 實際同時出現的仍以門的針數為準。
+ * 門 1 會依每局謎題把形狀重新綁定到實體撞針；牆面與剖面圖共用
+ * DOOR1_GLYPHS，玩家看到的圖形才是同一個資訊單位。
  */
+import type { PinPuzzleShape } from './pin-puzzle';
+
 export interface Glyph {
   /** CSS 色碼。剖面圖與提示牆共用同一組，玩家才對得起來。 */
   readonly c: string;
   readonly s: string;
 }
 
+export const DOOR1_GLYPHS: Readonly<Record<PinPuzzleShape, Glyph>> = {
+  circle:   { c: '#b85f58', s: '●' },
+  triangle: { c: '#c9a94e', s: '▲' },
+  square:   { c: '#5a7fc0', s: '■' },
+  pentagon: { c: '#a87945', s: '⬟' },
+};
+
+/** 其他鎖針變體的後備圖形；門 1 顯示時由 puzzle.pinShapes 取代。 */
 export const GLYPH: readonly Glyph[] = [
-  { c: '#c05a52', s: '●' },
-  { c: '#5a7fc0', s: '■' },
-  { c: '#c9a94e', s: '▲' },
+  DOOR1_GLYPHS.circle,
+  DOOR1_GLYPHS.square,
+  DOOR1_GLYPHS.triangle,
   { c: '#6a9e63', s: '◆' },
-  { c: '#b0763f', s: '⬟' },
+  DOOR1_GLYPHS.pentagon,
   { c: '#8d6ab0', s: '✚' },
 ];
