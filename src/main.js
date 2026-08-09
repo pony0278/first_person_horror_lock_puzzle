@@ -76,7 +76,7 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
-/* 門 1 缺格位置序列：牆面與門鎖候選共用完全相同的五點軌道。 */
+/* 門 1 符號＋點數序列：牆面與門鎖候選共用同一組撞針點數。 */
 window.__lockPuzzle = () => {
   const puzzle = R.puzzle; if (!puzzle) return null;
   const wallPoint = paintPlane.getWorldPosition(paintPlane.position.clone()).project(camera);
@@ -84,7 +84,7 @@ window.__lockPuzzle = () => {
   return {
     ruleId: puzzle.ruleId,
     clues: puzzle.clues.map(clue => ({ ...clue })),
-    pinMarks: [...puzzle.pinMarks],
+    pinCounts: [...puzzle.pinCounts],
     missingIndex: puzzle.missingIndex,
     step: puzzle.step,
     falsePin: puzzle.falsePin,
@@ -94,10 +94,11 @@ window.__lockPuzzle = () => {
     trueOrder: [...R.lock.trueOrder],
     singleSource: puzzle.clues.length === 3 &&
                   puzzle.clues.filter(clue => clue.missing).length === 1 &&
-                  puzzle.pinMarks.length === CFG.lock.pinCount,
+                  puzzle.pinCounts.length === CFG.lock.pinCount,
     wall: {
       ready: paintStatus.ready, ruleId: paintStatus.ruleId, visual: paintStatus.visual,
-      slots: [...paintStatus.slots], pinMarks: [...paintStatus.pinMarks],
+      pins: [...paintStatus.pins], counts: [...paintStatus.counts],
+      pinCounts: [...paintStatus.pinCounts],
       missingIndex: paintStatus.missingIndex, missingPins: [...paintStatus.missingPins],
       step: paintStatus.step, coverage: paintStatus.coverage,
       svgBytes: paintStatus.svgBytes, error: paintStatus.error, visible: paintPlane.visible,

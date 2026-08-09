@@ -4,51 +4,44 @@
 
 import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
-import { DOOR1_GLYPHS, GLYPH } from '../logic/glyphs.js';
+import { GLYPH } from '../logic/glyphs.js';
 import { $pins, $seq } from '../dom.js';
 import { R, ST, pick, ui } from '../state.js';
 
 export let tracks = [];
 
 function glyphForPin(pin) {
-  const mark = R.puzzle?.pinMarks?.[pin];
-  return mark ? DOOR1_GLYPHS[mark] : GLYPH[pin];
+  return GLYPH[pin];
 }
 
-function drawPinMark(ctx, pin, cx, cy, span, markerRadius) {
-  const mark = R.puzzle?.pinMarks?.[pin];
-  if (!mark) {
-    const fallback = GLYPH[pin];
-    ctx.fillStyle = fallback.c;
-    ctx.font = `${markerRadius * 3.5}px ui-monospace, Menlo, monospace`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(fallback.s, cx, cy);
-    return;
-  }
+function drawPinClue(ctx, pin, cx, cy, cell, height) {
+  const glyph = glyphForPin(pin);
+  const count = R.puzzle?.pinCounts?.[pin] ?? 0;
+  const plateW = Math.min(cell * 0.30, 50);
+  const plateH = Math.min(height * 0.36, 27);
+  const top = cy - plateH / 2;
 
-  const glyph = DOOR1_GLYPHS[mark];
-  const gap = span / 2;
   ctx.save();
-  ctx.globalAlpha = 0.92;
+  ctx.globalAlpha = 0.96;
   ctx.fillStyle = '#24272b';
-  ctx.fillRect(cx - span - 5, cy - markerRadius - 3, span * 2 + 10, markerRadius * 2 + 6);
+  ctx.fillRect(cx - plateW / 2, top, plateW, plateH);
   ctx.strokeStyle = '#8a8f91';
   ctx.lineWidth = 1.2;
-  ctx.strokeRect(cx - span - 5, cy - markerRadius - 3, span * 2 + 10, markerRadius * 2 + 6);
-  ctx.beginPath(); ctx.moveTo(cx - span, cy); ctx.lineTo(cx + span, cy); ctx.stroke();
-  for (let position = -2; position <= 2; position++) {
-    ctx.fillStyle = '#8a8f91';
-    ctx.beginPath(); ctx.arc(cx + position * gap, cy, 1.45, 0, Math.PI * 2); ctx.fill();
-  }
+  ctx.strokeRect(cx - plateW / 2, top, plateW, plateH);
+
   ctx.fillStyle = glyph.c;
-  ctx.strokeStyle = '#17181a';
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.arc(cx + glyph.position * gap, cy, markerRadius, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
+  ctx.font = `${Math.min(13, height * 0.17)}px ui-monospace, Menlo, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(glyph.s, cx, cy - plateH * 0.20);
+
+  const gap = Math.min(5, plateW * 0.105);
+  const dotY = cy + plateH * 0.29;
+  for (let index = 0; index < count; index++) {
+    const dotX = cx + (index - (count - 1) / 2) * gap;
+    ctx.beginPath(); ctx.arc(dotX, dotY, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.restore();
 }
-
 /* 跨模組會被重新賦值的狀態放進物件 —— ES module 的 import 是唯讀綁定，
    直接 export let 的話別的模組改不動它。 */
 
@@ -72,8 +65,10 @@ export function buildPins() {
   for (let i = 0; i < CFG.lock.pinCount; i++) {
     const tr = document.createElement('div');
     tr.className = 'track'; tr.dataset.i = i;
+    const dots = '•'.repeat(R.puzzle?.pinCounts?.[i] ?? 0);
     tr.innerHTML = `<div class="flash"></div>
-      <div class="pin" style="background:${glyphForPin(i).c}">${glyphForPin(i).s}</div>`;
+      <div class="pin" style="background:${glyphForPin(i).c}">${glyphForPin(i).s}
+        <small style="display:block;font-size:.42em;letter-spacing:.08em">${dots}</small></div>`;
     $pins.appendChild(tr); tracks.push(tr);
   }
 }
@@ -232,9 +227,8 @@ export function drawCutaway(tint = 0) {
       ctx.strokeRect(cx + PW / 2 + 1, SHEAR - 2, (CW - PW) / 2 + 4, h * 0.028);
     }
 
-    // 檢修軌道（殼體上緣）：五個錨點與牆面相同，亮點位置就是撞針身分。
-    drawPinMark(ctx, i, cx, TOP + h * 0.022 + 8,
-      Math.min(cell * 0.13, 18), Math.min(4.8, Math.max(3.2, h * 0.045)));
+    // 檢修牌（殼體上緣）：符號在上、點數在下，與牆面使用同一資訊單位。
+    drawPinClue(ctx, i, cx, TOP + h * 0.022 + 9, cell, h);
 
     // 選中框
     if (i === ui.sel) {

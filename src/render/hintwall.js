@@ -1,11 +1,11 @@
-/* 門 1 的缺格位置序列與後製。
-   牆面只有三格：兩端是同款五點軌道，中間是一塊真的被拔走的牆皮。
-   玩家補回標記位於中央的軌道後，完成的左到右順序就是撬鎖順序。 */
+/* 門 1 的符號＋點數缺格序列與後製。
+   牆面只有三格：符號在上、點數在下，中央整格連符號與點數一起被拔走。
+   玩家由兩端點數補回等差中項，再以鎖面上相同的符號＋點數完成撬鎖順序。 */
 
 import * as THREE from 'three';
 import rough from 'roughjs/bundled/rough.esm.js';
 import { CFG } from '../logic/config.js';
-import { DOOR1_GLYPHS } from '../logic/glyphs.js';
+import { GLYPH } from '../logic/glyphs.js';
 import { missingPuzzlePins } from '../logic/pin-puzzle.js';
 import { mulberry32 } from '../logic/rng.js';
 import { R } from '../state.js';
@@ -15,8 +15,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAINT_W = 640, PAINT_H = 240;
 
 export const paintStatus = {
-  ready: false, serial: 0, ruleId: null, visual: 'missing-position-sequence',
-  slots: [], pinMarks: [], missingIndex: -1, missingPins: [], step: 0,
+  ready: false, serial: 0, ruleId: null, visual: 'missing-dot-sequence',
+  pins: [], counts: [], pinCounts: [], missingIndex: -1, missingPins: [], step: 0,
   coverage: 0, svgBytes: 0, error: '',
 };
 
@@ -31,9 +31,8 @@ function appendRough(svg, node) {
   return node;
 }
 
-
 function makeHintSvg(puzzle) {
-  if (!puzzle) throw new Error('門 1 缺格圖形序列尚未建立');
+  if (!puzzle) throw new Error('門 1 符號＋點數缺格序列尚未建立');
   const svg = svgNode('svg', {
     xmlns: SVG_NS, viewBox: `0 0 ${PAINT_W} ${PAINT_H}`,
     width: PAINT_W, height: PAINT_H,
@@ -44,22 +43,44 @@ function makeHintSvg(puzzle) {
     stroke, strokeWidth, roughness: 1.65, bowing: 1.9, seed: seed++, ...extra,
   });
   const centres = [108, 320, 532];
-  const markerRail = (mark, cx, cy) => {
-    const glyph = DOOR1_GLYPHS[mark];
-    const span = 50, gap = span / 2;
-    appendRough(svg, rc.rectangle(cx - 61, cy - 36, 122, 72,
-      option('#514b46', 3.1, { roughness: 1.9, bowing: 2.0 })));
-    appendRough(svg, rc.line(cx - span, cy, cx + span, cy,
-      option('#403b37', 3.1, { roughness: 1.5, bowing: 1.4 })));
-    for (let position = -2; position <= 2; position++) {
-      appendRough(svg, rc.circle(cx + position * gap, cy, 10, option('#332e2a', 2.0, {
-        fill: '#514943', fillStyle: 'solid', roughness: 1.1, bowing: 0.6,
+
+  const stationScars = cx => {
+    // 三個位置只用短角痕標示欄位，不畫完整考卷格線。
+    const y0 = 28, y1 = 203, x0 = cx - 66, x1 = cx + 66, arm = 18;
+    [[x0, y0, x0 + arm, y0], [x1 - arm, y0, x1, y0],
+     [x0, y1, x0 + arm, y1], [x1 - arm, y1, x1, y1]].forEach(([ax, ay, bx, by]) =>
+      appendRough(svg, rc.line(ax, ay, bx, by, option('#5b5149', 2.2, { roughness: 2.2 }))));
+  };
+
+  const symbolMark = (pin, cx, cy) => {
+    const glyph = GLYPH[pin];
+    const common = option('#241f1c', 4.2, {
+      fill: glyph.c, fillStyle: 'solid', roughness: 1.55, bowing: 1.0,
+    });
+    if (pin === 0) appendRough(svg, rc.circle(cx, cy, 62, common));
+    else if (pin === 1) appendRough(svg, rc.rectangle(cx - 29, cy - 29, 58, 58, common));
+    else if (pin === 2) appendRough(svg, rc.polygon([
+      [cx, cy - 34], [cx + 34, cy + 28], [cx - 34, cy + 28],
+    ], common));
+    else appendRough(svg, rc.polygon([
+      [cx, cy - 36], [cx + 35, cy], [cx, cy + 36], [cx - 35, cy],
+    ], common));
+  };
+
+  const punchDots = (count, cx, cy) => {
+    const gap = 21;
+    for (let index = 0; index < count; index++) {
+      const x = cx + (index - (count - 1) / 2) * gap;
+      appendRough(svg, rc.circle(x, cy, 13, option('#211d1a', 2.5, {
+        fill: '#2a2521', fillStyle: 'solid', roughness: 1.1, bowing: 0.6,
+      })));
+      appendRough(svg, rc.circle(x - 1, cy - 1, 3.2, option('#aca08d', 0.7, {
+        fill: '#aca08d', fillStyle: 'solid', roughness: 0.7, bowing: 0.3,
       })));
     }
-    appendRough(svg, rc.circle(cx + glyph.position * gap, cy, 31, option('#171716', 4.0, {
-      fill: glyph.c, fillStyle: 'solid', roughness: 1.35, bowing: 0.9,
-    })));
-  };  const nailHole = (cx, cy) => {
+  };
+
+  const nailHole = (cx, cy) => {
     appendRough(svg, rc.circle(cx, cy, 11, option('#312c28', 2.6, {
       fill: '#443d37', fillStyle: 'solid', roughness: 1.2, bowing: 0.7,
     })));
@@ -67,42 +88,44 @@ function makeHintSvg(puzzle) {
       fill: '#a29888', fillStyle: 'solid', roughness: 0.8, bowing: 0.4,
     })));
   };
+
   const missingSlot = (cx, cy) => {
-    // 空缺與兩端軌道同尺寸；中央保持透明，只留被拔走後的不對稱剝落邊。
+    // 與完整欄位同高的剝落周界，中央透明：表示符號與點數整格遺失。
+    const left = cx - 68, right = cx + 68, top = cy - 88, bottom = cy + 88;
     const scars = [
-      [[cx - 62, cy - 38], [cx + 44, cy - 41], [cx + 62, cy - 31],
-       [cx + 19, cy - 27], [cx - 51, cy - 29]],
-      [[cx - 64, cy - 34], [cx - 55, cy - 23], [cx - 56, cy + 21],
-       [cx - 65, cy + 37], [cx - 70, cy + 4]],
-      [[cx + 55, cy - 29], [cx + 65, cy - 19], [cx + 63, cy + 8],
-       [cx + 56, cy + 30], [cx + 50, cy + 15]],
-      [[cx - 54, cy + 27], [cx - 12, cy + 31], [cx + 54, cy + 25],
-       [cx + 43, cy + 39], [cx - 43, cy + 40]],
+      [[left - 4, top + 5], [left + 28, top - 5], [right - 22, top + 1], [right + 5, top + 12],
+       [right - 9, top + 24], [left + 18, top + 18]],
+      [[left + 3, top + 4], [left - 7, top + 32], [left + 2, bottom - 18],
+       [left - 5, bottom + 3], [left + 16, bottom - 9], [left + 18, top + 22]],
+      [[right - 5, top + 13], [right + 7, top + 38], [right - 2, bottom - 25],
+       [right + 4, bottom + 3], [right - 17, bottom - 8], [right - 18, top + 25]],
+      [[left + 3, bottom - 16], [left + 26, bottom + 5], [right - 29, bottom - 1],
+       [right + 4, bottom + 4], [right - 12, bottom - 19], [left + 22, bottom - 20]],
     ];
-    scars.forEach(points => appendRough(svg, rc.polygon(points, option('#655c53', 2.8, {
-      fill: '#91877a', fillStyle: 'hachure', hachureGap: 6, hachureAngle: -22,
+    scars.forEach(points => appendRough(svg, rc.polygon(points, option('#62584f', 2.8, {
+      fill: '#91877a', fillStyle: 'hachure', hachureGap: 6, hachureAngle: -24,
       roughness: 2.2, bowing: 2.5,
     }))));
-    nailHole(cx - 53, cy - 27);
-    nailHole(cx + 53, cy - 27);
-    nailHole(cx - 53, cy + 27);
-    nailHole(cx + 53, cy + 27);
-    appendRough(svg, rc.polygon([
-      [cx + 55, cy + 8], [cx + 70, cy + 17], [cx + 61, cy + 38], [cx + 53, cy + 27],
-    ], option('#514a43', 2.4, {
-      fill: '#766d63', fillStyle: 'solid', roughness: 2.0, bowing: 2.0,
-    })));
+    nailHole(left + 15, top + 17);
+    nailHole(right - 15, top + 17);
+    nailHole(left + 15, bottom - 17);
+    nailHole(right - 15, bottom - 17);
   };
 
-  // 同一道斷裂刮痕把三個位置串成一個序列，不使用箭頭或問號。
-  appendRough(svg, rc.line(160, 112, 242, 112,
-    option('#6b211c', 4.0, { roughness: 2.1, bowing: 2.7 })));
-  appendRough(svg, rc.line(398, 112, 480, 112,
-    option('#6b211c', 4.0, { roughness: 2.1, bowing: 2.7 })));
+  // 斷裂的暗紅刮痕把三格視為同一排，但不使用箭頭、文字或問號。
+  appendRough(svg, rc.line(176, 114, 235, 114,
+    option('#6b211c', 3.6, { roughness: 2.2, bowing: 2.7 })));
+  appendRough(svg, rc.line(405, 114, 464, 114,
+    option('#6b211c', 3.6, { roughness: 2.2, bowing: 2.7 })));
 
   puzzle.clues.forEach((clue, index) => {
-    if (clue.missing) missingSlot(centres[index], 104);
-    else markerRail(clue.mark, centres[index], 104);
+    const cx = centres[index];
+    stationScars(cx);
+    if (clue.missing) missingSlot(cx, 115);
+    else {
+      symbolMark(clue.pin, cx, 82);
+      punchDots(clue.count, cx, 163);
+    }
   });
   return svg;
 }
@@ -110,8 +133,8 @@ function makeHintSvg(puzzle) {
 function distressCanvas(ctx, puzzle) {
   const rng = mulberry32((puzzle.wallSeed ^ 0x5f3759df) >>> 0);
   for (let i = 0; i < CFG.paint.drips; i++) {
-    const x = 60 + rng() * (PAINT_W - 120), y = 180 + rng() * 18;
-    const len = 18 + rng() * 48, width = 1.5 + rng() * 3;
+    const x = 60 + rng() * (PAINT_W - 120), y = 194 + rng() * 10;
+    const len = 14 + rng() * 38, width = 1.5 + rng() * 3;
     const g = ctx.createLinearGradient(0, y, 0, y + len);
     g.addColorStop(0, '#6b211c90');
     g.addColorStop(1, '#6b211c00');
@@ -134,8 +157,9 @@ export function makePaintTexture(puzzle) {
   const svg = makeHintSvg(puzzle);
   const xml = new XMLSerializer().serializeToString(svg);
   paintStatus.ruleId = puzzle.ruleId;
-  paintStatus.slots = puzzle.clues.map(clue => clue.mark);
-  paintStatus.pinMarks = [...puzzle.pinMarks];
+  paintStatus.pins = puzzle.clues.map(clue => clue.pin);
+  paintStatus.counts = puzzle.clues.map(clue => clue.count);
+  paintStatus.pinCounts = [...puzzle.pinCounts];
   paintStatus.missingIndex = puzzle.missingIndex;
   paintStatus.missingPins = missingPuzzlePins(puzzle);
   paintStatus.step = puzzle.step;
@@ -157,7 +181,7 @@ export function makePaintTexture(puzzle) {
       tex.colorSpace = THREE.SRGBColorSpace;
       resolve(tex);
     };
-    image.onerror = () => reject(new Error('SVG 缺格位置序列無法轉成牆面 Canvas'));
+    image.onerror = () => reject(new Error('SVG 符號＋點數缺格序列無法轉成牆面 Canvas'));
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   });
 }

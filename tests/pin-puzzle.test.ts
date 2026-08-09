@@ -1,55 +1,58 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createPinPuzzle, inferPinOrder, markPosition, missingPuzzlePins,
+  createPinPuzzle, inferPinOrder, missingPuzzlePins,
 } from '../src/logic/pin-puzzle';
 import { mulberry32 } from '../src/logic/rng';
 
 const TRUE = [2, 0, 3] as const;
 
-describe('門 1 缺格位置序列', () => {
-  it('牆面固定為兩個軌道端點與一個明確的中央空缺', () => {
-    const seenSteps = new Set<number>();
+describe('門 1 符號＋點數中央缺格', () => {
+  it('牆面固定為單排三格，中央的符號與點數一起消失', () => {
     for (let seed = 0; seed < 500; seed++) {
       const puzzle = createPinPuzzle(1, TRUE, mulberry32(seed));
-      seenSteps.add(puzzle.step);
       expect(puzzle.clues).toHaveLength(3);
       expect(puzzle.missingIndex).toBe(1);
       expect(puzzle.clues.map(clue => clue.missing)).toEqual([false, true, false]);
-      expect(puzzle.clues[1]).toEqual({ pin: null, mark: null, missing: true });
-      expect([puzzle.clues[0].mark, puzzle.clues[2].mark].sort()).toEqual(['left', 'right']);
+      expect(puzzle.clues[1]).toEqual({ pin: null, count: null, missing: true });
+      expect(puzzle.clues[0]).toMatchObject({ pin: TRUE[0], missing: false });
+      expect(puzzle.clues[2]).toMatchObject({ pin: TRUE[2], missing: false });
     }
-    expect([...seenSteps].sort((a, b) => a - b)).toEqual([-2, 2]);
   });
 
-  it('四根撞針是左、中、右三個真位置與一個偏心干擾位置', () => {
-    const seenDistractors = new Set<string>();
+  it('四個鎖面候選各有固定符號與唯一點數，假針點數不屬於真序列', () => {
+    const seenSteps = new Set<number>();
     for (let seed = 0; seed < 500; seed++) {
       const falsePin = seed % 4;
       const order = [0, 1, 2, 3].filter(pin => pin !== falsePin);
       const puzzle = createPinPuzzle(falsePin, order, mulberry32(seed));
-      const distractor = puzzle.pinMarks[falsePin]!;
-      seenDistractors.add(distractor);
-      expect(['near-left', 'near-right']).toContain(distractor);
-      expect(puzzle.pinMarks[order[1]!]).toBe('center');
-      expect(puzzle.pinMarks.filter(mark => ['left', 'center', 'right'].includes(mark))).toHaveLength(3);
-      expect(new Set(puzzle.pinMarks).size).toBe(4);
+      const trueCounts = order.map(pin => puzzle.pinCounts[pin]!);
+      seenSteps.add(puzzle.step);
+
+      expect(puzzle.pinCounts).toHaveLength(4);
+      expect(new Set(puzzle.pinCounts).size).toBe(4);
+      expect(puzzle.pinCounts.every(count => count >= 1 && count <= 5)).toBe(true);
+      expect(trueCounts[1]! - trueCounts[0]!).toBe(puzzle.step);
+      expect(trueCounts[2]! - trueCounts[1]!).toBe(puzzle.step);
+      expect(trueCounts).not.toContain(puzzle.pinCounts[falsePin]);
     }
-    expect([...seenDistractors].sort()).toEqual(['near-left', 'near-right']);
+    expect([...seenSteps].sort((a, b) => a - b)).toEqual([-2, -1, 1, 2]);
   });
 
-  it('只有正中央撞針能補成等距位置序列', () => {
+  it('只有點數為兩端算術中項的撞針能補進中央', () => {
     for (let seed = 0; seed < 500; seed++) {
       const falsePin = seed % 4;
       const order = [3, 1, 0, 2].filter(pin => pin !== falsePin);
       const puzzle = createPinPuzzle(falsePin, order, mulberry32(seed));
-      const visiblePositions = [puzzle.clues[0].mark!, puzzle.clues[2].mark!].map(markPosition);
-      expect(visiblePositions).toEqual(puzzle.step === 2 ? [-2, 2] : [2, -2]);
+      const left = puzzle.clues[0].count!;
+      const right = puzzle.clues[2].count!;
+      const expected = (left + right) / 2;
+
+      expect(puzzle.pinCounts[order[1]!]).toBe(expected);
       expect(missingPuzzlePins(puzzle)).toEqual([order[1]]);
-      expect(markPosition(puzzle.pinMarks[order[1]!]!)).toBe(0);
     }
   });
 
-  it('補回中央位置後的牆面順序就是原 trueOrder', () => {
+  it('補回中央整格後的三個符號順序就是原 trueOrder', () => {
     for (let seed = 0; seed < 500; seed++) {
       const falsePin = seed % 4;
       const order = [3, 1, 0, 2].filter(pin => pin !== falsePin);
@@ -58,13 +61,20 @@ describe('門 1 缺格位置序列', () => {
     }
   });
 
-  it('不再含多邊形邊數資料，且無唯一缺格答案時拒絕推演', () => {
+  it('不再含位置軌道或多邊形轉譯資料，答案不唯一時拒絕推演', () => {
     const puzzle = createPinPuzzle(1, TRUE, mulberry32(7));
-    expect(puzzle.ruleId).toBe('missing-position-sequence');
+    expect(puzzle.ruleId).toBe('missing-dot-sequence');
+    expect(puzzle).not.toHaveProperty('pinMarks');
     expect(puzzle).not.toHaveProperty('pinShapes');
+    expect(puzzle.clues.every(clue => !Object.hasOwn(clue, 'mark'))).toBe(true);
     expect(puzzle.clues.every(clue => !Object.hasOwn(clue, 'shape'))).toBe(true);
-    const ambiguous = { ...puzzle, pinMarks: puzzle.pinMarks.map((mark, pin) =>
-      pin === puzzle.falsePin ? 'center' as const : mark) };
+
+    const expected = (puzzle.clues[0].count! + puzzle.clues[2].count!) / 2;
+    const ambiguous = {
+      ...puzzle,
+      pinCounts: puzzle.pinCounts.map((count, pin) =>
+        pin === puzzle.falsePin ? expected : count),
+    };
     expect(missingPuzzlePins(ambiguous)).toHaveLength(2);
     expect(() => inferPinOrder(ambiguous)).toThrow();
   });

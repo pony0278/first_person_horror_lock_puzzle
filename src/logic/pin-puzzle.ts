@@ -1,37 +1,34 @@
-/** 門 1 的缺格位置序列：同一條五點軌道上的標記由一端等距移到另一端。
- * 玩家補回中央位置，再依完整序列撬動三根真針。 */
+/** 門 1 的符號＋點數缺格序列。
+ * 牆面顯示兩個「撞針符號＋點數」端點；玩家由等差規律補回中央整格，
+ * 再依完成後的三格順序撬動真針。 */
 import type { PinIndex } from './pins';
 
-export type PinPuzzleRuleId = 'missing-position-sequence';
-export type PinPuzzleMark = 'left' | 'near-left' | 'center' | 'near-right' | 'right';
+export type PinPuzzleRuleId = 'missing-dot-sequence';
 
 export interface PinPuzzleClue {
-  /** 空缺格不暴露對應撞針；玩家必須從門上的候選軌道推回來。 */
+  /** 中央缺格同時隱藏符號與點數。 */
   readonly pin: PinIndex | null;
-  readonly mark: PinPuzzleMark | null;
+  readonly count: number | null;
   readonly missing: boolean;
 }
 
 export interface PinPuzzle {
   readonly ruleId: PinPuzzleRuleId;
   readonly falsePin: PinIndex;
-  /** 牆面由左到右；固定只有中間一格缺失。 */
   readonly clues: readonly [PinPuzzleClue, PinPuzzleClue, PinPuzzleClue];
-  /** 以撞針索引查出門鎖上五點軌道的標記位置。 */
-  readonly pinMarks: readonly PinPuzzleMark[];
+  /** 以撞針索引查出門鎖候選下方顯示的點數。 */
+  readonly pinCounts: readonly number[];
   readonly missingIndex: 1;
-  /** 標記每格跨越兩個錨點；正反向皆可能。 */
-  readonly step: 2 | -2;
+  readonly step: 1 | -1 | 2 | -2;
   readonly wallSeed: number;
 }
 
-export function markPosition(mark: PinPuzzleMark): number {
-  if (mark === 'left') return -2;
-  if (mark === 'near-left') return -1;
-  if (mark === 'center') return 0;
-  if (mark === 'near-right') return 1;
-  return 2;
-}
+const COUNT_TEMPLATES = [
+  [1, 2, 3],
+  [2, 3, 4],
+  [3, 4, 5],
+  [1, 3, 5],
+] as const;
 
 export function createPinPuzzle(falsePin: PinIndex, trueOrder: readonly PinIndex[],
                                 rng: () => number = Math.random): PinPuzzle {
@@ -43,26 +40,24 @@ export function createPinPuzzle(falsePin: PinIndex, trueOrder: readonly PinIndex
     throw new RangeError('門 1 必須由三根真針與一根假針恰好涵蓋 0～3，且不得重複');
   }
 
-  const step = rng() < 0.5 ? 2 : -2;
-  const sequence: readonly PinPuzzleMark[] = step === 2
-    ? ['left', 'center', 'right']
-    : ['right', 'center', 'left'];
-  const distractor: PinPuzzleMark = rng() < 0.5 ? 'near-left' : 'near-right';
-  const pinMarks: PinPuzzleMark[] = Array(pinCount).fill(distractor);
-  trueOrder.forEach((pin, index) => { pinMarks[pin] = sequence[index]!; });
-  pinMarks[falsePin] = distractor;
+  const template = COUNT_TEMPLATES[Math.floor(rng() * COUNT_TEMPLATES.length)]!;
+  const sequence: number[] = rng() < 0.5 ? [...template] : [...template].reverse();
+  const remaining = [1, 2, 3, 4, 5].filter(count => !sequence.includes(count));
+  const falseCount = remaining[Math.floor(rng() * remaining.length)]!;
+  const pinCounts = Array(pinCount).fill(falseCount);
+  trueOrder.forEach((pin, index) => { pinCounts[pin] = sequence[index]!; });
 
   return {
-    ruleId: 'missing-position-sequence',
+    ruleId: 'missing-dot-sequence',
     falsePin,
     clues: [
-      { pin: trueOrder[0]!, mark: sequence[0]!, missing: false },
-      { pin: null, mark: null, missing: true },
-      { pin: trueOrder[2]!, mark: sequence[2]!, missing: false },
+      { pin: trueOrder[0]!, count: sequence[0]!, missing: false },
+      { pin: null, count: null, missing: true },
+      { pin: trueOrder[2]!, count: sequence[2]!, missing: false },
     ],
-    pinMarks,
+    pinCounts,
     missingIndex: 1,
-    step,
+    step: (sequence[1]! - sequence[0]!) as 1 | -1 | 2 | -2,
     wallSeed: Math.floor(rng() * 0x7fffffff),
   };
 }
@@ -70,17 +65,18 @@ export function createPinPuzzle(falsePin: PinIndex, trueOrder: readonly PinIndex
 export function missingPuzzlePins(puzzle: PinPuzzle): PinIndex[] {
   const missing = puzzle.clues.flatMap((clue, index) => clue.missing ? [index] : []);
   if (missing.length !== 1 || missing[0] !== puzzle.missingIndex) return [];
-  const before = puzzle.clues[puzzle.missingIndex - 1]?.mark;
-  const after = puzzle.clues[puzzle.missingIndex + 1]?.mark;
-  if (!before || !after) return [];
-  const expectedPosition = (markPosition(before) + markPosition(after)) / 2;
+  const before = puzzle.clues[puzzle.missingIndex - 1]?.count;
+  const after = puzzle.clues[puzzle.missingIndex + 1]?.count;
+  if (before === null || before === undefined || after === null || after === undefined) return [];
+  const expectedCount = (before + after) / 2;
+  if (!Number.isInteger(expectedCount)) return [];
   const visiblePins = new Set(puzzle.clues.flatMap(clue => clue.pin === null ? [] : [clue.pin]));
-  return puzzle.pinMarks.flatMap((mark, pin) =>
-    !visiblePins.has(pin) && markPosition(mark) === expectedPosition ? [pin] : []);
+  return puzzle.pinCounts.flatMap((count, pin) =>
+    !visiblePins.has(pin) && count === expectedCount ? [pin] : []);
 }
 
 export function inferPinOrder(puzzle: PinPuzzle): PinIndex[] {
   const missingPins = missingPuzzlePins(puzzle);
-  if (missingPins.length !== 1) throw new Error('門 1 缺格位置序列沒有唯一答案');
+  if (missingPins.length !== 1) throw new Error('門 1 符號＋點數缺格序列沒有唯一答案');
   return puzzle.clues.map(clue => clue.pin ?? missingPins[0]!);
 }
