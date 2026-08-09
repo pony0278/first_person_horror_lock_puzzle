@@ -3,7 +3,7 @@ import {
   E, N, POOL, S, W,
   chain, charOf, emptySlot, energized, insertPiece, isSolved, maskOf,
   newBoard, offPathRuns, parseSpec, periodOf, reach, rotMask, rotate,
-  seededBoard, sinkOf, solve, solvable,
+  seededBoard, sinkOf, solve, solveShort, solvable, traceRoute,
 } from '../src/logic/pipe';
 import type { Board, BoardSpec } from '../src/logic/pipe';
 import { mulberry32 } from '../src/logic/rng';
@@ -38,6 +38,14 @@ describe('遮罩與轉向', () => {
     expect(maskOf(b.cells[5]!)).toBe(N | S);
   });
 
+  it('分流器只有向東與向南兩種狀態，且同時仍只有兩個有效接口', () => {
+    const b = parseSpec({ id: 't', rows: ['d-', '--'], slot: 1, scramble: 0, note: '' });
+    expect(periodOf('diverter')).toBe(2);
+    expect(maskOf(b.cells[0]!)).toBe(E | W);
+    rotate(b, 0);
+    expect(charOf(b.cells[0]!)).toBe('D');
+    expect(maskOf(b.cells[0]!)).toBe(S | W);
+  });
   it('燒毀格轉不動', () => {
     const b = parseSpec({ id: 't', rows: ['X-', '--'], slot: 1, scramble: 0, note: '' });
     expect(rotate(b, 0)).toBe(false);
@@ -90,6 +98,38 @@ describe('盤面池', () => {
     expect(chain(b)[chain(b).length - 1]).toBe(sinkOf(b));
   });
 
+  it.each(POOL.map(s => [s.id, s] as const))('%s：分流狀態只有一組能抵達門鎖，且至少一組會短路', (_id, spec) => {
+    const b = parseSpec(spec as BoardSpec);
+    const diverters = b.cells.flatMap((cell, i) => cell.kind === 'diverter' ? [i] : []);
+    expect(diverters.length).toBeGreaterThanOrEqual(1);
+    let solved = 0, shorts = 0;
+    for (let state = 0; state < 2 ** diverters.length; state++) {
+      diverters.forEach((i, bit) => { b.cells[i]!.rot = (state >> bit) & 1; });
+      const outcome = traceRoute(b).outcome;
+      if (outcome === 'solved') solved++;
+      if (outcome === 'short') shorts++;
+    }
+    expect(solved).toBe(1);
+    expect(shorts).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each(POOL.map(s => [s.id, s] as const))('%s：任意打亂後仍能配置出真的短路，不會先退化成普通斷路', (_id, spec) => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const b = newBoard(spec as BoardSpec, mulberry32(seed));
+      insertPiece(b, mulberry32(seed * 17));
+      const short = solveShort(b);
+      expect(short).not.toBeNull();
+      short!.path.forEach((i, k) => { b.cells[i]!.rot = short!.rots[k]!; });
+      expect(traceRoute(b).outcome).toBe('short');
+    }
+  });
+  it.each(POOL.map(s => [s.id, s] as const))('%s：缺件位於第一個分流前的共用入口，不會洩漏安全路線', (_id, spec) => {
+    const b = parseSpec(spec as BoardSpec);
+    const firstDiverter = b.cells.findIndex(cell => cell.kind === 'diverter');
+    expect((spec as BoardSpec).slot).toBeGreaterThan(0);
+    expect((spec as BoardSpec).slot).toBeLessThan(firstDiverter);
+    expect(solve(b)?.path).toContain((spec as BoardSpec).slot);
+  });
   it.each(POOL.map(s => [s.id, s] as const))('%s：缺件槽在解答路徑上', (_id, spec) => {
     const b = parseSpec(spec as BoardSpec);
     expect(solve(b)?.path).toContain((spec as BoardSpec).slot);
@@ -160,6 +200,14 @@ describe('求解', () => {
     expect(taps).toBe(cost);
   });
 
+  it('普通接錯是斷路；選到焦黑端點才是短路', () => {
+    const b = parseSpec(POOL[0]!);
+    const diverter = b.cells.findIndex(cell => cell.kind === 'diverter');
+    b.cells[diverter]!.rot = 0;
+    expect(traceRoute(b).outcome).toBe('short');
+    rotate(b, 0);
+    expect(traceRoute(b).outcome).toBe('open');
+  });
   it('燒毀格擋住唯一通路時無解', () => {
     const b = parseSpec({ id: 't', rows: ['---7', '--XL'], slot: 3, scramble: 0, note: '' });
     expect(solvable(b)).toBe(true);
@@ -170,7 +218,7 @@ describe('求解', () => {
   it('2×N 格圖裡「角到角」的簡單路徑全部單調往東（窮舉證明）', () => {
     // 這不是在測 pipe.ts，是在證一件格圖的事實：2 排盤面放不下真正的岔路。
     // 往西繞的話，要回東邊就得換排，但兩排在那些欄都已經走過 —— 接不回來。
-    // 這條窮舉是「為什麼門 2 是純執行」的依據，見設計文件 §19。
+    // 這條窮舉解釋了為什麼普通直／彎管做不出岔路；現在的選擇由分流器改變格內連接。
     const COLS = 8, NCELL = 2 * COLS;
     const nbr = (i: number): number[] => {
       const r = Math.floor(i / COLS), c = i % COLS, out: number[] = [];
@@ -202,7 +250,7 @@ describe('求解', () => {
 
   it('解答路徑在欄上單調往東（2 排盤面的結構事實）', () => {
     // 想往西繞，回頭時兩排在該欄都已用掉 —— 所以垂直進入彎管時答案永遠是東。
-    // 這條性質就是「2×8 放不下真岔路」的來源，見 §19。
+    // 普通管仍遵守這條性質；真正選擇由分流器的刀閘狀態提供。
     for (const spec of POOL) {
       const cols = parseSpec(spec).cols;
       const path = solve(parseSpec(spec))!.path;

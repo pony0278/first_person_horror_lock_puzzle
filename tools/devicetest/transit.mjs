@@ -127,16 +127,28 @@ await page.evaluate(() => window.__solveDoor1());
 const phase = () => page.evaluate(() => window.__probe().transit);
 const tugCount = () => page.evaluate(() => window.__probe().tug);
 const pipe = () => page.evaluate(() => window.__pipe());
-/* 解盤：每次問 __pipeNext 該點哪一格，點到通為止。
-   座標問 __pipeCellCentre —— 盤面是抽的，寫死座標必成假通過。 */
-const solvePipe = async () => {
-  for (let n = 0; n < 20; n++) {
+/* 解盤：先在斷電狀態把普通管與分流器配置完成，再實際點主斷路器送電。 */
+const configurePipe = async () => {
+  for (let n = 0; n < 24; n++) {
     const i = await page.evaluate(() => window.__pipeNext());
     if (i === null) break;
     const c = await page.evaluate(k => window.__pipeCellCentre(k), i);
     await page.touchscreen.tap(c.x, c.y);
     await page.waitForTimeout(120);
   }
+  return pipe();
+};
+const pressPipeTest = async () => {
+  const c = await page.evaluate(() => window.__pipeTestCentre());
+  await page.touchscreen.tap(c.x, c.y);
+};
+const solvePipe = async () => {
+  await configurePipe();
+  await pressPipeTest();
+  await page.waitForFunction(() => {
+    const p = window.__pipe();
+    return p && p.power === 'solved';
+  }, null, { timeout: 30000 });
   return pipe();
 };
 const waitPhase = async (name, timeout = 60000) => {
@@ -309,10 +321,47 @@ const pp1 = await pipe();
 check('零件自動落入空槽', pp1.slot === null, `cost=${pp1.cost}`);
 check('落槽是歪的 —— 還得再轉（v3 §4）', !pp1.solved && pp1.cost >= 1, `cost=${pp1.cost}`);
 
-await page.evaluate(() => window.__setThreatPaused(false));
-const done1 = await solvePipe();
-check('點轉管格到通電', done1.solved === true, `chain=${done1.chain}`);
+const configured = await configurePipe();
+check('斷電配置完成後不會自動送電', configured.solved && configured.power === 'off',
+  `outcome=${configured.outcome} power=${configured.power}`);
+const testCentre = await page.evaluate(() => window.__pipeTestCentre());
+check('主斷路器觸控目標直徑 ≥ 48px', testCentre.r >= 24, `diameter=${(testCentre.r * 2).toFixed(0)}px`);
 
+// 故意逐格配置一條會撞上焦黑端點的路線，再用真正的主斷路器測試。
+let shortTaps = 0;
+for (; shortTaps < 24; shortTaps++) {
+  const i = await page.evaluate(() => window.__pipeShortNext());
+  if (i === null) break;
+  const c = await page.evaluate(k => window.__pipeCellCentre(k), i);
+  await page.touchscreen.tap(c.x, c.y);
+  await page.waitForTimeout(120);
+}
+const wrongRoute = await pipe();
+check('盤面至少有一條可事前辨認並實際配置的短路路線',
+  shortTaps > 0 && wrongRoute.outcome === 'short',
+  `taps=${shortTaps} outcome=${wrongRoute.outcome} fault=${wrongRoute.fault}`);
+await page.evaluate(() => window.__setThreatPaused(false));
+const shortClock0 = await page.evaluate(() => window.__probe().elapsed);
+await pressPipeTest();
+await page.waitForFunction(() => { const p = window.__pipe(); return p && p.power === 'trip'; },
+  null, { timeout: 30000 });
+await page.screenshot({ path: `${OUT}/door2-short-trip.png` });
+const tripped = await page.evaluate(() => ({
+  pipe: window.__pipe(), probe: window.__probe(), blackout: document.querySelector('#trip').classList.contains('on'),
+}));
+check('錯路會讓斷路器跳脫並切黑，但不直接判死',
+  tripped.pipe.shorts === 1 && tripped.blackout && !tripped.probe.over,
+  `shorts=${tripped.pipe.shorts} blackout=${tripped.blackout} over=${tripped.probe.over}`);
+await page.waitForFunction(() => { const p = window.__pipe(); return p && p.power === 'off'; },
+  null, { timeout: 30000 });
+const shortClock1 = await page.evaluate(() => window.__probe().elapsed);
+check('跳電期間牆鐘與怪物照常前進，之後可重新配置',
+  shortClock1 - shortClock0 >= 0.8 && !await page.evaluate(() => window.__probe().over),
+  `elapsed ${shortClock0.toFixed(2)} → ${shortClock1.toFixed(2)}`);
+
+const done1 = await solvePipe();
+check('修正分流路線並再次送電後解鎖', done1.solved && done1.power === 'solved',
+  `chain=${done1.chain} power=${done1.power}`);
 /* 通電瞬間 LCD 跳綠（綠色缺口框 —— 閂縮回的形狀） */
 try {
   await page.waitForFunction(() => window.__doorPanel().mode === 'green', null, { timeout: 15000 });

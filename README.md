@@ -7,7 +7,7 @@
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
 v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
-目前階段：**F1 門 1＋門 2 垂直切片**（門 1 符號＋點數中央缺格與撬鎖已接通；門 2 管線、20 秒追逐已接通；門 3 尚未實作）
+目前階段：**F1 門 1＋門 2 垂直切片**（門 1 符號＋點數中央缺格與撬鎖已接通；門 2 分流選路、跳電與 20 秒追逐已接通；門 3 尚未實作）
 
 ## 自動化
 
@@ -17,8 +17,8 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、86 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（64 項），共 152 項 | **否** |
+| **建置與發布** | `npm run check`（型別、相依分層、97 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（70 項），共 158 項 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
@@ -51,7 +51,7 @@ src/
     round.ts                隱藏計時器、站位時刻表、失敗原因
     glyphs.ts               撞針的顏色＋形狀符號（§8）
     rng.ts                  可重現亂數
-    pipe.ts                 門 2 管線盤面、連通判定、盤面池與求解
+    pipe.ts                 門 2 分流盤面、安全／短路求解、盤面池與連通判定
   render/                 ── 場景建構與繪製 ──
     materials.js            程序化材質
     scene.js                走廊、門、鎖芯、工具
@@ -62,13 +62,13 @@ src/
     doorpanel.js            門 2 LCD 與損壞讀卡機
     hands.js                雙手 IK
     cutaway.js              下方面板的機構剖面圖
-    pipeboard.js            門 2 管線盤面繪製
+    pipeboard.js            門 2 管線、分流刀閘、主斷路器與送電結果繪製
     viewport.js             尺寸對齊
   game/                   ── 流程 ──
     audio.js                Web Audio 即時合成
     round.js                回合生命週期
     transit.js              門 1 → 門 2 過場與取件狀態機
-    door2.js                門 2 管線流程
+    door2.js                門 2 斷電配置、通電測試與跳電流程
     halt.js                 中斷（切背景、context 遺失）
     input.js                觸控與鍵盤
     loop.js                 主迴圈
@@ -121,14 +121,14 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 
 v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` 保留作真機回歸清單。
 門 1 已改為符號＋點數中央缺格＋原撬鎖執行：牆面單排三格，兩端皆為「符號在上、點數在下」，中央整格連符號與點數一起被拔走；鎖面四個固定符號各帶一組點數。玩家從兩端推理等差中項，找出帶該點數的中央符號，再依完成後的三格順序撬動真針；序列外的點數是假針。
-門 2 已完成首輪體驗調整：總時限仍為 20 秒，怪物站位改為 7／11／14／20 秒，空槽提供無文字缺件脈衝。
-目前的下一步是用真機與小規模玩家驗收門 1 的中央整格缺失是否一眼可辨、1～5 點在側視／鎖面距離是否清楚、走廊恐怖構圖與門 2 壓力曲線，再進入門 3。
+門 2 已加入真正的路線選擇：2×8 盤面使用單路機械分流器，玩家斷電配置後按主斷路器一次測試；正確路線開門、普通斷路可修改、焦黑支線會跳電切黑 1.2 秒。缺件移到第一個分流前的共用入口，不再洩漏安全路線；總時限與怪物站位維持 20 秒及 7／11／14／20 秒。
+目前的下一步是用真機與小規模玩家驗收 Door 2 分流刀閘是否一眼可讀、第一次跳電是否公平、20 秒內的讀路與取件壓力，再進入門 3。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 86 個單元測試
+npm run check      # 型別 + 相依分層 + 97 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
-F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 64 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 70 項
 ```

@@ -43,10 +43,10 @@ import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
-import { D2 } from './game/door2.js';
+import { D2, testDoor2 } from './game/door2.js';
 import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
-import { chain, emptySlot, isSolved, solve } from './logic/pipe.js';
-import { PB, cellCentreClient } from './render/pipeboard.js';
+import { chain, emptySlot, isSolved, solve, solveShort, traceRoute } from './logic/pipe.js';
+import { PB, cellCentreClient, testCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
@@ -116,8 +116,14 @@ window.__lockPuzzle = () => {
 window.__pipe = () => {
   if (!D2.board) return null;
   const s = solve(D2.board);
+  const trace = traceRoute(D2.board);
   return { active: D2.active, chain: chain(D2.board).length,
            solved: isSolved(D2.board), slot: emptySlot(D2.board),
+           outcome: trace.outcome, fault: trace.fault,
+           power: D2.power, lastOutcome: D2.lastOutcome,
+           shorts: D2.shortCount, opens: D2.openCount,
+           diverters: D2.board.cells.flatMap((cell, i) =>
+             cell.kind === 'diverter' ? [{ i, rot: cell.rot }] : []),
            cueT: +PB.cueT.toFixed(2), cueSerial: PB.cueSerial,
            cueLight: +markerLight.intensity.toFixed(2),
            cost: s ? s.cost : -1 };
@@ -131,7 +137,18 @@ window.__pipeNext = () => {
   }
   return null;
 };
+window.__pipeShortNext = () => {
+  const b = D2.board; if (!b) return null;
+  const s = solveShort(b); if (!s) return null;
+  for (let k = 0; k < s.path.length; k++) {
+    const i = s.path[k];
+    if (b.cells[i].rot !== s.rots[k]) return i;
+  }
+  return null;
+};
 window.__pipeCellCentre = i => cellCentreClient(i);
+window.__pipeTestCentre = () => testCentreClient();
+window.__testDoor2 = () => testDoor2();
 /* 門 2 門面：LCD 現在顯示哪個符號（紅槓＝鎖定、綠框＝解鎖）。 */
 window.__doorPanel = () => ({
   visible: doorPanel2.visible,

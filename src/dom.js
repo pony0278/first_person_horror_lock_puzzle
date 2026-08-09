@@ -7,6 +7,7 @@ export const $pins  = document.getElementById('pins');
 export const $seq   = document.getElementById('seq');
 export const $panel = document.getElementById('panel');
 export const $fade  = document.getElementById('fade');
+export const $trip  = document.getElementById('trip');
 export const $dev   = document.getElementById('dev');
 export const $halt  = document.getElementById('halt');
 export const $hdbg  = document.getElementById('hdbg');

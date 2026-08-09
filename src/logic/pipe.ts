@@ -10,9 +10,8 @@
  * 渲染層每幀重算 chain() 即可（16 格，成本可忽略）。狀態機的複雜度不在這一層，
  * 在「什麼時候伸手」——那是 game/ 的事。
  *
- * 遮罩表示法刻意留了餘地：三通（T）只是 mask 7/11/13/14、週期 4 的另一種 kind，
- * 加進 MASKS 就能用。現在不加的理由見 §19（分岔會毀掉前緣火花的唯一指向性）。
- */
+ * 真正路線選擇由機械分流器提供：它有三個實體端口，卻一次只閉合 W→E 或 W→S。
+ * 因此 2×8 仍能有岔路決策，同時保留單一電流前緣。 */
 
 import { mulberry32 } from './rng';
 
@@ -32,19 +31,21 @@ export const rotMask = (m: number): number => ((m << 1) | (m >> 3)) & 15;
 
 /* ═══ 格子 ═════════════════════════════════════════════════ */
 
-/** 可以轉的兩種管型。缺件槽填回去之後就是其中一種。 */
+/** 可以被取下、再裝回缺槽的兩種普通管型。 */
 export type PipeKind = 'straight' | 'elbow';
+/** `diverter` 是 W→E／W→S 二選一的刀閘，放在上排形成真正路線選擇。 */
+export type RotatableKind = PipeKind | 'diverter';
 /** `burnt` 燒毀（不可轉、不導電）；`empty` 缺件槽（零件還在環境裡）。 */
-export type CellKind = PipeKind | 'burnt' | 'empty';
+export type CellKind = RotatableKind | 'burnt' | 'empty';
 
-/** 各管型每一個轉向對應的遮罩。索引 = rot。 */
+/** 各管型每一個狀態對應的遮罩。索引 = rot。 */
 const MASKS: Record<CellKind, readonly number[]> = {
   straight: [E | W, N | S],
   elbow: [N | E, E | S, S | W, W | N],
+  diverter: [E | W, S | W],
   burnt: [0],
   empty: [0],
 };
-
 /** 轉一圈要幾下（直管 2、彎管 4）。 */
 export const periodOf = (kind: CellKind): number => MASKS[kind].length;
 
@@ -59,7 +60,7 @@ export const maskOf = (cell: Cell): number =>
   MASKS[cell.kind][cell.rot % periodOf(cell.kind)] ?? 0;
 
 /* 佈局字元 —— 盤面池用它手寫，測試與除錯也用它讀回來。
-   L=N|E  F=E|S  7=S|W  J=W|N  -=E|W  |=N|S  X=燒毀 */
+   L=N|E  F=E|S  7=S|W  J=W|N  -=E|W  |=N|S  d=分流向東  D=分流向南  X=燒毀 */
 const CHARS: Readonly<Record<string, { kind: CellKind; rot: number }>> = {
   '-': { kind: 'straight', rot: 0 },
   '|': { kind: 'straight', rot: 1 },
@@ -67,9 +68,10 @@ const CHARS: Readonly<Record<string, { kind: CellKind; rot: number }>> = {
   F: { kind: 'elbow', rot: 1 },
   '7': { kind: 'elbow', rot: 2 },
   J: { kind: 'elbow', rot: 3 },
+  d: { kind: 'diverter', rot: 0 },
+  D: { kind: 'diverter', rot: 1 },
   X: { kind: 'burnt', rot: 0 },
 };
-
 /** 把一格畫回字元（測試與除錯用）。 */
 export function charOf(cell: Cell): string {
   if (cell.kind === 'empty') return '*';
@@ -114,29 +116,53 @@ function step(b: Board, i: number, d: Dir): number | null {
  * 從電源沿著接得上的接口一路走，回傳依序經過的格子。
  * 每格最多 2 個接口 —— 所以這是一條鏈，不是一棵樹（見檔頭）。
  */
-export function chain(b: Board): number[] {
-  const out: number[] = [];
-  if (!(maskOf(at(b, SOURCE)) & W)) return out;
+export type RouteOutcome = 'open' | 'short' | 'solved';
 
+export interface RouteTrace {
+  readonly path: readonly number[];
+  readonly outcome: RouteOutcome;
+  /** 斷路停點或燒毀格；成功時為 null。 */
+  readonly fault: number | null;
+}
+
+/**
+ * 沿目前配置追蹤一次測試電流。分流器一次只選一條輸出，因此結果仍是單鏈。
+ * `short` 只在下一格是可見的燒毀端點時成立；普通接錯一律是可恢復的 `open`。
+ */
+export function traceRoute(b: Board): RouteTrace {
+  const out: number[] = [];
+  if (!(maskOf(at(b, SOURCE)) & W)) return { path: out, outcome: 'open', fault: SOURCE };
+
+  const sink = sinkOf(b);
   let i = SOURCE;
   let from: number = W;
   const seen = new Set<number>();
   for (;;) {
-    if (seen.has(i)) break;                       // 理論上進不來，防呆
+    if (seen.has(i)) return { path: out, outcome: 'open', fault: i };
     seen.add(i);
     out.push(i);
 
-    const exit = maskOf(at(b, i)) & ~from & 15;   // 另一個接口
-    if (!exit || !DIRS.includes(exit as Dir)) break;
+    const exit = maskOf(at(b, i)) & ~from & 15;
+    if (!exit || !DIRS.includes(exit as Dir)) return { path: out, outcome: 'open', fault: i };
     const j = step(b, i, exit as Dir);
-    if (j === null) break;                        // 走到盤面邊緣（右下角出去 = 解開）
-    if (!(maskOf(at(b, j)) & OPP[exit as Dir])) break;   // 對面沒接口 —— 斷在這裡
+    if (j === null) {
+      return i === sink && exit === E
+        ? { path: out, outcome: 'solved', fault: null }
+        : { path: out, outcome: 'open', fault: i };
+    }
+    const next = at(b, j);
+    if (next.kind === 'burnt') return { path: out, outcome: 'short', fault: j };
+    if (next.kind === 'empty' || !(maskOf(next) & OPP[exit as Dir])) {
+      return { path: out, outcome: 'open', fault: j };
+    }
     from = OPP[exit as Dir];
     i = j;
   }
-  return out;
 }
 
+export function chain(b: Board): number[] {
+  return [...traceRoute(b).path];
+}
 /** 哪些格子通電了。 */
 export function energized(b: Board): boolean[] {
   const lit = b.cells.map(() => false);
@@ -152,11 +178,8 @@ export function reach(b: Board): number {
 }
 
 export function isSolved(b: Board): boolean {
-  const sink = sinkOf(b);
-  const ch = chain(b);
-  return ch[ch.length - 1] === sink && (maskOf(at(b, sink)) & E) !== 0;
+  return traceRoute(b).outcome === 'solved';
 }
-
 /** 轉一格。燒毀與空槽轉不動，回傳有沒有真的轉。 */
 export function rotate(b: Board, i: number): boolean {
   const cell = at(b, i);
@@ -232,6 +255,42 @@ export function solve(b: Board): Solution | null {
   return best;
 }
 
+/**
+ * 找出一條會撞上焦黑端點的可配置路線。它只供盤面池驗證與自動驗收使用；
+ * 遊戲不會把這條路提示給玩家。
+ */
+export function solveShort(b: Board): Solution | null {
+  let best: Solution | null = null;
+  const path: number[] = [];
+  const rots: number[] = [];
+  const used = new Set<number>();
+
+  const walk = (i: number, from: Dir, cost: number): void => {
+    if (best && cost >= best.cost) return;
+    const cell = at(b, i);
+    if (cell.kind === 'burnt' || cell.kind === 'empty' || used.has(i)) return;
+
+    used.add(i); path.push(i);
+    for (const d of DIRS) {
+      if (d === from) continue;
+      const r = rotFor(cell.kind, from, d);
+      if (r === null) continue;
+      const add = (r - cell.rot + periodOf(cell.kind)) % periodOf(cell.kind);
+      rots.push(r);
+      const j = step(b, i, d);
+      if (j !== null && at(b, j).kind === 'burnt') {
+        if (!best || cost + add < best.cost) best = { path: [...path], rots: [...rots], cost: cost + add };
+      } else if (j !== null) {
+        walk(j, OPP[d], cost + add);
+      }
+      rots.pop();
+    }
+    path.pop(); used.delete(i);
+  };
+
+  walk(SOURCE, W, 0);
+  return best;
+}
 export const solvable = (b: Board): boolean => solve(b) !== null;
 
 /** 把解答套上去（測試與盤面池驗證用，不是遊戲流程）。 */
@@ -368,45 +427,35 @@ export function insertPiece(b: Board, rng: () => number = Math.random): boolean 
 }
 
 /**
- * 盤面池（§11：每局抽一張）。三張的性格差在**缺件槽的位置**：
- * 早缺逼你立刻回頭，晚缺讓你先把整條路點亮、再卡在門前一步。
+ * 盤面池（§11：每局抽一張）。缺件一律在第一個分流之前的共用入口（slot=1），
+ * 因此取件仍是強制的，卻不會用空槽位置洩漏安全路線。
  *
- * 佈局是「解答」狀態，開局時由 newBoard 挖槽與打亂。
- * 手寫時的兩條規矩：上排的彎管只能用 F / 7（N 是牆），下排只能用 L / J（S 是牆）。
+ * `d`＝刀閘往東、`D`＝刀閘往南。三張盤依序提供：
+ * 一次二選一、兩次選擇含斷路／短路、以及安全方向反轉。
  */
 export const POOL: readonly BoardSpec[] = [
   {
-    id: 'A-早缺',
-    rows: [
-      '- - 7 - - X - -'.replace(/ /g, ''),
-      '- - L - - - - -'.replace(/ /g, ''),
-    ],
-    slot: 2,
+    id: 'A-下路安全',
+    rows: ['--D--X--', 'X-L-----'],
+    slot: 1,
     scramble: 4,
-    note: '第 3 欄就斷 —— 幾乎什麼都點不亮，回頭的壓力最早出現',
+    note: '第一個刀閘往下才通門；直走會撞上焦黑短路端點',
   },
   {
-    id: 'B-晚缺',
-    rows: [
-      '- - 7 - - F - 7'.replace(/ /g, ''),
-      '- - L - - J X L'.replace(/ /g, ''),
-    ],
-    slot: 7,
+    id: 'B-中路安全',
+    rows: ['--d--DX-', 'X-L-|L--'],
+    slot: 1,
     scramble: 5,
-    note: '蛇行穿過整面盤，缺的是最後一個轉角 —— 亮到門前一步才卡住',
+    note: '早轉向是普通斷路、晚直走會短路，只有第二個刀閘往下能通門',
   },
   {
-    id: 'C-中缺',
-    rows: [
-      '- - - 7 - - F 7'.replace(/ /g, ''),
-      'X - - L - - J L'.replace(/ /g, ''),
-    ],
-    slot: 11,
-    scramble: 4,
-    note: '缺的是換排的那一格 —— 上排點得完，下排一格都進不去',
+    id: 'C-上路安全',
+    rows: ['--d----7', 'X-L--X-L'],
+    slot: 1,
+    scramble: 5,
+    note: '保持上路才能在末端下切；提早往下會撞上短路端點',
   },
 ];
-
 /** 抽一張盤面（§11：只抽不生成）。 */
 export function pickSpec(rng: () => number = Math.random): BoardSpec {
   const s = POOL[Math.floor(rng() * POOL.length)];

@@ -17,7 +17,7 @@ import { T, tug, tugAt } from './transit.js';
 /* 下方：撬鎖 */
 export let drag = null;
 $pins.addEventListener('pointerdown', e => {
-  if (R.over || blind() || intro.active || interrupted()) return;
+  if (R.door !== 1 || R.over || blind() || intro.active || interrupted()) return;
   let idx;
   if (CFG.ui.style === 'cutaway') {
     const rect = $pins.getBoundingClientRect();
@@ -52,19 +52,19 @@ $pins.addEventListener('pointerup', () => {
 $pins.addEventListener('pointercancel', () => { drag = null; pick.lift = 0; });
 
 document.getElementById('dump').onclick = () => {
-  if (R.over || blind() || intro.active || interrupted()) return;
+  if (R.door !== 1 || R.over || blind() || intro.active || interrupted()) return;
   R.lock.releaseAll(); beep('release'); R.history = []; renderPins();
 };
 
 export function doPush(i) {
-  if (R.over || blind()) return;
+  if (R.door !== 1 || R.over || blind()) return;
   const r = R.lock.push(i);
   if (r === 'ignored') return;
   R.history.push({ i, r });
   renderPins();
 }
 export function doRelease(i) {
-  if (R.over || blind()) return;
+  if (R.door !== 1 || R.over || blind()) return;
   R.lock.release(i); beep('release');
   R.history.push({ i, r: 'released' });
   renderPins();
@@ -158,7 +158,7 @@ addEventListener('keydown', e => {
     $hdbg.style.display = hd.on ? 'block' : 'none';
     if (hd.on) { intro.active = false; hdSync(); }
   }
-  if (e.key === 'u') {                                  // 換皮 A/B，狀態機不受影響
+  if (e.key === 'u' && R.door === 1) {                   // 換皮 A/B 只屬於門 1
     CFG.ui.style = CFG.ui.style === 'cutaway' ? 'bars' : 'cutaway';
     $pins.style.transform = '';
     buildPins(); renderPins();

@@ -93,6 +93,10 @@
   #turnCue { padding-left:var(--sa-l); padding-right:var(--sa-r); }
 
   /* ── 黑幕 ───────────────────────────────────────── */
+  /* 門 2 短路跳電：獨立於過場／死亡黑幕，避免兩套狀態互相解除。 */
+  #trip { position:fixed; inset:0; background:rgba(0,5,10,.88); opacity:0; pointer-events:none;
+    transition:opacity .08s linear; z-index:9; }
+  #trip.on { opacity:1; }
   #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
     padding:var(--sa-t) var(--sa-r) var(--sa-b) var(--sa-l);
     transition:opacity .18s; display:grid; place-items:center; z-index:10; }
@@ -142,6 +146,8 @@
     <div id="seq"></div>
   </div>
 </div>
+
+<div id="trip"></div>
 
 <div id="fade"><div></div></div>
 

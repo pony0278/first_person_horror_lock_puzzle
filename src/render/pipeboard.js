@@ -6,7 +6,7 @@
    點擊、音效與流程在 game/door2.js。渲染層唯一的狀態是「演出進度」
    （電流掃到哪、格子轉到幾度、零件落下多久），全部放在 PB。 */
 
-import { chain, isSolved, maskOf } from '../logic/pipe.js';
+import { chain, maskOf, traceRoute } from '../logic/pipe.js';
 import { $pins } from '../dom.js';
 
 export const pipeCanvas = document.createElement('canvas');
@@ -71,7 +71,9 @@ export function showPipe(board) {
 }
 
 /** 玩家轉了第 i 格：顯示角度往前 +90°（永遠順時針，跟 rotMask 一致）。 */
-export function spinCell(i) { PB.target[i] = (PB.target[i] ?? 0) + 90; }
+export function spinCell(i, cell) {
+  PB.target[i] = cell?.kind === 'diverter' ? cell.rot * 90 : (PB.target[i] ?? 0) + 90;
+}
 
 /** 零件落進第 i 格：從畫面上方掉下來，落定角度就是它的 rot（歪的）。 */
 export function pieceLand(i, rot) {
@@ -84,9 +86,10 @@ function layout() {
   const w = $pins.clientWidth, h = $pins.clientHeight;
   const term = Math.max(26, Math.min(56, w * 0.07));
   const cell = Math.min((w - term * 2) / 8, h / 2);
-  return { w, h, term, cell, gx: (w - cell * 8) / 2, gy: (h - cell * 2) / 2 };
+  const gx = (w - cell * 8) / 2, gy = (h - cell * 2) / 2;
+  return { w, h, term, cell, gx, gy,
+    testX: gx - term * 0.62, testY: gy + cell * 0.5, testR: Math.max(24, Math.min(29, cell * 0.48)) };
 }
-
 /** 點到哪一格（client 座標）。不在格子上回 null。 */
 export function cellAt(clientX, clientY) {
   const r = pipeCanvas.getBoundingClientRect();
@@ -97,6 +100,19 @@ export function cellAt(clientX, clientY) {
   return row * 8 + c;
 }
 
+/** 左側主斷路器是否被點中。它有獨立 ≥48px 的觸控目標，不佔管格。 */
+export function testAt(clientX, clientY) {
+  const r = pipeCanvas.getBoundingClientRect();
+  const { testX, testY, testR } = layout();
+  return Math.hypot(clientX - r.left - testX, clientY - r.top - testY) <= testR;
+}
+
+/** 主斷路器中心（端到端測試使用）。 */
+export function testCentreClient() {
+  const r = pipeCanvas.getBoundingClientRect();
+  const { testX, testY, testR } = layout();
+  return { x: r.left + testX, y: r.top + testY, r: testR };
+}
 /** 第 i 格中心的 client 座標（測試接點用）。 */
 export function cellCentreClient(i) {
   const r = pipeCanvas.getBoundingClientRect();
@@ -118,6 +134,16 @@ function strokePipe(kind, s, w1, color) {
   pipePath(kind, s); ctx.stroke();
 }
 
+/** 依世界方向遮罩畫中心到各端口；分流器不旋轉整塊，而是刀閘在三口之間切換。 */
+function strokeMask(mask, s, width, color) {
+  ctx.beginPath();
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
+  if (mask & 1) { ctx.moveTo(0, 0); ctx.lineTo(0, -s / 2); }
+  if (mask & 2) { ctx.moveTo(0, 0); ctx.lineTo(s / 2, 0); }
+  if (mask & 4) { ctx.moveTo(0, 0); ctx.lineTo(0, s / 2); }
+  if (mask & 8) { ctx.moveTo(0, 0); ctx.lineTo(-s / 2, 0); }
+  ctx.stroke();
+}
 /* 燒毀格的裂紋：用格號當種子的固定折線，每幀畫一樣的（不閃爍才像焦死的東西） */
 function cracks(i, s) {
   let a = (i * 2654435761) >>> 0;
@@ -140,17 +166,18 @@ function cracks(i, s) {
  * 沒通電的部分跟著環境一起暗，**已通電的部分不暗**：
  * 黑掉的那 0.18 秒，畫面上唯一亮著的就是你自己救回來的電（v3 §7）。
  */
-export function drawPipe(board, dt, dimF = 1) {
-  const { w, h, term, cell, gx, gy } = layout();
+export function drawPipe(board, dt, dimF = 1, power = 'off') {
+  const { w, h, term, cell, gx, gy, testX, testY, testR } = layout();
   const dpr = Math.min(devicePixelRatio, 2);
   if (pipeCanvas.width !== Math.round(w * dpr) ||
       pipeCanvas.height !== Math.round(h * dpr)) sizePipe();   // chrome 收合只改高度
 
+  const trace = traceRoute(board);
   const ch = chain(board);
-  const solved = isSolved(board);
-  const target = ch.length;
-
-  // 電流掃描：前進一格 35ms；退回更快（斷路的懲罰要立刻看見）
+  const powered = power === 'testing' || power === 'solved';
+  const solved = power === 'solved';
+  const target = powered ? ch.length : 0;
+  // 只有按下主斷路器後電流才掃描；配置階段保持斷電，不再逐格洩漏答案。
   if (PB.lit < target) PB.lit = Math.min(target, PB.lit + dt / 0.035);
   else if (PB.lit > target) PB.lit = Math.max(target, PB.lit - dt / 0.015);
   const litN = Math.floor(Math.min(PB.lit, target));
@@ -159,7 +186,7 @@ export function drawPipe(board, dt, dimF = 1) {
   const litSet = new Set(ch.slice(0, litN));
 
   PB.sparkT += dt;
-  const sparkOn = (PB.sparkT % 0.6) < 0.12 && !solved && litN > 0;
+  const sparkOn = powered && (PB.sparkT % 0.6) < 0.12 && !solved && litN > 0;
   if (solved) PB.latchT = Math.min(1, PB.latchT + dt / 0.5);
 
   const unlit = Math.max(0.18, Math.min(1, 0.12 + 0.88 * dimF));   // 燈閃時沉到近黑
@@ -174,17 +201,28 @@ export function drawPipe(board, dt, dimF = 1) {
   ctx.strokeRect(gx - term, gy - cell * 0.12, cell * 8 + term * 2, cell * 2.24);
   ctx.globalAlpha = 1;
 
-  // ── 電源端子（左上）：饋線從盤外進來 —— 電本來就有，缺的是路 ──
+  // ── 主斷路器＋電源端子：配置時斷電，按下後才讓電流沿整條路跑一次 ──
   {
     const y = gy + cell * 0.5;
-    ctx.globalAlpha = Math.max(unlit, 0.75);           // 電源自己會亮，環境暗不掉它
-    ctx.strokeStyle = C.liveHalo; ctx.lineWidth = cell * 0.34;
-    ctx.beginPath(); ctx.moveTo(gx - term, y); ctx.lineTo(gx, y); ctx.stroke();
-    ctx.strokeStyle = C.live; ctx.lineWidth = cell * 0.16;
-    ctx.beginPath(); ctx.moveTo(gx - term, y); ctx.lineTo(gx, y); ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
+    const ready = !board.cells.some(c => c.kind === 'empty');
+    const active = power === 'testing' || power === 'solved';
+    const tripped = power === 'trip';
+    const ring = active ? C.live : tripped ? C.latch : ready ? '#b69a62' : C.pipeLo;
 
+    ctx.globalAlpha = Math.max(unlit, active ? 0.92 : 0.62);
+    ctx.strokeStyle = active ? C.liveHalo : C.pipeLo; ctx.lineWidth = cell * 0.34;
+    ctx.beginPath(); ctx.moveTo(testX + testR * 0.72, y); ctx.lineTo(gx, y); ctx.stroke();
+    ctx.strokeStyle = active ? C.live : C.pipe; ctx.lineWidth = cell * 0.16;
+    ctx.beginPath(); ctx.moveTo(testX + testR * 0.72, y); ctx.lineTo(gx, y); ctx.stroke();
+
+    const pulse = ready && power === 'off' ? 1 + 0.08 * Math.sin(performance.now() / 260) : 1;
+    ctx.fillStyle = C.plateEdge; ctx.strokeStyle = ring; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(testX, testY, testR * pulse, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = ring; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(testX, testY, testR * 0.48, -Math.PI * 0.27, Math.PI * 1.27); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(testX, testY - testR * 0.63); ctx.lineTo(testX, testY - testR * 0.08); ctx.stroke();
+    ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
+  }
   // ── 格子 ──
   const pw = cell * 0.30;
   for (let i = 0; i < board.cells.length; i++) {
@@ -215,6 +253,13 @@ export function drawPipe(board, dt, dimF = 1) {
       ctx.strokeStyle = C.burntEdge; ctx.lineWidth = 1.5;
       ctx.strokeRect(-cell * 0.42, -cell * 0.42, cell * 0.84, cell * 0.84);
       cracks(i, cell);
+      if (powered && trace.outcome === 'short' && trace.fault === i && PB.lit >= Math.max(0, target - 0.15)) {
+        const hit = 0.55 + 0.45 * Math.sin(performance.now() / 42) ** 2;
+        ctx.globalAlpha = hit;
+        ctx.strokeStyle = '#ff8a72'; ctx.lineWidth = 3;
+        ctx.strokeRect(-cell * 0.46, -cell * 0.46, cell * 0.92, cell * 0.92);
+        ctx.globalAlpha = 1;
+      }
       ctx.restore(); ctx.globalAlpha = 1;
       continue;
     }
@@ -237,6 +282,34 @@ export function drawPipe(board, dt, dimF = 1) {
       continue;
     }
 
+    if (c.kind === 'diverter') {
+      // 三口外形固定，中央刀閘只選東或南；不會同時分流。
+      const k = 1 - Math.exp(-18 * dt);
+      PB.ang[i] += ((PB.target[i] ?? 0) - PB.ang[i]) * k;
+      ctx.save(); ctx.translate(cx, cy);
+      ctx.globalAlpha = unlit;
+      strokeMask(2 | 4 | 8, cell, pw + 6, C.pipeLo);
+      strokeMask(2 | 4 | 8, cell, pw * 0.42, C.pipe);
+      ctx.globalAlpha = 1;
+      const activeMask = maskOf(c);
+      if (lit) {
+        strokeMask(activeMask, cell, pw + 6, C.liveHalo);
+        strokeMask(activeMask, cell, pw, C.live);
+        strokeMask(activeMask, cell, pw * 0.34, C.liveCore);
+      } else {
+        ctx.globalAlpha = unlit;
+        strokeMask(activeMask, cell, pw, '#8c816d');
+        ctx.globalAlpha = 1;
+      }
+      ctx.save(); ctx.rotate((PB.ang[i] * Math.PI) / 180);
+      ctx.strokeStyle = lit ? C.liveCore : '#d0b878'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-cell * 0.08, 0); ctx.lineTo(cell * 0.31, 0); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = lit ? C.liveCore : '#b59c62';
+      ctx.beginPath(); ctx.arc(0, 0, pw * 0.28, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      continue;
+    }
     // 顯示角度追目標角度：快速但看得見的旋轉（動手的回饋）
     const k = 1 - Math.exp(-18 * dt);
     PB.ang[i] += ((PB.target[i] ?? 0) - PB.ang[i]) * k;
