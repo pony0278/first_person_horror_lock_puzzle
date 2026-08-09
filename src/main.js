@@ -22,7 +22,6 @@ import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
 import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
-import { doorClue, doorClueStatus } from './render/doorclue.js';
 import './render/electroroom.js';
 import './render/doorpanel.js';
 import './render/hands.js';
@@ -77,29 +76,26 @@ window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場
 /* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
    寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
 window.__grabPoint = grabPoint;
-/* 門 1 雙來源推理：牆面給 1／2／抹除位／4，門面給四符號／刻痕對照。 */
+/* 門 1 單來源圖形等差：牆面圖形就是撞針身分，刻點數只負責規則推理。 */
 window.__lockPuzzle = () => {
   const puzzle = R.puzzle; if (!puzzle) return null;
   const wallPoint = paintPlane.getWorldPosition(paintPlane.position.clone()).project(camera);
   const corridorPoint = paintPlane.position.clone().set(0, 1.55, 8).project(camera);
-  const doorPoint = doorClue.getWorldPosition(doorClue.position.clone()).project(camera);
-  const doorLeft = doorClue.localToWorld(doorClue.position.clone().set(-0.5, 0, 0)).project(camera);
-  const doorRight = doorClue.localToWorld(doorClue.position.clone().set(0.5, 0, 0)).project(camera);
   return {
     ruleId: puzzle.ruleId,
-    wallSequence: [...puzzle.wallSequence],
-    erasedCount: puzzle.erasedCount,
-    doorMarks: puzzle.doorMarks.map(mark => ({ ...mark })),
+    clues: puzzle.clues.map(clue => ({ ...clue })),
+    difference: puzzle.difference,
     falsePin: puzzle.falsePin,
     falsePins: [...R.lock.falsePins],
     invalidPins: invalidPuzzlePins(puzzle),
     inferredOrder: inferPinOrder(puzzle),
     trueOrder: [...R.lock.trueOrder],
-    crossSource: JSON.stringify(puzzle.wallSequence) === JSON.stringify([1, 2, null, 4]) &&
-                 puzzle.erasedCount === 3 && puzzle.doorMarks.length === CFG.lock.pinCount,
+    singleSource: puzzle.clues.length === CFG.lock.pinCount &&
+                  new Set(puzzle.clues.map(clue => clue.pin)).size === CFG.lock.pinCount,
     wall: {
       ready: paintStatus.ready, ruleId: paintStatus.ruleId, visual: paintStatus.visual,
-      sequenceCounts: [...paintStatus.sequenceCounts], erasedCount: paintStatus.erasedCount,
+      pins: [...paintStatus.pins], counts: [...paintStatus.counts],
+      difference: paintStatus.difference, invalidPins: [...paintStatus.invalidPins],
       coverage: paintStatus.coverage,
       svgBytes: paintStatus.svgBytes, error: paintStatus.error, visible: paintPlane.visible,
       ndcX: +wallPoint.x.toFixed(2), ndcY: +wallPoint.y.toFixed(2),
@@ -109,14 +105,7 @@ window.__lockPuzzle = () => {
       corridorInView: Math.abs(corridorPoint.x) <= 1 && Math.abs(corridorPoint.y) <= 1 &&
                       corridorPoint.z >= -1 && corridorPoint.z <= 1,
     },
-    doorCue: {
-      ready: doorClueStatus.ready, coverage: doorClueStatus.coverage,
-      svgBytes: doorClueStatus.svgBytes, error: doorClueStatus.error, visible: doorClue.visible,
-      ndcX: +doorPoint.x.toFixed(2), ndcY: +doorPoint.y.toFixed(2),
-      leftNdcX: +doorLeft.x.toFixed(2), rightNdcX: +doorRight.x.toFixed(2),
-      inView: doorClue.visible && Math.abs(doorPoint.x) <= 1 && Math.abs(doorPoint.y) <= 1 &&
-              doorPoint.z >= -1 && doorPoint.z <= 1,
-    },
+
   };
 };
 /* 門 2 盤面的測試接點：狀態、下一個該點的格子、格子的螢幕座標。

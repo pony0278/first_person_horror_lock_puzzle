@@ -44,43 +44,39 @@ await page.goto(PAGE_URL, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__skipIntro, null, { timeout: 30000 });
 await page.waitForFunction(() => {
   const p = window.__lockPuzzle?.();
-  return p && (p.wall.ready || p.wall.error) && (p.doorCue.ready || p.doorCue.error);
+  return p && (p.wall.ready || p.wall.error);
 }, null, { timeout: 30000 });
 const door1Puzzle = await page.evaluate(() => window.__lockPuzzle());
-const markCounts = door1Puzzle.doorMarks.map(mark => mark.count).sort((a, b) => a - b);
-const falseMark = door1Puzzle.doorMarks.find(mark => mark.pin === door1Puzzle.falsePin);
-check('門 1 門面四符號各綁 1～4 道刻痕，三道者是真實假針',
-  door1Puzzle.crossSource && JSON.stringify(markCounts) === JSON.stringify([1, 2, 3, 4]) &&
-  falseMark?.count === 3 && door1Puzzle.invalidPins.length === 1 &&
-  door1Puzzle.invalidPins[0] === door1Puzzle.falsePin &&
-  door1Puzzle.falsePins[0] === door1Puzzle.falsePin,
-  `mode=${door1Puzzle.ruleId} false=${door1Puzzle.falsePin} marks=${door1Puzzle.doorMarks.map(m => `${m.pin}:${m.count}`).join(',')}`);
-check('門 1 讀出牆上缺格並查門面，可還原原撬鎖順序',
-  JSON.stringify(door1Puzzle.wallSequence) === JSON.stringify([1, 2, null, 4]) &&
-  door1Puzzle.erasedCount === 3 &&
+const cluePins = door1Puzzle.clues.map(clue => clue.pin);
+const invalidIndex = door1Puzzle.clues.findIndex(clue => clue.pin === door1Puzzle.falsePin);
+const survivorCounts = door1Puzzle.clues
+  .filter((_, index) => index !== invalidIndex).map(clue => clue.count);
+check('門 1 牆面四圖形直接且不重複地對應四個撞針',
+  door1Puzzle.singleSource &&
+  JSON.stringify([...cluePins].sort((a, b) => a - b)) === JSON.stringify([0, 1, 2, 3]) &&
+  !Object.hasOwn(door1Puzzle, 'doorCue') && !Object.hasOwn(door1Puzzle, 'doorMarks'),
+  `mode=${door1Puzzle.ruleId} clues=${door1Puzzle.clues.map(clue => `${clue.pin}:${clue.count}`).join(',')}`);
+check('門 1 只有移除真實假針後，刻點數形成 1、3、5 等差數列',
+  door1Puzzle.invalidPins.length === 1 && door1Puzzle.invalidPins[0] === door1Puzzle.falsePin &&
+  door1Puzzle.falsePins[0] === door1Puzzle.falsePin && door1Puzzle.difference === 2 &&
+  JSON.stringify(survivorCounts) === JSON.stringify([1, 3, 5]),
+  `false=${door1Puzzle.falsePin} invalid=${door1Puzzle.invalidPins.join(',')} counts=${door1Puzzle.clues.map(clue => clue.count).join('→')}`);
+check('門 1 移除違規圖形後的牆面順序就是原撬鎖順序',
   JSON.stringify(door1Puzzle.inferredOrder) === JSON.stringify(door1Puzzle.trueOrder),
-  `sequence=${door1Puzzle.wallSequence.map(count => count ?? '×').join('→')} erased=${door1Puzzle.erasedCount} inferred=${door1Puzzle.inferredOrder.join('→')} lock=${door1Puzzle.trueOrder.join('→')}`);
-check('牆面 1／2／抹除位／4 序列與門面對照都已合成為非空 CanvasTexture',
+  `inferred=${door1Puzzle.inferredOrder.join('→')} lock=${door1Puzzle.trueOrder.join('→')}`);
+check('牆面同款圖形與刻點已合成為非空 CanvasTexture',
   door1Puzzle.wall.ready && !door1Puzzle.wall.error &&
   door1Puzzle.wall.ruleId === door1Puzzle.ruleId &&
-  door1Puzzle.wall.visual === 'erased-tally-sequence' &&
-  JSON.stringify(door1Puzzle.wall.sequenceCounts) === JSON.stringify([1, 2, null, 4]) &&
-  door1Puzzle.wall.erasedCount === 3 &&
+  door1Puzzle.wall.visual === 'graphic-arithmetic' &&
+  JSON.stringify(door1Puzzle.wall.pins) === JSON.stringify(cluePins) &&
+  JSON.stringify(door1Puzzle.wall.counts) === JSON.stringify(door1Puzzle.clues.map(clue => clue.count)) &&
+  door1Puzzle.wall.difference === 2 &&
+  JSON.stringify(door1Puzzle.wall.invalidPins) === JSON.stringify([door1Puzzle.falsePin]) &&
   door1Puzzle.wall.coverage > 0.005 && door1Puzzle.wall.coverage < 0.20 &&
-  door1Puzzle.wall.svgBytes > 1800 &&
-  door1Puzzle.doorCue.ready && !door1Puzzle.doorCue.error &&
-  door1Puzzle.doorCue.coverage > 0.005 && door1Puzzle.doorCue.coverage < 0.25 &&
-  door1Puzzle.doorCue.svgBytes > 2500,
-  `wall=${door1Puzzle.wall.coverage.toFixed(3)}/${door1Puzzle.wall.svgBytes} door=${door1Puzzle.doorCue.coverage.toFixed(3)}/${door1Puzzle.doorCue.svgBytes}`);
+  door1Puzzle.wall.svgBytes > 1800,
+  `wall=${door1Puzzle.wall.coverage.toFixed(3)}/${door1Puzzle.wall.svgBytes} counts=${door1Puzzle.wall.counts.join('→')}`);
 await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(300);
-const doorFacing = await page.evaluate(() => window.__lockPuzzle());
-await page.screenshot({ path: `${OUT}/door1-door-mapping.png` });
-check('門 1 面向鎖操作時，門上四組對照完整留在安全範圍',
-  doorFacing.doorCue.visible && doorFacing.doorCue.inView &&
-  doorFacing.doorCue.leftNdcX > -0.90 && doorFacing.doorCue.rightNdcX < 0.90 &&
-  Math.abs(doorFacing.doorCue.ndcX) < 0.5 && Math.abs(doorFacing.doorCue.ndcY) < 0.8,
-  `visible=${doorFacing.doorCue.visible} inView=${doorFacing.doorCue.inView} span=${doorFacing.doorCue.leftNdcX}..${doorFacing.doorCue.rightNdcX} ndc=(${doorFacing.doorCue.ndcX},${doorFacing.doorCue.ndcY})`);
 /* 抵達後回看正後方：線索在側邊、走廊在中央，兩者必須同時留在畫面。 */
 await page.evaluate(() => window.__setThreatPaused(true));
 await page.mouse.move(422, 110);

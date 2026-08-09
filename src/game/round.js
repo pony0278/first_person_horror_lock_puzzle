@@ -9,7 +9,6 @@ import { $fade } from '../dom.js';
 import { buildPins, flashTrack, renderPins } from '../render/cutaway.js';
 import { decay, decayGroup, reflection } from '../render/decay.js';
 import { repaint } from '../render/hintwall.js';
-import { repaintDoorClue } from '../render/doorclue.js';
 import { monster } from '../render/monster.js';
 import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scene.js';
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
@@ -79,7 +78,6 @@ export function newRound() {
 
   buildPins(); renderPins();
   repaint();
-  repaintDoorClue();
   intro.active = true; intro.phase = 'run'; intro.t = 0;
   intro.z = CFG.intro.runFrom; intro.bobPhase = 0; intro.arriveF = 0;
   intro.beeped = intro.th1 = intro.th2 = intro.thTool = false;

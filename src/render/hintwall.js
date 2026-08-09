@@ -1,10 +1,11 @@
-/* 門 1 的牆上規律與後製。
-   四個等距位置依序留下 1、2、遭抹除、4 道刻痕。玩家一眼知道要數與補缺，
-   撞針映射仍留在門上；回頭時後方走廊維持在畫面中央。 */
+/* 門 1 的圖形等差題與後製。
+   四個等距位置直接使用鎖內同款圖形；移除唯一破壞刻點等差規律的圖形後，
+   剩餘圖形由左到右就是撬鎖順序，不再經過門面轉譯。 */
 
 import * as THREE from 'three';
 import rough from 'roughjs/bundled/rough.esm.js';
 import { CFG } from '../logic/config.js';
+import { GLYPH } from '../logic/glyphs.js';
 import { mulberry32 } from '../logic/rng.js';
 import { R } from '../state.js';
 import { boxGeo, camera, planeGeo, scene } from './scene.js';
@@ -13,8 +14,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAINT_W = 640, PAINT_H = 240;
 
 export const paintStatus = {
-  ready: false, serial: 0, ruleId: null, visual: 'erased-tally-sequence',
-  sequenceCounts: [1, 2, null, 4], erasedCount: 3,
+  ready: false, serial: 0, ruleId: null, visual: 'graphic-arithmetic',
+  pins: [], counts: [], difference: 0, invalidPins: [],
   coverage: 0, svgBytes: 0, error: '',
 };
 
@@ -30,7 +31,7 @@ function appendRough(svg, node) {
 }
 
 function makeHintSvg(puzzle) {
-  if (!puzzle) throw new Error('門 1 分裂規律尚未建立');
+  if (!puzzle) throw new Error('門 1 圖形等差題尚未建立');
   const svg = svgNode('svg', {
     xmlns: SVG_NS, viewBox: `0 0 ${PAINT_W} ${PAINT_H}`,
     width: PAINT_W, height: PAINT_H,
@@ -40,47 +41,45 @@ function makeHintSvg(puzzle) {
   const option = (stroke, strokeWidth = 3, extra = {}) => ({
     stroke, strokeWidth, roughness: 1.65, bowing: 1.9, seed: seed++, ...extra,
   });
-  const ink = '#241e1a', rust = '#6b2b23';
-
-  // 四個位置等距排列；題型一眼就是「1、2、缺、4」，不需要先猜圖像語法。
-  const tally = (count, cx, outer = ink, inner = rust) => {
-    const gap = 23;
+  const centres = [80, 240, 400, 560];
+  const glyph = (pin, cx, cy, radius) => {
+    const common = option('#171716', 5.2, { fill: GLYPH[pin].c, fillStyle: 'solid' });
+    if (pin % 4 === 0) appendRough(svg, rc.circle(cx, cy, radius * 1.8, common));
+    if (pin % 4 === 1) appendRough(svg, rc.rectangle(cx - radius * 0.82, cy - radius * 0.82,
+      radius * 1.64, radius * 1.64, common));
+    if (pin % 4 === 2) appendRough(svg, rc.polygon([
+      [cx, cy - radius], [cx + radius * 0.92, cy + radius * 0.78],
+      [cx - radius * 0.92, cy + radius * 0.78],
+    ], common));
+    if (pin % 4 === 3) appendRough(svg, rc.polygon([
+      [cx, cy - radius], [cx + radius * 0.78, cy], [cx, cy + radius], [cx - radius * 0.78, cy],
+    ], common));
+  };
+  const punchDots = (count, cx, cy) => {
+    const gap = 24;
     for (let i = 0; i < count; i++) {
       const x = cx + (i - (count - 1) / 2) * gap;
-      const lean = i % 2 ? 5 : -3;
-      appendRough(svg, rc.line(x - 8, 174, x + 8 + lean, 66,
-        option(outer, 9.2, { roughness: 1.15, bowing: 0.65 })));
-      appendRough(svg, rc.line(x - 4, 170, x + 11 + lean, 70,
-        option(inner, 2.5, { roughness: 1.05, bowing: 0.45 })));
+      appendRough(svg, rc.circle(x, cy, 12, option('#211b18', 3.0, {
+        fill: '#3b2822', fillStyle: 'solid', roughness: 1.3, bowing: 0.7,
+      })));
+      appendRough(svg, rc.circle(x + 1, cy - 1, 4.5, option('#a36c50', 1.0, {
+        fill: '#a36c50', fillStyle: 'solid', roughness: 1.0, bowing: 0.4,
+      })));
     }
   };
-  const centres = [92, 242, 392, 542];
-  const erasedIndex = puzzle.wallSequence.findIndex(count => count === null);
-  if (erasedIndex < 0) throw new Error('門 1 牆面序列缺少抹除位置');
-  puzzle.wallSequence.forEach((count, index) => {
-    if (count !== null) tally(count, centres[index]);
-  });
-  tally(puzzle.erasedCount, centres[erasedIndex], '#332923', '#512823');
 
-  // 第三位原本有刻痕，但被焦黑污漬與一道猛烈刮除線破壞；上下殘端仍可辨認。
-  appendRough(svg, rc.polygon([
-    [338, 93], [355, 77], [385, 83], [407, 74], [438, 92],
-    [431, 113], [446, 132], [428, 158], [397, 153], [372, 162],
-    [342, 148], [348, 125], [331, 110],
-  ], option('#171310', 3.2, {
-    fill: '#171310', fillStyle: 'solid', roughness: 2.1, bowing: 1.2,
-  })));
-  appendRough(svg, rc.path('M 344 166 L 438 78',
-    option('#0f0c0b', 12.5, { roughness: 1.35, bowing: 0.7 })));
-  appendRough(svg, rc.path('M 347 163 L 435 81',
-    option('#6b2b23', 3.0, { roughness: 1.1, bowing: 0.5 })));
+  // 同一個位置同時帶撞針身分與等差資料；辨認後可直接回鎖內操作。
+  puzzle.clues.forEach((clue, index) => {
+    glyph(clue.pin, centres[index], 76, 29);
+    punchDots(clue.count, centres[index], 166);
+  });
   return svg;
 }
 
 function distressCanvas(ctx, puzzle) {
   const rng = mulberry32((puzzle.wallSeed ^ 0x5f3759df) >>> 0);
   for (let i = 0; i < CFG.paint.drips; i++) {
-    const x = 80 + rng() * (PAINT_W - 160), y = 122 + rng() * 38;
+    const x = 60 + rng() * (PAINT_W - 120), y = 190 + rng() * 18;
     const len = 18 + rng() * 48, width = 1.5 + rng() * 3;
     const g = ctx.createLinearGradient(0, y, 0, y + len);
     g.addColorStop(0, '#6b211c90');
@@ -104,8 +103,10 @@ export function makePaintTexture(puzzle) {
   const svg = makeHintSvg(puzzle);
   const xml = new XMLSerializer().serializeToString(svg);
   paintStatus.ruleId = puzzle.ruleId;
-  paintStatus.sequenceCounts = [...puzzle.wallSequence];
-  paintStatus.erasedCount = puzzle.erasedCount;
+  paintStatus.pins = puzzle.clues.map(clue => clue.pin);
+  paintStatus.counts = puzzle.clues.map(clue => clue.count);
+  paintStatus.difference = puzzle.difference;
+  paintStatus.invalidPins = [puzzle.falsePin];
   paintStatus.svgBytes = xml.length;
 
   return new Promise((resolve, reject) => {
@@ -124,14 +125,14 @@ export function makePaintTexture(puzzle) {
       tex.colorSpace = THREE.SRGBColorSpace;
       resolve(tex);
     };
-    image.onerror = () => reject(new Error('SVG 分裂規律無法轉成牆面 Canvas'));
+    image.onerror = () => reject(new Error('SVG 圖形等差題無法轉成牆面 Canvas'));
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   });
 }
 
 export const paintMat = new THREE.MeshStandardMaterial({
   transparent: true, roughness: 0.92, metalness: 0,
-  color: 0x77736b, emissive: 0x080605, emissiveIntensity: 0.04, depthWrite: false,
+  color: 0xa0988d, emissive: 0x0b0705, emissiveIntensity: 0.05, depthWrite: false,
   polygonOffset: true, polygonOffsetFactor: -1,
 });
 export const paintPlane = new THREE.Mesh(planeGeo, paintMat);
@@ -159,11 +160,11 @@ export function repaint() {
   });
 }
 
-/* 規律旁的故障指示燈只負責讓玩家掃到牆面，不把視線鎖住。 */
-export const markerMat = new THREE.MeshBasicMaterial({ color: 0xd8b25a });
+/* 題列旁只留故障光、隱去燈體，避免它被誤認成第五個圖形。 */
+export const markerMat = new THREE.MeshBasicMaterial({ color: 0xd8b25a, transparent: true, opacity: 0 });
 export const marker = new THREE.Mesh(boxGeo, markerMat);
-marker.scale.set(0.05, 0.05, 0.03);
-marker.position.set(-CFG.world.corridorW / 2 + 0.05, CFG.paint.baseY + 0.34, CFG.paint.wallZ);
+marker.scale.set(0.018, 0.065, 0.015);
+marker.position.set(-CFG.world.corridorW / 2 + 0.05, CFG.paint.baseY + 0.46, CFG.paint.wallZ - 0.72);
 scene.add(marker);
 export const markerLight = new THREE.PointLight(0xd8b25a, 0, 2.2, 1.8);
 markerLight.position.copy(marker.position).x += 0.12;
