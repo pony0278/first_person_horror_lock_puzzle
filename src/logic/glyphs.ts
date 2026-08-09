@@ -1,30 +1,37 @@
 /**
- * 撞針的顏色＋形狀符號（設計文件 §8）。
+ * 撞針的顏色＋圖形標記（設計文件 §8）。
  *
- * 門 1 會依每局謎題把形狀重新綁定到實體撞針；牆面與剖面圖共用
- * DOOR1_GLYPHS，玩家看到的圖形才是同一個資訊單位。
+ * 門 1 會依每局謎題把五點軌道位置重新綁定到實體撞針；牆面與剖面圖
+ * 共用 DOOR1_GLYPHS，玩家看到的是同一個空間位置，不需翻譯。
  */
-import type { PinPuzzleShape } from './pin-puzzle';
+import type { PinPuzzleMark } from './pin-puzzle';
 
 export interface Glyph {
-  /** CSS 色碼。剖面圖與提示牆共用同一組，玩家才對得起來。 */
   readonly c: string;
+  /** 非剖面介面與操作紀錄的文字後備符號。 */
   readonly s: string;
 }
 
-export const DOOR1_GLYPHS: Readonly<Record<PinPuzzleShape, Glyph>> = {
-  circle:   { c: '#b85f58', s: '●' },
-  triangle: { c: '#c9a94e', s: '▲' },
-  square:   { c: '#5a7fc0', s: '■' },
-  pentagon: { c: '#a87945', s: '⬟' },
+export interface Door1Glyph extends Glyph {
+  readonly position: -2 | -1 | 0 | 1 | 2;
+}
+
+const MARK_COLOR = '#c8a34f';
+
+export const DOOR1_GLYPHS: Readonly<Record<PinPuzzleMark, Door1Glyph>> = {
+  left:       { c: MARK_COLOR, s: '◀', position: -2 },
+  'near-left': { c: MARK_COLOR, s: '◁', position: -1 },
+  center:     { c: MARK_COLOR, s: '●', position: 0 },
+  'near-right': { c: MARK_COLOR, s: '▷', position: 1 },
+  right:      { c: MARK_COLOR, s: '▶', position: 2 },
 };
 
-/** 其他鎖針變體的後備圖形；門 1 顯示時由 puzzle.pinShapes 取代。 */
+/** 其他鎖針變體的後備圖形；門 1 顯示時由 puzzle.pinMarks 取代。 */
 export const GLYPH: readonly Glyph[] = [
-  DOOR1_GLYPHS.circle,
-  DOOR1_GLYPHS.square,
-  DOOR1_GLYPHS.triangle,
+  { c: '#c05a52', s: '●' },
+  { c: '#5a7fc0', s: '■' },
+  { c: '#c9a94e', s: '▲' },
   { c: '#6a9e63', s: '◆' },
-  DOOR1_GLYPHS.pentagon,
+  { c: '#b0763f', s: '⬟' },
   { c: '#8d6ab0', s: '✚' },
 ];

@@ -11,8 +11,42 @@ import { R, ST, pick, ui } from '../state.js';
 export let tracks = [];
 
 function glyphForPin(pin) {
-  const shape = R.puzzle?.pinShapes?.[pin];
-  return shape ? DOOR1_GLYPHS[shape] : GLYPH[pin];
+  const mark = R.puzzle?.pinMarks?.[pin];
+  return mark ? DOOR1_GLYPHS[mark] : GLYPH[pin];
+}
+
+function drawPinMark(ctx, pin, cx, cy, span, markerRadius) {
+  const mark = R.puzzle?.pinMarks?.[pin];
+  if (!mark) {
+    const fallback = GLYPH[pin];
+    ctx.fillStyle = fallback.c;
+    ctx.font = `${markerRadius * 3.5}px ui-monospace, Menlo, monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(fallback.s, cx, cy);
+    return;
+  }
+
+  const glyph = DOOR1_GLYPHS[mark];
+  const gap = span / 2;
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = '#24272b';
+  ctx.fillRect(cx - span - 5, cy - markerRadius - 3, span * 2 + 10, markerRadius * 2 + 6);
+  ctx.strokeStyle = '#8a8f91';
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(cx - span - 5, cy - markerRadius - 3, span * 2 + 10, markerRadius * 2 + 6);
+  ctx.beginPath(); ctx.moveTo(cx - span, cy); ctx.lineTo(cx + span, cy); ctx.stroke();
+  for (let position = -2; position <= 2; position++) {
+    ctx.fillStyle = '#8a8f91';
+    ctx.beginPath(); ctx.arc(cx + position * gap, cy, 1.45, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = glyph.c;
+  ctx.strokeStyle = '#17181a';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(cx + glyph.position * gap, cy, markerRadius, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
 }
 
 /* 跨模組會被重新賦值的狀態放進物件 —— ES module 的 import 是唯讀綁定，
@@ -198,12 +232,9 @@ export function drawCutaway(tint = 0) {
       ctx.strokeRect(cx + PW / 2 + 1, SHEAR - 2, (CW - PW) / 2 + 4, h * 0.028);
     }
 
-    // 檢修漆點（殼體上緣）
-    ctx.fillStyle = glyphForPin(i).c; ctx.globalAlpha = 0.9;
-    ctx.font = `${Math.min(cell * 0.24, 17)}px ui-monospace, Menlo, monospace`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(glyphForPin(i).s, cx, TOP + h * 0.022 + 8);
-    ctx.globalAlpha = 1;
+    // 檢修軌道（殼體上緣）：五個錨點與牆面相同，亮點位置就是撞針身分。
+    drawPinMark(ctx, i, cx, TOP + h * 0.022 + 8,
+      Math.min(cell * 0.13, 18), Math.min(4.8, Math.max(3.2, h * 0.045)));
 
     // 選中框
     if (i === ui.sel) {

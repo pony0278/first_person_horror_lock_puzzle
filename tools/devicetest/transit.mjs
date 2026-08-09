@@ -47,49 +47,53 @@ await page.waitForFunction(() => {
   return p && (p.wall.ready || p.wall.error);
 }, null, { timeout: 30000 });
 const door1Puzzle = await page.evaluate(() => window.__lockPuzzle());
-const shapeSides = shape =>
-  shape === 'triangle' ? 3 : shape === 'square' ? 4 : shape === 'pentagon' ? 5 : 0;
-const completedShapes = door1Puzzle.inferredOrder.map(pin => door1Puzzle.pinShapes[pin]);
-const completedSides = completedShapes.map(shapeSides);
-check('門 1 牆面是一個中央缺格，而非四選一排除題',
+const markPosition = mark =>
+  mark === 'left' ? -2 : mark === 'near-left' ? -1 :
+  mark === 'center' ? 0 : mark === 'near-right' ? 1 : 2;
+const completedMarks = door1Puzzle.inferredOrder.map(pin => door1Puzzle.pinMarks[pin]);
+const completedPositions = completedMarks.map(markPosition);
+const distractorMark = door1Puzzle.pinMarks[door1Puzzle.falsePin];
+check('門 1 牆面是一個中央缺格，而非需要猜邊數的多邊形題',
   door1Puzzle.singleSource &&
-  door1Puzzle.ruleId === 'missing-shape-sequence' &&
+  door1Puzzle.ruleId === 'missing-position-sequence' &&
   door1Puzzle.clues.length === 3 &&
   door1Puzzle.clues[0].pin === door1Puzzle.trueOrder[0] &&
   door1Puzzle.clues[1].missing && door1Puzzle.clues[1].pin === null &&
-  door1Puzzle.clues[1].shape === null &&
+  door1Puzzle.clues[1].mark === null &&
   door1Puzzle.clues[2].pin === door1Puzzle.trueOrder[2] &&
-  !Object.hasOwn(door1Puzzle, 'difference') && !Object.hasOwn(door1Puzzle.clues[0], 'count'),
-  `slots=${door1Puzzle.clues.map(clue => clue.shape ?? 'EMPTY').join('→')}`);
-check('門鎖候選是三角形、四邊形、五邊形與圓形干擾項',
-  JSON.stringify([...door1Puzzle.pinShapes].sort()) ===
-    JSON.stringify(['circle', 'pentagon', 'square', 'triangle']) &&
-  door1Puzzle.pinShapes[door1Puzzle.falsePin] === 'circle' &&
+  JSON.stringify([door1Puzzle.clues[0].mark, door1Puzzle.clues[2].mark].sort()) ===
+    JSON.stringify(['left', 'right']) &&
+  !Object.hasOwn(door1Puzzle, 'pinShapes') && !Object.hasOwn(door1Puzzle.clues[0], 'shape'),
+  `slots=${door1Puzzle.clues.map(clue => clue.mark ?? 'EMPTY').join('→')}`);
+check('門鎖候選是左、中、右與一個同軌偏心干擾位置',
+  door1Puzzle.pinMarks.length === 4 &&
+  new Set(door1Puzzle.pinMarks).size === 4 &&
+  ['near-left', 'near-right'].includes(distractorMark) &&
   door1Puzzle.missingPins.length === 1 &&
   door1Puzzle.missingPins[0] === door1Puzzle.trueOrder[1] &&
-  door1Puzzle.pinShapes[door1Puzzle.missingPins[0]] === 'square' &&
+  door1Puzzle.pinMarks[door1Puzzle.missingPins[0]] === 'center' &&
   door1Puzzle.falsePins[0] === door1Puzzle.falsePin,
-  `pins=${door1Puzzle.pinShapes.join(',')} missing=${door1Puzzle.missingPins.join(',')} false=${door1Puzzle.falsePin}`);
-check('補回四邊形後的圖形邊數與撬鎖順序皆為唯一等差序列',
+  `pins=${door1Puzzle.pinMarks.join(',')} missing=${door1Puzzle.missingPins.join(',')} false=${door1Puzzle.falsePin}:${distractorMark}`);
+check('補回正中央後的位置與撬鎖順序皆為唯一等距序列',
   JSON.stringify(door1Puzzle.inferredOrder) === JSON.stringify(door1Puzzle.trueOrder) &&
-  (JSON.stringify(completedSides) === JSON.stringify([3, 4, 5]) ||
-   JSON.stringify(completedSides) === JSON.stringify([5, 4, 3])) &&
-  completedSides[1] - completedSides[0] === door1Puzzle.step &&
-  completedSides[2] - completedSides[1] === door1Puzzle.step,
-  `shapes=${completedShapes.join('→')} sides=${completedSides.join('→')} lock=${door1Puzzle.trueOrder.join('→')}`);
-check('缺格、牆面圖形與門鎖候選已合成為非空 CanvasTexture',
+  (JSON.stringify(completedPositions) === JSON.stringify([-2, 0, 2]) ||
+   JSON.stringify(completedPositions) === JSON.stringify([2, 0, -2])) &&
+  completedPositions[1] - completedPositions[0] === door1Puzzle.step &&
+  completedPositions[2] - completedPositions[1] === door1Puzzle.step,
+  `marks=${completedMarks.join('→')} positions=${completedPositions.join('→')} lock=${door1Puzzle.trueOrder.join('→')}`);
+check('缺格、五點軌道與門鎖候選已合成為非空 CanvasTexture',
   door1Puzzle.wall.ready && !door1Puzzle.wall.error &&
   door1Puzzle.wall.ruleId === door1Puzzle.ruleId &&
-  door1Puzzle.wall.visual === 'missing-shape-sequence' &&
+  door1Puzzle.wall.visual === 'missing-position-sequence' &&
   JSON.stringify(door1Puzzle.wall.slots) ===
-    JSON.stringify(door1Puzzle.clues.map(clue => clue.shape)) &&
-  JSON.stringify(door1Puzzle.wall.pinShapes) === JSON.stringify(door1Puzzle.pinShapes) &&
+    JSON.stringify(door1Puzzle.clues.map(clue => clue.mark)) &&
+  JSON.stringify(door1Puzzle.wall.pinMarks) === JSON.stringify(door1Puzzle.pinMarks) &&
   door1Puzzle.wall.missingIndex === 1 &&
   JSON.stringify(door1Puzzle.wall.missingPins) === JSON.stringify(door1Puzzle.missingPins) &&
   door1Puzzle.wall.step === door1Puzzle.step &&
   door1Puzzle.wall.coverage > 0.005 && door1Puzzle.wall.coverage < 0.20 &&
   door1Puzzle.wall.svgBytes > 1800,
-  `wall=${door1Puzzle.wall.coverage.toFixed(3)}/${door1Puzzle.wall.svgBytes} slots=${door1Puzzle.wall.slots.map(shape => shape ?? 'EMPTY').join('→')}`);await page.evaluate(() => window.__skipIntro());
+  `wall=${door1Puzzle.wall.coverage.toFixed(3)}/${door1Puzzle.wall.svgBytes} slots=${door1Puzzle.wall.slots.map(mark => mark ?? 'EMPTY').join('→')}`);await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(300);
 /* 抵達後回看正後方：線索在側邊、走廊在中央，兩者必須同時留在畫面。 */
 await page.evaluate(() => window.__setThreatPaused(true));
