@@ -1,5 +1,5 @@
 /* 門 1 的符號＋點數缺格序列與後製。
-   牆面只有三格：符號在上、點數在下，中央整格連符號與點數一起被拔走。
+   牆面只有三格：符號在上、點數在下，中央整格被一塊陳年髒污遮掉。
    玩家由兩端點數補回等差中項，再以鎖面上相同的符號＋點數完成撬鎖順序。 */
 
 import * as THREE from 'three';
@@ -80,36 +80,45 @@ function makeHintSvg(puzzle) {
     }
   };
 
-  const nailHole = (cx, cy) => {
-    appendRough(svg, rc.circle(cx, cy, 11, option('#312c28', 2.6, {
-      fill: '#443d37', fillStyle: 'solid', roughness: 1.2, bowing: 0.7,
-    })));
-    appendRough(svg, rc.circle(cx + 1, cy - 1, 3.5, option('#a29888', 0.8, {
-      fill: '#a29888', fillStyle: 'solid', roughness: 0.8, bowing: 0.4,
-    })));
-  };
-
   const missingSlot = (cx, cy) => {
-    // 與完整欄位同高的剝落周界，中央透明：表示符號與點數整格遺失。
-    const left = cx - 68, right = cx + 68, top = cy - 88, bottom = cy + 88;
-    const scars = [
-      [[left - 4, top + 5], [left + 28, top - 5], [right - 22, top + 1], [right + 5, top + 12],
-       [right - 9, top + 24], [left + 18, top + 18]],
-      [[left + 3, top + 4], [left - 7, top + 32], [left + 2, bottom - 18],
-       [left - 5, bottom + 3], [left + 16, bottom - 9], [left + 18, top + 22]],
-      [[right - 5, top + 13], [right + 7, top + 38], [right - 2, bottom - 25],
-       [right + 4, bottom + 3], [right - 17, bottom - 8], [right - 18, top + 25]],
-      [[left + 3, bottom - 16], [left + 26, bottom + 5], [right - 29, bottom - 1],
-       [right + 4, bottom + 4], [right - 12, bottom - 19], [left + 22, bottom - 20]],
-    ];
-    scars.forEach(points => appendRough(svg, rc.polygon(points, option('#62584f', 2.8, {
-      fill: '#91877a', fillStyle: 'hachure', hachureGap: 6, hachureAngle: -24,
-      roughness: 2.2, bowing: 2.5,
-    }))));
-    nailHole(left + 15, top + 17);
-    nailHole(right - 15, top + 17);
-    nailHole(left + 15, bottom - 17);
-    nailHole(right - 15, bottom - 17);
+    // 多層不對稱污漬蓋住整個符號＋點數；沒有封閉邊框，避免看成規整挖空格。
+    const stainRng = mulberry32((puzzle.wallSeed ^ 0xc6bc2796) >>> 0);
+    const blob = (x, y, rx, ry, count, phase, color, opacity) => {
+      const points = Array.from({ length: count }, (_, index) => {
+        const angle = phase + (Math.PI * 2 * index) / count;
+        const wobble = 0.72 + stainRng() * 0.42;
+        return [
+          x + Math.cos(angle) * rx * wobble + (stainRng() - 0.5) * 7,
+          y + Math.sin(angle) * ry * wobble + (stainRng() - 0.5) * 9,
+        ];
+      });
+      const mark = rc.polygon(points, option(color, 1.25, {
+        fill: color, fillStyle: 'solid', roughness: 2.8, bowing: 2.2,
+      }));
+      mark.setAttribute('opacity', String(opacity));
+      appendRough(svg, mark);
+    };
+
+    // 外圈淡、內側沉積較深；偏移的小污塊與下垂痕打破任何矩形聯想。
+    blob(cx - 2, cy + 1, 77, 92, 17, 0.08, '#62584d', 0.30);
+    blob(cx - 9, cy - 4, 61, 78, 15, 0.29, '#443b32', 0.54);
+    blob(cx + 4, cy + 5, 43, 62, 13, 0.47, '#2f2923', 0.66);
+    blob(cx + 55, cy - 31, 27, 34, 11, 0.14, '#574d43', 0.24);
+    blob(cx - 53, cy + 46, 23, 29, 10, 0.36, '#51473d', 0.22);
+
+    const drip = rc.line(cx + 27, cy + 51, cx + 22, cy + 101,
+      option('#3b322a', 6.2, { roughness: 3.1, bowing: 3.8 }));
+    drip.setAttribute('opacity', '0.34');
+    appendRough(svg, drip);
+
+    // 幾道較淺的擦痕讓表面仍像髒污，而不是一塊實心黑色圖形。
+    [[-39, -48, 8, -55], [-47, 2, 32, -8], [-29, 47, 24, 53]].forEach(
+      ([x0, y0, x1, y1]) => {
+        const wipe = rc.line(cx + x0, cy + y0, cx + x1, cy + y1,
+          option('#81766a', 2.4, { roughness: 2.7, bowing: 3.2 }));
+        wipe.setAttribute('opacity', '0.46');
+        appendRough(svg, wipe);
+      });
   };
 
   // 斷裂的暗紅刮痕把三格視為同一排，但不使用箭頭、文字或問號。
