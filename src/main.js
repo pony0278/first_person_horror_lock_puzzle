@@ -22,7 +22,7 @@ import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
 import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
-import './render/electroroom.js';
+import './render/fuseroom.js';
 import './render/pumphub.js';
 import './render/doorpanel.js';
 import './render/hands.js';
@@ -31,7 +31,7 @@ import './render/cutaway.js';
 import './render/viewport.js';
 import './game/round.js';
 import './game/transit.js';
-import './game/door2.js';
+import './game/door2-circuit.js';
 import './game/door3.js';
 import './game/halt.js';
 import './game/input.js';
@@ -45,11 +45,11 @@ import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
-import { D2, testDoor2 } from './game/door2.js';
+import { D2, testDoor2 } from './game/door2-circuit.js';
 import { D3 } from './game/door3.js';
 import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
-import { emptySlot, isPhaseSolved, phaseChain, solvePhase, tracePhase } from './logic/pipe.js';
-import { PB, cellCentreClient, testCentreClient } from './render/pipeboard.js';
+import { emptyFuseSlot, isCircuitSolved, solveCircuit, traceCircuit } from './logic/circuit.js';
+import { CB, breakerCentreClient, switchCentreClient } from './render/circuitboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { door3Anchors, pumpHub } from './render/pumphub.js';
 import { decay } from './render/decay.js';
@@ -117,40 +117,42 @@ window.__lockPuzzle = () => {
 };
 /* 門 2 盤面的測試接點：狀態、下一個該點的格子、格子的螢幕座標。
    跟 __grabPoint 同一個理由 —— 盤面佈局是抽的，座標寫死必成假通過。 */
-window.__pipe = () => {
+window.__circuit = () => {
   if (!D2.board) return null;
-  const s = solvePhase(D2.board, D2.phase);
-  const trace = tracePhase(D2.board, D2.phase);
-  const selectors = D2.board.controls.map(i => ({ i, rot: D2.board.cells[i].rot }));
+  const solution = solveCircuit(D2.board);
+  const trace = traceCircuit(D2.board);
+  const switches = D2.board.switches.map((state, i) => ({ i, state, rot: state }));
   return {
-    active: D2.active, phase: D2.phase, charged: D2.charged,
-    chain: phaseChain(D2.board, D2.phase).length,
-    solved: isPhaseSolved(D2.board, D2.phase), slot: emptySlot(D2.board),
-    outcome: trace.outcome, fault: trace.fault,
+    active: D2.active, phase: D2.phase,
+    fuseInstalled: D2.board.fuseInstalled, slot: emptyFuseSlot(D2.board),
+    solved: isCircuitSolved(D2.board), outcome: trace.outcome, fault: trace.fault,
+    passed: [...trace.passed], reached: trace.stages.length,
     power: D2.power, lastOutcome: D2.lastOutcome,
-    shorts: D2.shortCount, opens: D2.openCount,
-    charges: D2.chargeCount, discharges: D2.dischargeCount,
-    controls: [...D2.board.controls], capacitor: D2.board.capacitor, fuse: D2.board.fuse,
-    selectors, diverters: selectors,
-    cueT: +PB.cueT.toFixed(2), cueSerial: PB.cueSerial,
+    failures: D2.failCount, shorts: D2.failCount,
+    tests: D2.tests, autoTests: D2.autoTests,
+    controls: [0, 1, 2, 3], switches, selectors: switches, diverters: switches,
+    fuse: D2.board.fuseInstalled,
+    cueT: +CB.cueT.toFixed(2), cueSerial: CB.cueSerial,
     cueLight: +markerLight.intensity.toFixed(2),
-    cost: s ? s.cost : -1,
+    cost: solution ? solution.cost : -1,
   };
 };
-function pipeNextFor(phase) {
-  const b = D2.board; if (!b) return null;
-  const s = solvePhase(b, phase); if (!s) return null;
-  for (let k = 0; k < s.path.length; k++) {
-    const i = s.path[k];
-    if (b.cells[i].rot !== s.rots[k]) return i;
-  }
-  return null;
+window.__pipe = window.__circuit;
+function circuitNext() {
+  const board = D2.board; if (!board) return null;
+  const solution = solveCircuit(board); if (!solution) return null;
+  return board.switches.findIndex((state, i) => state !== solution.states[i]);
 }
-window.__pipeNext = () => pipeNextFor(D2.phase);
-window.__pipeNextFor = phase => pipeNextFor(phase);
-window.__pipeCellCentre = i => cellCentreClient(i);
-window.__pipeTestCentre = () => testCentreClient();
+window.__circuitNext = circuitNext;
+window.__pipeNext = circuitNext;
+window.__pipeNextFor = () => circuitNext();
+window.__circuitSwitchCentre = i => switchCentreClient(i);
+window.__pipeCellCentre = i => switchCentreClient(i);
+window.__circuitBreakerCentre = () => breakerCentreClient();
+window.__pipeTestCentre = () => breakerCentreClient();
 window.__testDoor2 = () => testDoor2();
+window.__startDoor2 = () => { T.active = true; T.phase = 'door2'; hooks.startDoor2?.(); return Boolean(D2.board); };
+window.__insertDoor2Fuse = () => Boolean(hooks.door2Insert?.());
 /* 門 2 門面：LCD 現在顯示哪個符號（紅槓＝鎖定、綠框＝解鎖）。 */
 window.__doorPanel = () => ({
   visible: doorPanel2.visible,

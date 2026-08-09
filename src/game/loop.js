@@ -14,7 +14,7 @@ import { beep } from './audio.js';
 import { interrupted } from './halt.js';
 import { die } from './round.js';
 import { T, cinematic, updateTransit } from './transit.js';
-import { D2, updateDoor2 } from './door2.js';
+import { D2, updateDoor2 } from './door2-circuit.js';
 
 import { updateDoor3 } from './door3.js';
 /* ═══════════════════════════════════════════════════════════
@@ -356,7 +356,7 @@ export function tick() {
   updateDoor3(dt);
 
   // ── 撬鎖面板承載威脅（Iron Lung 路線）──────────────
-  // 門 2 的下方是管線盤面（render/pipeboard.js 自己畫），這一段只屬於門 1。
+  // 門 2 的下方是雙線診斷盤（render/circuitboard.js 自己畫），這一段只屬於門 1。
   if (!R.over && R.door === 1) {
     const D = CFG.dread, i = ST.index;
     const amp = D.trackShake[i], hz = D.shakeHz[i], tint = D.tint[i];

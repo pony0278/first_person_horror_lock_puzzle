@@ -15,7 +15,7 @@ import {
   decayGroup, lamp, lampFixture, reflection, seepPatches, waterPlane,
 } from '../render/decay.js';
 import { marker, markerLight, paintPlane } from '../render/hintwall.js';
-import { electroRoom } from '../render/electroroom.js';
+import { electroRoom } from '../render/fuseroom.js';
 import { doorPanel2 } from '../render/doorpanel.js';
 import { pumpHub, updatePumpHub } from '../render/pumphub.js';
 import { resize } from '../render/viewport.js';

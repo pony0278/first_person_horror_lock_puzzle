@@ -190,11 +190,11 @@ describe('失敗原因（§12：只講一個原因）', () => {
 });
 
 describe('門 2 失敗原因', () => {
-  it('缺件還沒取回時點名取件太晚', () => {
-    expect(door2Cause(false)).toBe('你太晚去拿零件');
+  it('保險絲還沒取回時點名取件太晚', () => {
+    expect(door2Cause(false)).toBe('你太晚去拿保險絲');
   });
 
-  it('缺件已取回後只歸因時間不足', () => {
+  it('保險絲已取回後只歸因時間不足', () => {
     expect(door2Cause(true)).toBe('時間不夠');
   });
 });

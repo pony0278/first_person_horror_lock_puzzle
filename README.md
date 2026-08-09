@@ -19,7 +19,7 @@ CI 分成兩個**並行**的 job：
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
 | **建置與發布** | `npm run check`（型別、相依分層、82 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | `devicetest`（57 項）、`safearea`（16 項）、`interrupt`（15 項）、`transit`（32 項）、`door3-scene`（20 項），共 140 項 | **否** |
+| **手機視窗測試** | 基礎裝置、safe-area、中斷、門間流程、Door 2 雙線盤與 Door 3 場景 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
@@ -52,25 +52,25 @@ src/
     round.ts                隱藏計時器、站位時刻表、失敗原因
     glyphs.ts               撞針的顏色＋形狀符號（§8）
     rng.ts                  可重現亂數
-    pipe.ts                 門 2 充電／解鎖階段解、四選擇器盤面池與連通判定
+    circuit.ts              門 2 雙線切換、分段閘門診斷與題型池
   render/                 ── 場景建構與繪製 ──
     materials.js            程序化材質
     scene.js                走廊、門、鎖芯、工具
     monster.js              怪物網格
     decay.js                緊急照明、滲液、積水、倒影
     hintwall.js             Rough.js＋SVG＋Canvas 側邊符號＋點數缺格、手電筒、暗角
-    electroroom.js          門 2 變電室與可取回導管
+    fuseroom.js             門 2 變電室與可取回雙通道保險絲
     pumphub.js              門 3 十字泵房、防洪閘門、三向走廊與壓力設備灰盒
     doorpanel.js            門 2 LCD 與損壞讀卡機
     hands.js                雙手 IK
     cutaway.js              下方面板的機構剖面圖
-    pipeboard.js            門 2 固定管線、選擇器、蓄電器、保險絲與送電結果繪製
+    circuitboard.js         門 2 紅藍雙線、直通／交叉開關、閘門與診斷脈衝
     viewport.js             尺寸對齊
   game/                   ── 流程 ──
     audio.js                Web Audio 即時合成
     round.js                回合生命週期
     transit.js              門 1 → 門 2 過場與注視自動取件狀態機
-    door2.js                門 2 充電→解鎖測試、跳電與追逐啟動流程
+    door2-circuit.js        門 2 免費首測、故障診斷、跳電與追逐流程
     door3.js                門 2 → 門 3 換場與灰盒環視生命週期
     halt.js                 中斷（切背景、context 遺失）
     input.js                觸控與鍵盤
@@ -102,7 +102,7 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 場景 300 行）—— 這類程式碼的失效模式是「看起來不對」，不是型別錯誤，
 型別標註在上面收不到什麼，改動風險卻很高。
 
-反過來，`src/logic/` 已包含撬鎖、隱藏計時器與門 2 管線等會持續成長的規則，
+反過來，`src/logic/` 已包含撬鎖、隱藏計時器與門 2 雙線電路等會持續成長的規則，
 這些純邏輯都使用型別與單元測試保護。
 
 渲染層仍維持 JavaScript；新增玩法時再按實際收益評估是否逐步 TS 化。
@@ -124,16 +124,17 @@ node tools/devicetest/setup.mjs <git-ref>  # 或任何版本
 
 v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` 保留作真機回歸清單。
 門 1 已改為符號＋點數中央缺格＋原撬鎖執行：牆面單排三格，兩端皆為「符號在上、點數在下」，中央整格連符號與點數一起被拔走；鎖面四個固定符號各帶一組點數。玩家從兩端推理等差中項，找出帶該點數的中央符號，再依完成後的三格順序撬動真針；序列外的點數是假針。
-門 2 現為 2×8 兩階段電路：只有四個黃銅選擇器能轉，開局距離充電解固定三步；先從指定方向替蓄電器充電，再翻兩個選擇器、經保險絲抵達門閂。四個全亂點一次不會通，直接把電送向門鎖會跳電切黑 1.2 秒。零件只需回頭注視 0.42 秒便自動取下、落槽自動對正；20 秒倒數與怪物追逐延後到零件插入後才開始。
+門 2 現為紅藍雙線故障診斷：牆上的雙通道保險絲需回頭注視 0.42 秒取回，插入後才啟動 20 秒追逐並免費跑第一次診斷。四個開關各自只有直通／交叉兩態，脈衝依序通過四道顏色閘門並停在第一個錯誤段；開局固定距離唯一答案三步，四個全亂點一次仍不會通。錯誤測試切黑約一秒，但只消耗真實時間，不另設威脅量表或瞬移怪物。
 門 3 已先完成淹水十字泵房灰盒：正面是防洪閘門與三缸壓力組，左／右／後分別以暖色粗管、冷色電纜、鐵鏈來區分方向；操作區收起後可用拖曳或 W/A/S/D 環視。這一輪沒有啟動怪物與水量規則，避免在空間尚未驗證前把兩套狀態機綁死。
 目前下一步是先用真機確認 Door 3 的方向辨識、閘門可見度與拖曳手感，再設計可在 4～6 步內完成的均壓盤面，最後接入誠實但不完整的三向怪物提示。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 82 個單元測試
+npm run check      # 型別 + 相依分層 + 64 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
-F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 32 項
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 門 1→2→3 完整流程
 ```
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/circuit.mjs      # Door 2 雙線盤視覺與觸控
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/door3-scene.mjs  # Door 3 四向視線與環視

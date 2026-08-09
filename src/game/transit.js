@@ -21,7 +21,7 @@ import { doorPanel2, resetDoorPanel } from '../render/doorpanel.js';
 import { marker, markerLight, paintPlane } from '../render/hintwall.js';
 import { decay, decayStages, reflection } from '../render/decay.js';
 import { monster } from '../render/monster.js';
-import { ELECTRO, LOOSE, LOOSE_GLOW, electroRoom, loosePiece, matLoose } from '../render/electroroom.js';
+import { ELECTRO, LOOSE, LOOSE_GLOW, electroRoom, loosePiece, matLoose } from '../render/fuseroom.js';
 import { beep } from './audio.js';
 import { newRound } from './round.js';
 
@@ -208,7 +208,7 @@ export function updateTransit(dt) {
   else if (T.phase === 'arrive') {
     if (T.t >= C.holdSec) {
       // 交還視角控制：intro.active=false 讓上方的「按住＝回頭」重新生效。
-      // startDoor2 只讓盤面上桌；零件落槽前沿用上一回合的 round 暫停。
+      // startDoor2 只讓盤面上桌；保險絲落槽前沿用上一回合的 round 暫停。
       T.phase = 'door2'; T.t = 0;
       intro.active = false;
       hooks.startDoor2?.();                   // 盤面上桌；空槽與身後火花由 door2 同拍提示
@@ -260,7 +260,7 @@ export function updateTransit(dt) {
       // 零件落進空槽並自動對正；Door 2 的 20 秒回合從這一刻才開始。
       // door2 沒掛（例如未來的純取件關）才走舊的收尾。
       if (hooks.door2Insert?.()) { T.phase = 'door2'; T.t = 0; }
-      else finish('導管到手 —— 門 2 施工中');
+      else finish('保險絲到手 —— 門 2 施工中');
     }
   }
 }

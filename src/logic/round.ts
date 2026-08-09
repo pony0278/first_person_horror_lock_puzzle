@@ -135,7 +135,7 @@ export function primaryCause(input: CauseInput, thresholdSec = 1.5): string {
   return worst[1] > thresholdSec ? worst[0] : '時間不夠';
 }
 
-/** 門 2 沒有操作錯誤；死亡只區分是否把強制缺件拖到太晚。 */
+/** 門 2 的診斷錯誤只消耗真實時間；死亡仍只區分是否把強制保險絲拖到太晚。 */
 export function door2Cause(pieceRetrieved: boolean): string {
-  return pieceRetrieved ? '時間不夠' : '你太晚去拿零件';
+  return pieceRetrieved ? '時間不夠' : '你太晚去拿保險絲';
 }
