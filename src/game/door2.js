@@ -1,9 +1,9 @@
-/* 門 2：分流管線的流程層。
-   玩家先在斷電狀態配置普通管與刀閘，取回共用入口的缺件，再按主斷路器測試。
-   電流一次只走一條路：正確就開門、普通斷路可立即修改、焦黑端點會跳電 1.2 秒。
-   跳電期間牆鐘與怪物照常前進，但不額外偷加秒，也不直接判死。 */
+/* 門 2：兩階段電路流程。
+   取件完成後才啟動 20 秒追逐；先由指定端口替電容充電，再切換兩個選擇器，
+   讓電流經保險絲抵達門閂。亂送到門鎖、短路或繞過安全元件都會跳電，
+   但不直接判死，也不額外偷加秒。 */
 
-import { emptySlot, insertPiece, reach, rotate, traceRoute } from '../logic/pipe.js';
+import { canRotate, emptySlot, insertPiece, phaseReach, rotate, tracePhase } from '../logic/pipe.js';
 import { newBoard, pickSpec } from '../logic/pipe.js';
 import { $panel, $trip } from '../dom.js';
 import {
@@ -21,11 +21,15 @@ import { T, finishTransit } from './transit.js';
 
 const OPEN_HOLD_SEC = 0.42;
 const TRIP_HOLD_SEC = 1.20;
+const RELAY_HOLD_SEC = 0.62;
 const TEST_CELL_SEC = 0.055;
 
 export const D2 = {
   active: false, board: null, doneT: -1, cueSeen: 0,
-  power: 'off', testT: 0, testEnd: 0, lastOutcome: null, shortCount: 0, openCount: 0,
+  phase: 'charge', charged: false,
+  power: 'off', testT: 0, testEnd: 0, lastOutcome: null,
+  shortCount: 0, openCount: 0, chargeCount: 0, dischargeCount: 0,
+  resetPhaseAfterTrip: false,
 };
 
 hooks.door2HasPiece = () => Boolean(D2.board && emptySlot(D2.board) === null);
@@ -37,12 +41,14 @@ function clearTrip() {
 hooks.startDoor2 = () => {
   D2.board = newBoard(pickSpec());
   D2.active = true; D2.doneT = -1;
+  D2.phase = 'charge'; D2.charged = false;
   D2.power = 'off'; D2.testT = 0; D2.testEnd = 0; D2.lastOutcome = null;
-  D2.shortCount = 0; D2.openCount = 0;
+  D2.shortCount = 0; D2.openCount = 0; D2.chargeCount = 0; D2.dischargeCount = 0;
+  D2.resetPhaseAfterTrip = false;
   clearTrip();
 
-  // 奔跑不計時；抵達後才開始門 2 自己的 20 秒，怪物也從最遠站重新追。
-  beginDoorRound(2, CFG.round.limit, ['refl', 'badge', 'glitch'], CFG.stations.door2Hold);
+  // 門 1 勝利留下的 round 暫停保持到零件自動落槽；取件不是計時中的隱藏教學。
+  R.door = 2; R.limit = CFG.round.limit;
   $panel.classList.add('door2');
   showPipe(D2.board);
   D2.cueSeen = PB.cueSerial - 1;
@@ -54,21 +60,27 @@ hooks.door2Insert = () => {
   const slot = emptySlot(D2.board);
   if (slot === null || !insertPiece(D2.board)) return false;
   pieceLand(slot, D2.board.cells[slot].rot);
+  D2.phase = 'charge'; D2.charged = false;
   D2.power = 'off'; D2.lastOutcome = null;
+
+  // 零件已自動吸附、鏡頭回正後才啟動 Door 2 自己的 20 秒與最遠站怪物。
+  beginDoorRound(2, CFG.round.limit, ['refl', 'badge', 'glitch'], CFG.stations.door2Hold);
   beep('thunk');
   return true;
 };
 
 hooks.resetDoor2 = () => {
   D2.active = false; D2.board = null; D2.doneT = -1; D2.cueSeen = PB.cueSerial;
+  D2.phase = 'charge'; D2.charged = false;
   D2.power = 'off'; D2.testT = 0; D2.testEnd = 0; D2.lastOutcome = null;
-  D2.shortCount = 0; D2.openCount = 0;
+  D2.shortCount = 0; D2.openCount = 0; D2.chargeCount = 0; D2.dischargeCount = 0;
+  D2.resetPhaseAfterTrip = false;
   PB.onAdvance = null;
   clearTrip();
   $panel.classList.remove('door2');
 };
 
-/** 按下主斷路器。缺件尚未取回時只重播缺口提示，不會假裝送電。 */
+/** 按下主斷路器；目前階段決定電流是在充電，還是在嘗試退開門閂。 */
 export function testDoor2() {
   if (!D2.active || !D2.board || D2.doneT >= 0 || R.over || D2.power !== 'off') return false;
   if (emptySlot(D2.board) !== null) {
@@ -76,7 +88,7 @@ export function testDoor2() {
     beep('thunk');
     return false;
   }
-  const trace = traceRoute(D2.board);
+  const trace = tracePhase(D2.board, D2.phase);
   D2.lastOutcome = trace.outcome;
   D2.power = 'testing';
   D2.testT = 0;
@@ -98,7 +110,7 @@ pipeCanvas.addEventListener('pointerdown', e => {
   if (D2.power !== 'off') return;
   const i = cellAt(e.clientX, e.clientY);
   if (i === null) return;
-  if (rotate(D2.board, i)) {
+  if (canRotate(D2.board, i) && rotate(D2.board, i)) {
     spinCell(i, D2.board.cells[i]);
     beep('release');
     D2.lastOutcome = null;
@@ -106,13 +118,15 @@ pipeCanvas.addEventListener('pointerdown', e => {
   } else if (D2.board.cells[i]?.kind === 'empty') {
     beep('thunk');
     cueMissingPiece();
+  } else {
+    beep('thunk'); // 固定管線有實體感，但不接受沒有意義的亂轉。
   }
 });
 
 /** 每幀由 loop 呼叫。lampF 是走廊燈的即時亮度。 */
 export function updateDoor2(dt, lampF) {
   if (!D2.active || !D2.board) return;
-  drawPipe(D2.board, dt, lampF, D2.power);
+  drawPipe(D2.board, dt, lampF, D2.power, D2.phase, D2.charged);
 
   const cueF = missingCueLevel();
   if (PB.cueSerial !== D2.cueSeen) {
@@ -121,23 +135,36 @@ export function updateDoor2(dt, lampF) {
   }
   if (cueF > 0) markerLight.intensity = Math.max(markerLight.intensity, 0.8 + cueF * 2.8);
 
-  const live = D2.power === 'testing' || D2.power === 'solved';
-  setDoorPanel(live ? reach(D2.board) : 0, D2.doneT >= 0, lampF, performance.now() / 1000);
+  const liveUnlock = D2.phase === 'unlock' &&
+    (D2.power === 'testing' || D2.power === 'solved');
+  setDoorPanel(liveUnlock ? phaseReach(D2.board, 'unlock') : 0,
+    D2.doneT >= 0, lampF, performance.now() / 1000);
 
   if (D2.power === 'testing') {
     D2.testT += dt;
     if (D2.testT >= D2.testEnd) {
-      if (D2.lastOutcome === 'solved' && completeDoor()) {
+      if (D2.phase === 'charge' && D2.lastOutcome === 'charged') {
+        D2.charged = true; D2.chargeCount++;
+        D2.phase = 'unlock'; D2.power = 'switching'; D2.testT = 0;
+        beep('set');
+      } else if (D2.phase === 'unlock' && D2.lastOutcome === 'solved' && completeDoor()) {
         D2.power = 'solved';
         D2.doneT = 0;
-      } else if (D2.lastOutcome === 'short') {
+      } else if (D2.lastOutcome === 'short' || D2.lastOutcome === 'bypass') {
         D2.power = 'trip'; D2.testT = 0; D2.shortCount++;
+        D2.resetPhaseAfterTrip = D2.phase === 'unlock';
         $trip.classList.add('on');
         beep('severe');
       } else {
         D2.power = 'open'; D2.testT = 0; D2.openCount++;
         beep('error');
       }
+    }
+  } else if (D2.power === 'switching') {
+    D2.testT += dt;
+    if (D2.testT >= RELAY_HOLD_SEC) {
+      D2.power = 'off'; D2.testT = 0; D2.lastOutcome = null;
+      beep('thunk');
     }
   } else if (D2.power === 'open') {
     D2.testT += dt;
@@ -146,7 +173,11 @@ export function updateDoor2(dt, lampF) {
     D2.testT += dt;
     if (D2.testT >= TRIP_HOLD_SEC) {
       clearTrip();
-      D2.power = 'off'; D2.testT = 0;
+      if (D2.resetPhaseAfterTrip) {
+        D2.phase = 'charge'; D2.charged = false; D2.dischargeCount++;
+      }
+      D2.resetPhaseAfterTrip = false;
+      D2.power = 'off'; D2.testT = 0; D2.lastOutcome = null;
     }
   }
 

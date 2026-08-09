@@ -8,7 +8,6 @@ import { hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
-import { T, tug, tugAt } from './transit.js';
 
 /* ═══════════════════════════════════════════════════════════
    輸入
@@ -71,75 +70,29 @@ export function doRelease(i) {
 }
 
 /* 上方：長按觀察、放開回彈（議題 1 規格）。
-   取件（v3 §4）：按住＝看；伸手把看到的東西拿下來。
-
-   兩根手指分工，因為轉頭與伸手是兩件事：
-   第一根手指佔住視角（按住＝回頭，放開＝彈回正面）—— 這是驚慌動作，
-   不能有任何判定延遲。轉過去之後那根手指必須留在螢幕上，否則視角就彈回來了，
-   所以「看著它」與「碰它」不可能是同一根手指。
-   第二根手指＝伸手：落點在鬆脫段附近就算抓到，之後往下拖每 tugPx 再扯一下。
-   單手時仍可用第一根手指盲扯（往下拖），保留原本的一手操作路徑。
-
-   桌機主路徑：左鍵按住回頭，**右鍵點一下＝扯一下** —— 左手完全不用動。
-   同一顆滑鼠加按右鍵不會產生 pointerdown（規格：和弦按鍵走 pointermove，
-   e.button 標示變化的那顆鍵），所以在 pointermove 裡接。
-   S 鍵仍可佔住視角（此時滑鼠左鍵＝伸手），當替代路徑保留。 */
-let lookId = null;     // 佔住視角的 pointerId
-let keyLook = false;   // 桌機用 S 佔住視角
-let pullY = null;      // 視角手指的盲扯累積基準
-let grabId = null;     // 已經抓在鬆脫段上的 pointerId
-let grabY = 0;
+   Door 2 的零件只要求玩家「回頭看到」：穩定注視片刻後角色會自動伸手取下，
+   不再要求第二指、右鍵或拖拉手勢。 */
+let lookId = null;
+let keyLook = false;
 
 /** 視角由「手指」與「S 鍵」共同持有，任何一方還在就維持回頭。 */
 function syncLook() {
   const on = lookId !== null || keyLook;
   look.holding = on;
   look.target = on ? (R.door === 1 ? CFG.look.hintYaw : 180) : 0;
-  if (!on) { grabId = null; pullY = null; }
 }
-
-view.addEventListener('contextmenu', e => e.preventDefault());   // 右鍵已被徵用為「伸手」
 
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
+  if (e.button !== 0 || lookId !== null || keyLook) return;
   view.setPointerCapture(e.pointerId);
-
-  if (e.button === 2) { tug(); return; }        // 右鍵單獨按下（S 佔視角時）＝扯，永不搶視角
-  if (lookId !== null || keyLook) {             // 已經有人佔著視角 → 這一下是伸手
-    if (tugAt(e.clientX, e.clientY)) { grabId = e.pointerId; grabY = e.clientY; }
-    return;
-  }
   lookId = e.pointerId;
-  pullY = e.clientY;
   syncLook();
 });
 
-view.addEventListener('pointermove', e => {
-  if (T.phase !== 'door2') return;
-  if (e.button === 2 && (e.buttons & 2)) {    // 左鍵按住中加按右鍵（和弦）＝扯一下
-    tug();
-    return;
-  }
-  if (e.pointerId === grabId) {               // 抓住了就繼續拉，不再重判命中
-    const dy = e.clientY - grabY;
-    if (dy >= CFG.transit.tugPx) { grabY = e.clientY; tug(true); }
-    else if (dy < 0) grabY = e.clientY;
-    return;
-  }
-  if (e.pointerId !== lookId || pullY === null) return;
-  const dy = e.clientY - pullY;
-  if (dy >= CFG.transit.tugPx) {
-    pullY = e.clientY;                        // 下一次扯從這裡重新累積
-    tug();
-  } else if (dy < 0) {
-    pullY = e.clientY;                        // 上移就重設基準，不做負累積
-  }
-});
-
-/** 強制放開視角（手指與 S 鍵都放）：彈回正面，抓著的手也鬆開 —— 看不到就抓不住。 */
+/** 強制放開視角（手指與 S 鍵都放）：彈回正面。 */
 export const stopLook = () => { lookId = null; keyLook = false; syncLook(); };
 const onUp = e => {
-  if (e.pointerId === grabId) grabId = null;                 // 伸手那根放開 —— 視角不動
   if (e.pointerId === lookId) { lookId = null; syncLook(); } // 視角那根放開（S 還按著就繼續看）
 };
 view.addEventListener('pointerup', onUp);

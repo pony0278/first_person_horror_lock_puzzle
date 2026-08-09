@@ -34,7 +34,7 @@ const ss = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a)));
     phase: idle → open → through → corner → approach → arrive
            → door2（互動：回頭取件）→ grab（脫落飛行）→ retrieved → done */
 export const T = { active: false, phase: 'idle', t: 0, dipT: -1, seep: 0,
-                   tug: 0, jerkT: 0, reachT: 0, flyT: 0 };
+                   tug: 0, focusT: 0, reachT: 0, flyT: 0 };
 
 /* transit 拉著鏡頭沿走廊跑的那幾個階段。
    door2 / grab / retrieved 不算 —— 那時鏡頭交還給玩家，門 2 是可以互動的。
@@ -66,7 +66,7 @@ hooks.startTransit = startTransit;
 hooks.resetTransit = () => {
   hooks.resetDoor2?.();                        // 盤面先收走
   T.active = false; T.phase = 'idle'; T.t = 0; T.dipT = -1; T.seep = 0;
-  T.tug = 0; T.jerkT = 0; T.reachT = 0; T.flyT = 0;
+  T.tug = 0; T.focusT = 0; T.reachT = 0; T.flyT = 0;
   anim.handsOverride = null;
   matLoose.emissiveIntensity = LOOSE_GLOW;
   loosePiece.visible = true;
@@ -207,7 +207,7 @@ export function updateTransit(dt) {
   else if (T.phase === 'arrive') {
     if (T.t >= C.holdSec) {
       // 交還視角控制：intro.active=false 讓上方的「按住＝回頭」重新生效。
-      // startDoor2 會在盤面上桌的同一刻放行 R.over，重開門 2 的隱藏計時與追逐。
+      // startDoor2 只讓盤面上桌；零件落槽前沿用上一回合的 round 暫停。
       T.phase = 'door2'; T.t = 0;
       intro.active = false;
       hooks.startDoor2?.();                   // 盤面上桌；空槽與身後火花由 door2 同拍提示
@@ -215,20 +215,26 @@ export function updateTransit(dt) {
   }
 
   else if (T.phase === 'door2') {
-    // 玩家自由回頭找鬆脫段；扯拽由 input 呼叫 tug() / tugAt()。
-    // 轉到看得見它時，微光邊緣轉成慢呼吸 —— 這是「可以伸手了」唯一的告示。
-    matLoose.emissiveIntensity = grabPoint()
-      ? LOOSE_GLOW + 0.5 * (0.5 + 0.5 * Math.sin(T.t * 3.4))
+    // 玩家只要按住回頭。鬆脫段進入視野 0.42 秒後，手會自動伸出取下；
+    // 不再要求第二根手指、右鍵和弦或精準拖拉。
+    const point = grabPoint();
+    const focused = Boolean(point) && Math.abs(look.yaw) >= C.grabYawMin;
+    matLoose.emissiveIntensity = focused
+      ? LOOSE_GLOW + 0.7 * (0.5 + 0.5 * Math.sin(T.t * 5.2))
       : LOOSE_GLOW;
-    // reach 姿態在最後一次扯之後維持一小段，讀得出「手還搭在管子上」。
-    if (T.reachT > 0) { T.reachT -= dt; if (T.reachT <= 0) anim.handsOverride = null; }
-    if (T.jerkT > 0) {
-      T.jerkT -= dt;
-      const j = T.jerkT / 0.22;
-      loosePiece.rotation.z = LOOSE.homeRotZ + Math.sin(j * 28) * 0.10 * j;
-      loosePiece.position.x = LOOSE.home.x + Math.sin(j * 40) * 0.012 * j;
+
+    if (focused) {
+      T.focusT += dt;
+      markerLight.intensity = Math.max(markerLight.intensity, 1.1 + T.focusT * 2.8);
+      if (T.focusT >= 0.10) anim.handsOverride = 'reach';
+      if (T.focusT >= C.autoGrabSec) tug(true);
+    } else {
+      T.focusT = Math.max(0, T.focusT - dt * 2.5);
+      if (T.focusT <= 0 && T.reachT <= 0) anim.handsOverride = null;
     }
-    if (T.t >= C.door2IdleSec) finish('斷電太久 —— 重新開始');   // 線上版防卡死（互動會重置 T.t）
+
+    if (T.reachT > 0) { T.reachT -= dt; if (T.reachT <= 0 && !focused) anim.handsOverride = null; }
+    if (T.t >= C.door2IdleSec) finish('斷電太久 —— 重新開始');   // 線上版防卡死
   }
 
   else if (T.phase === 'grab') {
@@ -250,7 +256,7 @@ export function updateTransit(dt) {
 
   else if (T.phase === 'retrieved') {
     if (T.t >= C.retrievedHoldSec) {
-      // 零件落進盤面的空槽（歪的）—— 回到 door2 繼續解。
+      // 零件落進空槽並自動對正；Door 2 的 20 秒回合從這一刻才開始。
       // door2 沒掛（例如未來的純取件關）才走舊的收尾。
       if (hooks.door2Insert?.()) { T.phase = 'door2'; T.t = 0; }
       else finish('導管到手 —— 門 2 施工中');
@@ -274,10 +280,8 @@ function finish(msg) {
 const grabFrom = loosePiece.position.clone();
 const grabTo = loosePiece.position.clone();
 
-/* ── 伸手：鬆脫段在畫面上的位置 ──
-   為什麼是螢幕距離而不是 raycast：鬆脫段只有 3.6cm 粗，兩公尺外的幾何命中區
-   比指尖還小（H4 的教訓：可操作元素至少 48px）。這裡量的是「點得夠近」，
-   不是「點得夠準」—— 恐怖遊戲裡手會抖，準度不該是難度。 */
+/* ── 自動取件：鬆脫段在畫面上的位置 ──
+   不做 raycast 或點擊命中；投影只用來確認零件真的進入畫面，再累積 0.42 秒注視。 */
 const tmpV = new THREE.Vector3();
 
 /** 鬆脫段現在在螢幕上的哪裡（client 座標與命中半徑）；不在畫面上則回 null。 */
@@ -294,7 +298,7 @@ export function grabPoint() {
   };
 }
 
-/** 對著畫面上某一點伸手（第二根手指）。點在鬆脫段附近才算一次扯。 */
+/** 舊測試／無障礙相容接點；主輸入已不呼叫，玩家只需注視自動取件。 */
 export function tugAt(clientX, clientY) {
   if (T.phase !== 'door2') return false;
   const p = grabPoint();
@@ -303,27 +307,23 @@ export function tugAt(clientX, clientY) {
   return tug(true);
 }
 
-/** 一次「扯」。
-    aimed=false：按住視角的那根手指盲扯（一手操作），要轉夠角度才算（v3 §4）。
-    aimed=true：第二根手指已經抓在它身上，角度由命中判定代勞。 */
+/** 開始自動取件。aimed=false 只保留給測試／無障礙接點，仍要求已回頭看見零件。 */
 export function tug(aimed = false) {
   if (T.phase !== 'door2') return false;
-  if (!aimed && Math.abs(look.yaw) < C.grabYawMin) return false;   // 要看著它才扯得到
+  if (!aimed && Math.abs(look.yaw) < C.grabYawMin) return false;
 
-  T.tug++;
-  T.jerkT = 0.22;
+  T.tug = 1;
+  T.focusT = C.autoGrabSec;
   T.reachT = 0.45;
   anim.handsOverride = 'reach';
-  markerLight.intensity = 2.6;                           // 火花猛一亮（呼吸機制隨後接手）
+  markerLight.intensity = 2.6;
   beep('thunk');
 
-  if (T.tug >= C.tugsNeeded) {
-    T.phase = 'grab'; T.flyT = 0;
-    matLoose.emissiveIntensity = 1.4;                    // 脫離接點的那一下火花
-    grabFrom.copy(loosePiece.position);
-    // 玩家在 z=0 面向 +z：飛到臉前偏下
-    grabTo.set(0.12, 1.05, 0.85);
-    beep('release');
-  }
+  T.phase = 'grab'; T.flyT = 0;
+  matLoose.emissiveIntensity = 1.4;
+  grabFrom.copy(loosePiece.position);
+  // 玩家在 z=0 面向 +z：飛到臉前偏下
+  grabTo.set(0.12, 1.05, 0.85);
+  beep('release');
   return true;
 }

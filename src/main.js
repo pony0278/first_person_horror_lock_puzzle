@@ -45,7 +45,7 @@ import { newRound } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2, testDoor2 } from './game/door2.js';
 import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
-import { chain, emptySlot, isSolved, solve, solveShort, traceRoute } from './logic/pipe.js';
+import { emptySlot, isPhaseSolved, phaseChain, solvePhase, tracePhase } from './logic/pipe.js';
 import { PB, cellCentreClient, testCentreClient } from './render/pipeboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { decay } from './render/decay.js';
@@ -73,8 +73,8 @@ window.__probe = () => ({
   dpr: devicePixelRatio, rendererSize: [renderer.domElement.width, renderer.domElement.height],
 });
 window.__scene = scene;          // 供 tools/devicetest/signature.mjs 比對場景圖結構
-/* 鬆脫段現在在螢幕上的哪裡 —— 測試用它決定「第二根手指」要點哪。
-   寫死座標會在鏡頭或走廊寬度一改就變成假通過。 */
+/* 鬆脫段現在在螢幕上的哪裡 —— 測試用它驗證玩家回頭後確實看得到零件，
+   不再拿這個座標模擬第二根手指。 */
 window.__grabPoint = grabPoint;
 /* 門 1 符號＋點數序列：牆面與門鎖候選共用同一組撞針點數。 */
 window.__lockPuzzle = () => {
@@ -115,37 +115,35 @@ window.__lockPuzzle = () => {
    跟 __grabPoint 同一個理由 —— 盤面佈局是抽的，座標寫死必成假通過。 */
 window.__pipe = () => {
   if (!D2.board) return null;
-  const s = solve(D2.board);
-  const trace = traceRoute(D2.board);
-  return { active: D2.active, chain: chain(D2.board).length,
-           solved: isSolved(D2.board), slot: emptySlot(D2.board),
-           outcome: trace.outcome, fault: trace.fault,
-           power: D2.power, lastOutcome: D2.lastOutcome,
-           shorts: D2.shortCount, opens: D2.openCount,
-           diverters: D2.board.cells.flatMap((cell, i) =>
-             cell.kind === 'diverter' ? [{ i, rot: cell.rot }] : []),
-           cueT: +PB.cueT.toFixed(2), cueSerial: PB.cueSerial,
-           cueLight: +markerLight.intensity.toFixed(2),
-           cost: s ? s.cost : -1 };
+  const s = solvePhase(D2.board, D2.phase);
+  const trace = tracePhase(D2.board, D2.phase);
+  const selectors = D2.board.controls.map(i => ({ i, rot: D2.board.cells[i].rot }));
+  return {
+    active: D2.active, phase: D2.phase, charged: D2.charged,
+    chain: phaseChain(D2.board, D2.phase).length,
+    solved: isPhaseSolved(D2.board, D2.phase), slot: emptySlot(D2.board),
+    outcome: trace.outcome, fault: trace.fault,
+    power: D2.power, lastOutcome: D2.lastOutcome,
+    shorts: D2.shortCount, opens: D2.openCount,
+    charges: D2.chargeCount, discharges: D2.dischargeCount,
+    controls: [...D2.board.controls], capacitor: D2.board.capacitor, fuse: D2.board.fuse,
+    selectors, diverters: selectors,
+    cueT: +PB.cueT.toFixed(2), cueSerial: PB.cueSerial,
+    cueLight: +markerLight.intensity.toFixed(2),
+    cost: s ? s.cost : -1,
+  };
 };
-window.__pipeNext = () => {
+function pipeNextFor(phase) {
   const b = D2.board; if (!b) return null;
-  const s = solve(b); if (!s) return null;
+  const s = solvePhase(b, phase); if (!s) return null;
   for (let k = 0; k < s.path.length; k++) {
     const i = s.path[k];
     if (b.cells[i].rot !== s.rots[k]) return i;
   }
   return null;
-};
-window.__pipeShortNext = () => {
-  const b = D2.board; if (!b) return null;
-  const s = solveShort(b); if (!s) return null;
-  for (let k = 0; k < s.path.length; k++) {
-    const i = s.path[k];
-    if (b.cells[i].rot !== s.rots[k]) return i;
-  }
-  return null;
-};
+}
+window.__pipeNext = () => pipeNextFor(D2.phase);
+window.__pipeNextFor = phase => pipeNextFor(phase);
 window.__pipeCellCentre = i => cellCentreClient(i);
 window.__pipeTestCentre = () => testCentreClient();
 window.__testDoor2 = () => testDoor2();

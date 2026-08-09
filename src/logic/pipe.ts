@@ -34,7 +34,7 @@ export const rotMask = (m: number): number => ((m << 1) | (m >> 3)) & 15;
 /** 可以被取下、再裝回缺槽的兩種普通管型。 */
 export type PipeKind = 'straight' | 'elbow';
 /** `diverter` 是 W→E／W→S 二選一的刀閘，放在上排形成真正路線選擇。 */
-export type RotatableKind = PipeKind | 'diverter';
+export type RotatableKind = PipeKind | 'diverter' | 'riser';
 /** `burnt` 燒毀（不可轉、不導電）；`empty` 缺件槽（零件還在環境裡）。 */
 export type CellKind = RotatableKind | 'burnt' | 'empty';
 
@@ -43,6 +43,7 @@ const MASKS: Record<CellKind, readonly number[]> = {
   straight: [E | W, N | S],
   elbow: [N | E, E | S, S | W, W | N],
   diverter: [E | W, S | W],
+  riser: [E | W, N | E],
   burnt: [0],
   empty: [0],
 };
@@ -60,7 +61,8 @@ export const maskOf = (cell: Cell): number =>
   MASKS[cell.kind][cell.rot % periodOf(cell.kind)] ?? 0;
 
 /* 佈局字元 —— 盤面池用它手寫，測試與除錯也用它讀回來。
-   L=N|E  F=E|S  7=S|W  J=W|N  -=E|W  |=N|S  d=分流向東  D=分流向南  X=燒毀 */
+   L=N|E  F=E|S  7=S|W  J=W|N  -=E|W  |=N|S  d=向東／D=向南
+   u=向東／U=向北的回流選擇器，X=燒毀 */
 const CHARS: Readonly<Record<string, { kind: CellKind; rot: number }>> = {
   '-': { kind: 'straight', rot: 0 },
   '|': { kind: 'straight', rot: 1 },
@@ -70,6 +72,8 @@ const CHARS: Readonly<Record<string, { kind: CellKind; rot: number }>> = {
   J: { kind: 'elbow', rot: 3 },
   d: { kind: 'diverter', rot: 0 },
   D: { kind: 'diverter', rot: 1 },
+  u: { kind: 'riser', rot: 0 },
+  U: { kind: 'riser', rot: 1 },
   X: { kind: 'burnt', rot: 0 },
 };
 /** 把一格畫回字元（測試與除錯用）。 */
@@ -83,10 +87,20 @@ export function charOf(cell: Cell): string {
 
 /* ═══ 盤面 ═════════════════════════════════════════════════ */
 
+export type CircuitPhase = 'charge' | 'unlock';
+
 export interface Board {
   readonly rows: number;
   readonly cols: number;
   readonly cells: Cell[];
+  /** 玩家真正能操作的四個機械選擇器。固定管線不接受亂轉。 */
+  readonly controls: readonly number[];
+  /** 充電模組、保險絲與電容指定的充電入口。一般測試盤可為 null。 */
+  readonly capacitor: number | null;
+  readonly fuse: number | null;
+  readonly chargeEntry: Dir | null;
+  /** 兩階段各自唯一的目標路徑；一般測試盤可沒有。 */
+  readonly goals: Record<CircuitPhase, Solution | null>;
 }
 
 /** 電流從左上角的 W 邊進來。 */
@@ -160,8 +174,56 @@ export function traceRoute(b: Board): RouteTrace {
   }
 }
 
+export type CircuitOutcome = RouteOutcome | 'charged' | 'bypass';
+
+export interface CircuitTrace {
+  readonly path: readonly number[];
+  readonly outcome: CircuitOutcome;
+  readonly fault: number | null;
+}
+
+/** path[k] 是從哪個接口進入；用來區分「從上方替電容充電」與「橫向通過」。 */
+function entryDir(b: Board, path: readonly number[], k: number): Dir | null {
+  if (k <= 0) return W;
+  const prev = path[k - 1];
+  const cur = path[k];
+  if (prev === undefined || cur === undefined) return null;
+  if (cur === prev + b.cols) return N;
+  if (cur === prev - b.cols) return S;
+  if (cur === prev + 1) return W;
+  if (cur === prev - 1) return E;
+  return null;
+}
+
+/**
+ * 充電階段只在電流從指定端口進入電容時成功；橫向偷渡到門鎖算 bypass。
+ * 解鎖階段則必須真的抵達右下門閂，並且路徑上經過保險絲。
+ */
+export function tracePhase(b: Board, phase: CircuitPhase): CircuitTrace {
+  const trace = traceRoute(b);
+  if (phase === 'charge') {
+    const k = b.capacitor === null ? -1 : trace.path.indexOf(b.capacitor);
+    if (k >= 0 && entryDir(b, trace.path, k) === b.chargeEntry) {
+      return { path: trace.path.slice(0, k + 1), outcome: 'charged', fault: null };
+    }
+    if (trace.outcome === 'solved' || k >= 0) {
+      return { path: trace.path, outcome: 'bypass', fault: b.capacitor ?? sinkOf(b) };
+    }
+    return trace;
+  }
+
+  if (trace.outcome === 'solved' && (b.fuse === null || trace.path.includes(b.fuse))) return trace;
+  if (trace.outcome === 'solved') {
+    return { path: trace.path, outcome: 'bypass', fault: b.fuse ?? sinkOf(b) };
+  }
+  return trace;
+}
+
 export function chain(b: Board): number[] {
   return [...traceRoute(b).path];
+}
+export function phaseChain(b: Board, phase: CircuitPhase): number[] {
+  return [...tracePhase(b, phase).path];
 }
 /** 哪些格子通電了。 */
 export function energized(b: Board): boolean[] {
@@ -177,13 +239,27 @@ export function reach(b: Board): number {
   return (maxCol + 1) / b.cols;
 }
 
+export function phaseReach(b: Board, phase: CircuitPhase): number {
+  let maxCol = -1;
+  for (const i of phaseChain(b, phase)) maxCol = Math.max(maxCol, i % b.cols);
+  return (maxCol + 1) / b.cols;
+}
+
 export function isSolved(b: Board): boolean {
   return traceRoute(b).outcome === 'solved';
 }
+export function isPhaseSolved(b: Board, phase: CircuitPhase): boolean {
+  const outcome = tracePhase(b, phase).outcome;
+  return phase === 'charge' ? outcome === 'charged' : outcome === 'solved';
+}
+export function canRotate(b: Board, i: number): boolean {
+  const cell = at(b, i);
+  return b.controls.includes(i) && cell.kind !== 'burnt' && cell.kind !== 'empty';
+}
 /** 轉一格。燒毀與空槽轉不動，回傳有沒有真的轉。 */
 export function rotate(b: Board, i: number): boolean {
+  if (!canRotate(b, i)) return false;
   const cell = at(b, i);
-  if (cell.kind === 'burnt' || cell.kind === 'empty') return false;
   cell.rot = (cell.rot + 1) % periodOf(cell.kind);
   return true;
 }
@@ -197,6 +273,23 @@ export interface Solution {
   readonly rots: readonly number[];
   /** 從目前狀態轉到解答要點幾下。 */
   readonly cost: number;
+}
+
+/** 讀取盤面池已驗證的階段解，並換算目前狀態還要切幾下。 */
+export function solvePhase(b: Board, phase: CircuitPhase): Solution | null {
+  if (emptySlot(b) !== null) return null;
+  const goal = b.goals[phase];
+  if (!goal) return null;
+  let cost = 0;
+  for (let k = 0; k < goal.path.length; k++) {
+    const i = goal.path[k];
+    const want = goal.rots[k];
+    if (i === undefined || want === undefined) return null;
+    const cell = at(b, i);
+    if (cell.kind === 'burnt' || cell.kind === 'empty') return null;
+    cost += (want - cell.rot + periodOf(cell.kind)) % periodOf(cell.kind);
+  }
+  return { path: [...goal.path], rots: [...goal.rots], cost };
 }
 
 /** 一格要同時接上 a 與 b 這兩邊的話，該轉到哪個 rot；辦不到回 null。 */
@@ -297,6 +390,12 @@ export const solvable = (b: Board): boolean => solve(b) !== null;
 export function applySolution(b: Board, s: Solution): void {
   s.path.forEach((i, k) => { at(b, i).rot = s.rots[k] ?? 0; });
 }
+export function applyPhaseSolution(b: Board, phase: CircuitPhase): boolean {
+  const solution = solvePhase(b, phase);
+  if (!solution) return false;
+  applySolution(b, solution);
+  return isPhaseSolved(b, phase);
+}
 
 /**
  * 不在解答路徑上、也沒燒毀的格子所形成的連通區塊大小。
@@ -335,64 +434,125 @@ export function offPathRuns(b: Board): number[] {
 
 export interface BoardSpec {
   readonly id: string;
-  /** 每一排的**解答**佈局，字元見 CHARS。 */
+  /** 解鎖階段的驗證過佈局；字元見 CHARS。 */
   readonly rows: readonly string[];
+  /** 充電階段的驗證過佈局。管型必須與 rows 完全相同，只能改轉向。 */
+  readonly chargeRows?: readonly string[];
   /** 開場就是空的那一格（零件在環境裡）。 */
   readonly slot: number;
-  /** 解答路徑上要打亂幾格。路徑外的格子一律隨機轉，讓盤面看起來一樣亂。 */
+  /** 開局故意轉錯幾個充電路徑上的選擇器。 */
   readonly scramble: number;
+  /** 玩家真正能操作的機械選擇器。 */
+  readonly controls?: readonly number[];
+  readonly capacitor?: number;
+  readonly fuse?: number;
+  readonly chargeEntry?: Dir;
   /** 這張盤的性格，寫給人看的。 */
   readonly note: string;
 }
 
-/** 把 spec 讀成**已解開**的盤面。 */
-export function parseSpec(spec: BoardSpec): Board {
-  const cols = spec.rows[0]?.length ?? 0;
+function readRows(id: string, rows: readonly string[]): {
+  rows: number; cols: number; cells: Cell[];
+} {
+  const cols = rows[0]?.length ?? 0;
   const cells: Cell[] = [];
-  for (const row of spec.rows) {
-    if (row.length !== cols) throw new Error(`${spec.id}：各排長度不一致`);
+  for (const row of rows) {
+    if (row.length !== cols) throw new Error(`${id}：各排長度不一致`);
     for (const ch of row) {
       const def = CHARS[ch];
-      if (!def) throw new Error(`${spec.id}：看不懂的佈局字元 "${ch}"`);
+      if (!def) throw new Error(`${id}：看不懂的佈局字元 "${ch}"`);
       cells.push({ kind: def.kind, rot: def.rot, slot: null });
     }
   }
-  return { rows: spec.rows.length, cols, cells };
+  return { rows: rows.length, cols, cells };
+}
+
+const blankGoals = (): Record<CircuitPhase, Solution | null> => ({
+  charge: null, unlock: null,
+});
+
+function boardFor(spec: BoardSpec, rows: readonly string[]): Board {
+  const parsed = readRows(spec.id, rows);
+  const controls = spec.controls ?? parsed.cells.flatMap((cell, i) =>
+    cell.kind === 'burnt' || cell.kind === 'empty' ? [] : [i]);
+  return {
+    ...parsed,
+    controls: [...controls],
+    capacitor: spec.capacitor ?? null,
+    fuse: spec.fuse ?? null,
+    chargeEntry: spec.chargeEntry ?? null,
+    goals: blankGoals(),
+  };
+}
+
+function goalFrom(board: Board, phase: CircuitPhase): Solution | null {
+  const trace = tracePhase(board, phase);
+  const ok = phase === 'charge' ? trace.outcome === 'charged' : trace.outcome === 'solved';
+  if (!ok) return null;
+  return {
+    path: [...trace.path],
+    rots: trace.path.map(i => at(board, i).rot),
+    cost: 0,
+  };
+}
+
+/** 把 spec 讀成解鎖階段的已解盤面，並附上兩階段唯一目標。 */
+export function parseSpec(spec: BoardSpec): Board {
+  const board = boardFor(spec, spec.rows);
+  const chargeBoard = boardFor(spec, spec.chargeRows ?? spec.rows);
+  if (board.rows !== chargeBoard.rows || board.cols !== chargeBoard.cols) {
+    throw new Error(`${spec.id}：充電與解鎖盤面尺寸不同`);
+  }
+  for (let i = 0; i < board.cells.length; i++) {
+    if (board.cells[i]?.kind !== chargeBoard.cells[i]?.kind) {
+      throw new Error(`${spec.id}：第 ${i} 格在兩階段換了管型`);
+    }
+  }
+  board.goals.charge = spec.capacitor === undefined ? null : goalFrom(chargeBoard, 'charge');
+  board.goals.unlock = goalFrom(board, 'unlock');
+  if (spec.capacitor !== undefined && !board.goals.charge) {
+    throw new Error(`${spec.id}：充電佈局沒有從指定端口抵達電容`);
+  }
+  if (spec.fuse !== undefined && !board.goals.unlock) {
+    throw new Error(`${spec.id}：解鎖佈局沒有經過保險絲抵達門閂`);
+  }
+  return board;
 }
 
 /**
- * 開一局：挖掉缺件槽、打亂路徑上的幾格，路徑外的也一起亂轉。
- * 路徑外一起亂轉是刻意的 —— 只亂轉路徑上的格子，等於幫玩家把答案標出來。
+ * 開一局：先套用充電佈局，再故意把其中三個二態選擇器翻錯。
+ * 恰留一個二態選擇器正確，玩家把四個全部亂點一次仍會留下另一個錯誤狀態。
  */
 export function newBoard(spec: BoardSpec, rng: () => number = Math.random): Board {
   const b = parseSpec(spec);
-  const solved = solve(b);
-  if (!solved) throw new Error(`${spec.id}：解答佈局本身不通`);
+  const chargeLayout = boardFor(spec, spec.chargeRows ?? spec.rows);
+  b.cells.forEach((cell, i) => { cell.rot = chargeLayout.cells[i]?.rot ?? cell.rot; });
+
+  const goal = b.goals.charge;
+  if (goal) {
+    const onChargePath = new Set(goal.path);
+    const choices = b.controls.filter(i => i !== spec.slot && onChargePath.has(i));
+    if (choices.length < spec.scramble) {
+      throw new Error(`${spec.id}：充電路徑沒有足夠的可操作選擇器`);
+    }
+    for (let k = choices.length - 1; k > 0; k--) {
+      const j = Math.floor(rng() * (k + 1));
+      const tmp = choices[k]!;
+      choices[k] = choices[j]!;
+      choices[j] = tmp;
+    }
+    for (const i of choices.slice(0, spec.scramble)) {
+      const cell = at(b, i);
+      if (periodOf(cell.kind) !== 2) throw new Error(`${spec.id}：選擇器 ${i} 不是二態`);
+      cell.rot = (cell.rot + 1) % 2;
+    }
+  }
 
   const slotCell = at(b, spec.slot);
   if (slotCell.kind !== 'straight' && slotCell.kind !== 'elbow') {
     throw new Error(`${spec.id}：缺件槽 ${spec.slot} 不是管子`);
   }
   const slotKind: PipeKind = slotCell.kind;
-
-  const onPath = new Set(solved.path);
-  const pick = solved.path.filter(i => i !== spec.slot);
-  // Fisher-Yates 取前 scramble 個
-  for (let k = pick.length - 1; k > 0; k--) {
-    const j = Math.floor(rng() * (k + 1));
-    const a = pick[k]!, c = pick[j]!;
-    pick[k] = c; pick[j] = a;
-  }
-  for (const i of pick.slice(0, spec.scramble)) {
-    const p = periodOf(at(b, i).kind);
-    at(b, i).rot = (at(b, i).rot + 1 + Math.floor(rng() * (p - 1))) % p;   // 必定轉歪
-  }
-  for (let i = 0; i < b.cells.length; i++) {
-    const cell = at(b, i);
-    if (onPath.has(i) || cell.kind === 'burnt') continue;
-    cell.rot = Math.floor(rng() * periodOf(cell.kind));
-  }
-
   slotCell.kind = 'empty';
   slotCell.rot = 0;
   slotCell.slot = slotKind;
@@ -405,11 +565,8 @@ export function emptySlot(b: Board): number | null {
   return i < 0 ? null : i;
 }
 
-/**
- * 把取回來的零件裝上去。**一定是歪的** —— 落進槽裡還得再轉一下才通。
- * 那一下就是「動手把東西拼回去」的收尾（v3 §4）。
- */
-export function insertPiece(b: Board, rng: () => number = Math.random): boolean {
+/** 取回的零件直接吸附並對正；難度留給四個選擇器，不再藏在裝回手勢。 */
+export function insertPiece(b: Board, _rng: () => number = Math.random): boolean {
   const i = emptySlot(b);
   if (i === null) return false;
   const cell = at(b, i);
@@ -417,50 +574,53 @@ export function insertPiece(b: Board, rng: () => number = Math.random): boolean 
   if (!kind) return false;
 
   cell.kind = kind;
-  cell.rot = 0;
-  const p = periodOf(kind);
-  const s = solve(b);
-  const k = s ? s.path.indexOf(i) : -1;
-  const want = k >= 0 ? (s?.rots[k] ?? 0) : 0;
-  cell.rot = (want + 1 + Math.floor(rng() * (p - 1))) % p;   // 避開正確轉向
+  const chargeGoal = b.goals.charge;
+  const k = chargeGoal?.path.indexOf(i) ?? -1;
+  cell.rot = k >= 0 ? (chargeGoal?.rots[k] ?? 0) : 0;
   return true;
 }
 
 /**
- * 盤面池（§11：每局抽一張）。缺件一律在第一個分流之前的共用入口（slot=1），
- * 因此取件仍是強制的，卻不會用空槽位置洩漏安全路線。
- *
- * `d`＝刀閘往東、`D`＝刀閘往南。三張盤依序提供：
- * 一次二選一、兩次選擇含斷路／短路、以及安全方向反轉。
+ * 三張兩階段盤面：
+ * - 四個選擇器中，充電解需要全部四個同時正確；
+ * - 電容只接受上方充電，橫向通過不算；
+ * - 充電後必須翻動早期下切與電容回流兩個選擇器，才能經保險絲開門。
  */
 export const POOL: readonly BoardSpec[] = [
   {
-    id: 'A-下路安全',
-    rows: ['--D--X--', 'X-L-----'],
-    slot: 1,
-    scramble: 4,
-    note: '第一個刀閘往下才通門；直走會撞上焦黑短路端點',
+    id: 'A-晚充早開',
+    rows: ['--Dd-dXX', 'XXL--u--'],
+    chargeRows: ['--dd-DXX', 'XXL--U--'],
+    slot: 1, scramble: 3,
+    controls: [2, 3, 5, 13],
+    capacitor: 13, fuse: 12, chargeEntry: N,
+    note: '先沿上排從晚端替電容充電，再從早端下切經保險絲開門',
   },
   {
-    id: 'B-中路安全',
-    rows: ['--d--DX-', 'X-L-|L--'],
-    slot: 1,
-    scramble: 5,
-    note: '早轉向是普通斷路、晚直走會短路，只有第二個刀閘往下能通門',
+    id: 'B-短充長開',
+    rows: ['--DddXXX', 'XXL-u---'],
+    chargeRows: ['--ddDXXX', 'XXL-U---'],
+    slot: 1, scramble: 3,
+    controls: [2, 3, 4, 12],
+    capacitor: 12, fuse: 11, chargeEntry: N,
+    note: '電容較早落在下排，解鎖路徑則繼續穿過整段底部母線',
   },
   {
-    id: 'C-上路安全',
-    rows: ['--d----7', 'X-L--X-L'],
-    slot: 1,
-    scramble: 5,
-    note: '保持上路才能在末端下切；提早往下會撞上短路端點',
+    id: 'C-晚分流',
+    rows: ['---DddXX', 'XXXL-u--'],
+    chargeRows: ['---ddDXX', 'XXXL-U--'],
+    slot: 1, scramble: 3,
+    controls: [3, 4, 5, 13],
+    capacitor: 13, fuse: 12, chargeEntry: N,
+    note: '第一個分流延後一欄，不能沿用前兩張的肌肉記憶',
   },
 ];
+
 /** 抽一張盤面（§11：只抽不生成）。 */
 export function pickSpec(rng: () => number = Math.random): BoardSpec {
-  const s = POOL[Math.floor(rng() * POOL.length)];
-  if (!s) throw new Error('盤面池是空的');
-  return s;
+  const spec = POOL[Math.floor(rng() * POOL.length)];
+  if (!spec) throw new Error('盤面池是空的');
+  return spec;
 }
 
 /** 固定種子開一局，測試與 F4 每日挑戰用（§11）。 */

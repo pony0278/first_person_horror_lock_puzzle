@@ -6,7 +6,7 @@
    點擊、音效與流程在 game/door2.js。渲染層唯一的狀態是「演出進度」
    （電流掃到哪、格子轉到幾度、零件落下多久），全部放在 PB。 */
 
-import { chain, maskOf, traceRoute } from '../logic/pipe.js';
+import { maskOf, phaseChain, tracePhase } from '../logic/pipe.js';
 import { $pins } from '../dom.js';
 
 export const pipeCanvas = document.createElement('canvas');
@@ -72,7 +72,8 @@ export function showPipe(board) {
 
 /** 玩家轉了第 i 格：顯示角度往前 +90°（永遠順時針，跟 rotMask 一致）。 */
 export function spinCell(i, cell) {
-  PB.target[i] = cell?.kind === 'diverter' ? cell.rot * 90 : (PB.target[i] ?? 0) + 90;
+  const selector = cell?.kind === 'diverter' || cell?.kind === 'riser';
+  PB.target[i] = selector ? cell.rot * 90 : (PB.target[i] ?? 0) + 90;
 }
 
 /** 零件落進第 i 格：從畫面上方掉下來，落定角度就是它的 rot（歪的）。 */
@@ -161,19 +162,59 @@ function cracks(i, s) {
   }
 }
 
+/** 盤面上的蓄電器：暖色外圈是待充，亮起後保留冷色核心，讓玩家看懂階段已改變。 */
+function drawCapacitor(s, lit, charged, phase) {
+  const on = lit || charged;
+  ctx.save();
+  if (on) {
+    ctx.shadowColor = charged ? C.live : '#d6a65f';
+    ctx.shadowBlur = s * 0.24;
+  }
+  ctx.fillStyle = C.plateEdge;
+  ctx.strokeStyle = phase === 'charge' && !charged ? '#d6a65f' : C.live;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.arc(0, 0, s * 0.20, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = on ? C.liveCore : '#b58e55';
+  ctx.lineWidth = Math.max(2, s * 0.045);
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.065, -s * 0.105); ctx.lineTo(-s * 0.065, s * 0.105);
+  ctx.moveTo(s * 0.065, -s * 0.105); ctx.lineTo(s * 0.065, s * 0.105);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** 保險絲只在解鎖路徑上生效；透明膠囊讓它和可旋轉的黃銅選擇器一眼不同。 */
+function drawFuse(s, lit) {
+  ctx.save();
+  ctx.fillStyle = '#17191d';
+  ctx.strokeStyle = lit ? C.liveCore : '#c4b27d';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(-s * 0.23, -s * 0.095, s * 0.46, s * 0.19, s * 0.08);
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = lit ? C.live : '#806f49';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-s * 0.14, 0); ctx.lineTo(s * 0.14, 0); ctx.stroke();
+  ctx.fillStyle = lit ? C.liveCore : '#b69a62';
+  ctx.fillRect(-s * 0.27, -s * 0.12, s * 0.07, s * 0.24);
+  ctx.fillRect(s * 0.20, -s * 0.12, s * 0.07, s * 0.24);
+  ctx.restore();
+}
+
 /**
  * 每幀重畫。dimF 是走廊燈的即時亮度（含燈閃）——
  * 沒通電的部分跟著環境一起暗，**已通電的部分不暗**：
  * 黑掉的那 0.18 秒，畫面上唯一亮著的就是你自己救回來的電（v3 §7）。
  */
-export function drawPipe(board, dt, dimF = 1, power = 'off') {
+export function drawPipe(board, dt, dimF = 1, power = 'off', phase = 'charge', charged = false) {
   const { w, h, term, cell, gx, gy, testX, testY, testR } = layout();
   const dpr = Math.min(devicePixelRatio, 2);
   if (pipeCanvas.width !== Math.round(w * dpr) ||
       pipeCanvas.height !== Math.round(h * dpr)) sizePipe();   // chrome 收合只改高度
 
-  const trace = traceRoute(board);
-  const ch = chain(board);
+  const trace = tracePhase(board, phase);
+  const ch = phaseChain(board, phase);
   const powered = power === 'testing' || power === 'solved';
   const solved = power === 'solved';
   const target = powered ? ch.length : 0;
@@ -207,7 +248,8 @@ export function drawPipe(board, dt, dimF = 1, power = 'off') {
     const ready = !board.cells.some(c => c.kind === 'empty');
     const active = power === 'testing' || power === 'solved';
     const tripped = power === 'trip';
-    const ring = active ? C.live : tripped ? C.latch : ready ? '#b69a62' : C.pipeLo;
+    const stage = phase === 'charge' ? '#d6a65f' : C.live;
+    const ring = active ? stage : tripped ? C.latch : ready ? stage : C.pipeLo;
 
     ctx.globalAlpha = Math.max(unlit, active ? 0.92 : 0.62);
     ctx.strokeStyle = active ? C.liveHalo : C.pipeLo; ctx.lineWidth = cell * 0.34;
@@ -282,14 +324,15 @@ export function drawPipe(board, dt, dimF = 1, power = 'off') {
       continue;
     }
 
-    if (c.kind === 'diverter') {
-      // 三口外形固定，中央刀閘只選東或南；不會同時分流。
+    if (c.kind === 'diverter' || c.kind === 'riser') {
+      // 黃銅選擇器只有兩個機械定位；背景口形固定，刀閘指出目前接通方向。
       const k = 1 - Math.exp(-18 * dt);
       PB.ang[i] += ((PB.target[i] ?? 0) - PB.ang[i]) * k;
       ctx.save(); ctx.translate(cx, cy);
+      const fullMask = c.kind === 'diverter' ? (2 | 4 | 8) : (1 | 2 | 8);
       ctx.globalAlpha = unlit;
-      strokeMask(2 | 4 | 8, cell, pw + 6, C.pipeLo);
-      strokeMask(2 | 4 | 8, cell, pw * 0.42, C.pipe);
+      strokeMask(fullMask, cell, pw + 6, C.pipeLo);
+      strokeMask(fullMask, cell, pw * 0.42, C.pipe);
       ctx.globalAlpha = 1;
       const activeMask = maskOf(c);
       if (lit) {
@@ -307,6 +350,7 @@ export function drawPipe(board, dt, dimF = 1, power = 'off') {
       ctx.restore();
       ctx.fillStyle = lit ? C.liveCore : '#b59c62';
       ctx.beginPath(); ctx.arc(0, 0, pw * 0.28, 0, Math.PI * 2); ctx.fill();
+      if (i === board.capacitor) drawCapacitor(cell, lit, charged, phase);
       ctx.restore();
       continue;
     }
@@ -333,6 +377,7 @@ export function drawPipe(board, dt, dimF = 1, power = 'off') {
     ctx.globalAlpha = lit ? 1 : unlit;
     ctx.beginPath(); ctx.arc(0, 0, pw * 0.22, 0, 6.283); ctx.fill();
     ctx.globalAlpha = 1;
+    if (i === board.fuse) drawFuse(cell, lit);
     ctx.restore();
   }
 

@@ -119,9 +119,11 @@ export function tick() {
   const camZ = intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(standX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
-  // 回頭、運鏡、中斷或回合已結束時一律鎖住面板；門 2 現在與門 1 共用 R.over 語意。
+  // Door 2 找件前沿用上一回合的 R.over 凍結計時，但盤面要看得見；仍由 pointer handler
+  // 擋操作。回頭、運鏡、中斷，以及其餘真正結束狀態才壓暗面板。
+  const door2Preview = D2.active && D2.doneT < 0 && R.over && R.won && T.phase === 'door2';
   $panel.classList.toggle('blind',
-    blind() || R.over || intro.active || interrupted());
+    blind() || (R.over && !door2Preview) || intro.active || interrupted());
 
   // 鎖芯：事實層。鑰匙孔與兩支工具都掛在它底下，一起轉。
   cylinder.rotation.z = -THREE.MathUtils.degToRad(R.lock.cylinderDeg);
