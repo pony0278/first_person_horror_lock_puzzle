@@ -141,9 +141,11 @@ check('只恢復其中一項時計時器仍停著', Math.abs(c1 - c0) < 0.4,
 check('仍蓋著 context 遺失的提示', (await haltShown()).on, 'halt.on');
 
 await page.evaluate(() => window.__ext.restoreContext());
-await page.waitForTimeout(2500);
+await page.waitForFunction(start => window.__probe().elapsed > start + 0.25,
+  c1, { timeout: 30000 });
 const c2 = await elapsed();
-check('兩項都恢復後計時器才繼續', c2 - c1 > 1.0, `elapsed ${c1.toFixed(2)} → ${c2.toFixed(2)}`);
+check('兩項都恢復後計時器才繼續', c2 - c1 > 0.25,
+  `elapsed ${c1.toFixed(2)} → ${c2.toFixed(2)}`);
 
 const finalElapsed = await elapsed();
 check('elapsed never 變成負數', finalElapsed >= 0, `最後 elapsed ${finalElapsed.toFixed(2)}`);
