@@ -15,6 +15,7 @@
 /* 匯入順序＝場景物件被加進 scene 的順序。ES module 依匯入出現的順序求值，
    所以這一串刻意維持與拆分前單檔中的段落順序一致 —— 場景圖的結構因此
    逐一節點都與重構前相同（由 tools/devicetest/signature.mjs 比對確認）。 */
+import * as THREE from 'three';
 import './state.js';
 import './dom.js';
 import './render/materials.js';
@@ -40,7 +41,7 @@ import './game/loop.js';
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
 import { R, ST, hooks, intro, look } from './state.js';
-import { DOOR_Z, camera, renderer, scene } from './render/scene.js';
+import { DOOR_Z, camera, renderer, scene, vestibule } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound, skipIntro } from './game/round.js';
@@ -175,6 +176,57 @@ function door3AnchorProbe(anchor) {
             point.z >= -1 && point.z <= 1,
   };
 }
+
+const door3Raycaster = new THREE.Raycaster();
+const door3RayOrigin = new THREE.Vector3();
+const door3RayTarget = new THREE.Vector3();
+const door3RayDirection = new THREE.Vector3();
+
+function visibleInHierarchy(object) {
+  for (let current = object; current; current = current.parent) {
+    if (!current.visible) return false;
+  }
+  return true;
+}
+
+function hasAncestor(object, ancestor) {
+  for (let current = object; current; current = current.parent)
+    if (current === ancestor) return true;
+  return false;
+}
+
+function blockerName(object) {
+  for (let current = object; current && current !== scene; current = current.parent)
+    if (current.name) return current.name;
+  return object.type;
+}
+
+/** Geometry-aware centre sightline; projection-only checks cannot catch a wall. */
+function door3SightlineProbe() {
+  scene.updateMatrixWorld(true);
+  camera.getWorldPosition(door3RayOrigin);
+  door3Anchors.front.getWorldPosition(door3RayTarget);
+  door3RayDirection.subVectors(door3RayTarget, door3RayOrigin);
+  const targetDistance = door3RayDirection.length();
+  door3Raycaster.set(door3RayOrigin, door3RayDirection.normalize());
+  door3Raycaster.near = 0.08;
+  door3Raycaster.far = Math.max(0.08, targetDistance - 0.30);
+  const blocker = door3Raycaster.intersectObjects(scene.children, true).find(hit => {
+    const object = hit.object;
+    const materialVisible = Array.isArray(object.material)
+      ? object.material.some(material => material.visible)
+      : object.material?.visible !== false;
+    return object.isMesh && materialVisible && visibleInHierarchy(object) &&
+      !hasAncestor(object, camera) && !object.userData.sightlineIgnore;
+  });
+  return {
+    clear: !blocker,
+    blocker: blocker ? blockerName(blocker.object) : '',
+    blockerDistance: blocker ? +blocker.distance.toFixed(2) : null,
+    targetDistance: +targetDistance.toFixed(2),
+  };
+}
+
 window.__door3 = () => ({
   active: D3.active,
   phase: D3.phase,
@@ -185,13 +237,18 @@ window.__door3 = () => ({
   doorZ: +DOOR_Z.toFixed(2),
   rearOpeningZ: +(pumpHub.position.z + PUMP_HUB.rearEndZ).toFixed(2),
   hubCenterZ: +pumpHub.position.z.toFixed(2),
+  connectorLength: +PUMP_HUB.connectorLength.toFixed(2),
+  runDistance: +PUMP_HUB.runDistance.toFixed(2),
   distanceToHub: +Math.abs(camera.position.z - pumpHub.position.z).toFixed(2),
+  fov: +camera.fov.toFixed(2),
   walking: intro.active,
+  vestibuleVisible: vestibule.visible,
   panelHidden: document.body.classList.contains('door3'),
   fadeOpacity: +getComputedStyle(document.getElementById('fade')).opacity,
   flashlightIntensity: +flash3d.intensity.toFixed(2),
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
+  sightline: door3SightlineProbe(),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
 window.__door3Look = yaw => {

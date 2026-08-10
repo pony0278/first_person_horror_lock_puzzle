@@ -11,7 +11,9 @@ const H = 3.45;
 const HUB_HALF = 2.70;
 const BRANCH_HALF = 1.28;
 const FRONT_END = -7.55;
-const REAR_END = 11.2;
+// Door 2 opens onto a full 16 m connector before the pump-room intersection.
+// REAR_END includes the 2.7 m half-width of the hub itself.
+const REAR_END = 18.7;
 const SIDE_END = 11.2;
 const CENTER_WORLD_Z = DOOR_Z - REAR_END;
 
@@ -22,6 +24,10 @@ export const PUMP_HUB = Object.freeze({
   rearEndZ: REAR_END,
   /** Door 2 and the rear pump corridor share this exact world-space seam. */
   rearOpeningWorldZ: DOOR_Z,
+  /** Clear narrow connector visible between Door 2 and the hub threshold. */
+  connectorLength: REAR_END - HUB_HALF,
+  /** Total camera travel from its Door 2 origin to the hub centre. */
+  runDistance: Math.abs(CENTER_WORLD_Z),
   /** The camera remains here during Door 3 exploration; no arrival teleport. */
   centerWorldZ: CENTER_WORLD_Z,
   leftEndX: -SIDE_END,
@@ -152,6 +158,26 @@ for (const z of [-BRANCH_HALF, BRANCH_HALF]) {
     HUB_HALF + sideLen / 2, H / 2, z);
 }
 
+/* Repeated bulkhead ribs make forward motion readable across the long incoming
+ * connector. They frame the centre sightline but never enter it. */
+const matApproachLamp = new THREE.MeshBasicMaterial({ color: 0x6d3328 });
+for (const [index, z] of [15.2, 11.2, 7.2, 3.2].entries()) {
+  for (const side of [-1, 1]) {
+    const pillar = addBox(pumpHub, matBulkhead, 0.16, H, 0.18,
+      side * (BRANCH_HALF - 0.08), H / 2, z);
+    pillar.name = 'door3-approach-rib';
+  }
+  const beam = addBox(pumpHub, matBulkhead, BRANCH_HALF * 2, 0.16, 0.18,
+    0, H - 0.08, z);
+  beam.name = 'door3-approach-rib';
+  const tube = addBox(pumpHub, matApproachLamp, 0.42, 0.035, 0.10,
+    0, H - 0.19, z - 0.08);
+  tube.name = 'door3-approach-lamp';
+  const guide = new THREE.PointLight(0x8c4030, index % 2 ? 0.18 : 0.28, 4.2, 1.9);
+  guide.position.set(0, H - 0.34, z - 0.10);
+  pumpHub.add(guide);
+}
+
 /* Deep exits reveal only darkness and a restrained directional colour. */
 const rearVoid = addBox(pumpHub, matDark, BRANCH_HALF * 2, H, 0.04,
   0, H / 2, REAR_END);
@@ -274,7 +300,7 @@ rightLight.position.set(5.7, 2.55, 0);
 pumpHub.add(rightLight);
 addBox(pumpHub, matMetal, 0.48, 0.07, 0.16, 5.7, 2.73, 0);
 
-/* Rear branch: hanging chains and a dim red lamp mark the route already travelled. */
+/* Incoming branch: hanging chains and a dim red lamp layer the distant approach. */
 for (const x of [-0.42, 0.38]) {
   for (let i = 0; i < 7; i++) {
     const link = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.014, 6, 10), matMetal);

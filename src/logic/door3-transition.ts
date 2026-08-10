@@ -4,9 +4,9 @@ export const DOOR3_APPROACH = Object.freeze({
   /** Door 2 opens completely before the player commits to the flooded hall. */
   openSec: 0.78,
   /** The early part of the same run, while the camera crosses the threshold. */
-  throughSec: 0.58,
+  throughSec: 0.34,
   /** Total uninterrupted run from Door 2 to the pump-hub centre. */
-  runSec: 3.70,
+  runSec: 4.90,
   /** Residual head-bob settles after the player reaches the hub. */
   settleSec: 0.46,
 });
@@ -20,7 +20,7 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
  */
 export function door3ApproachProgress(elapsedSec: number): number {
   const progress = clamp01(elapsedSec / DOOR3_APPROACH.runSec);
-  return 1 - Math.pow(1 - progress, 1.12);
+  return 1 - Math.pow(1 - progress, 1.08);
 }
 
 export function door3ApproachZ(

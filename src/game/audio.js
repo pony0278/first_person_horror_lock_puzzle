@@ -48,5 +48,31 @@ export function zap(pitch = 0) {
   o.start(t); o.stop(t + 0.1);
 }
 
+/** Short procedural wet footfall used by the flooded Door 3 connector. */
+export function wetStep(strength = 1) {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
+  const duration = 0.13;
+  const frames = Math.max(1, Math.floor(actx.sampleRate * duration));
+  const buffer = actx.createBuffer(1, frames, actx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < frames; i++) {
+    const p = i / frames;
+    const envelope = Math.sin(Math.PI * Math.min(1, p * 2.2)) * Math.pow(1 - p, 2.2);
+    data[i] = (Math.random() * 2 - 1) * envelope;
+  }
+
+  const source = actx.createBufferSource();
+  const filter = actx.createBiquadFilter();
+  const gain = actx.createGain();
+  source.buffer = buffer;
+  filter.type = 'lowpass';
+  filter.frequency.value = 780;
+  gain.gain.value = Math.max(0.025, Math.min(0.075, 0.052 * strength));
+  source.connect(filter); filter.connect(gain); gain.connect(actx.destination);
+  source.start(t);
+}
+
 /** 給測試接點讀的音訊狀態。不直接輸出 actx，避免其他模組拿去亂改。 */
 export const audioState = () => (actx ? actx.state : 'not-created');

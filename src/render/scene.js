@@ -307,6 +307,7 @@ scene.add(doorEnvironment);
    平時整段藏在門片後面。左牆後半是開口 —— 「拐彎」的去向；
    轉頭時前室端牆填滿視野，電力驟暗的瞬間完成場景換裝（見 game/transit.js）。 */
 export const vestibule = new THREE.Group();
+vestibule.name = 'door1-door2-vestibule';
 {
   const VZ0 = -1.0, VL = 3.4;                  // 前室從門後延伸到 z = -4.4
   const midZ = VZ0 - VL / 2;
@@ -327,10 +328,12 @@ export const vestibule = new THREE.Group();
   wl.position.set(-W / 2, H / 2, VZ0 - solid / 2); vestibule.add(wl);
   // 端牆：面向玩家，轉頭時填滿視野的那面
   const back = new THREE.Mesh(planeGeo, matWall);
+  back.name = 'vestibule-end-wall';
   back.scale.set(W, H, 1);
   back.position.set(0, H / 2, VZ0 - VL); vestibule.add(back);
   // 開口外的黑：一大片吸光板，讓轉角看起來通向更深的地方
   const void_ = new THREE.Mesh(planeGeo, matDark);
+  void_.name = 'vestibule-corner-void';
   void_.rotation.y = Math.PI / 2; void_.scale.set(VL + 2, H + 1, 1);
   void_.position.set(-W / 2 - 1.4, H / 2, midZ - 0.6); vestibule.add(void_);
 }

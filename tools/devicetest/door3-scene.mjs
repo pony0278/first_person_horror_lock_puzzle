@@ -55,6 +55,9 @@ for (const profile of profiles) {
     state.phase === 'open' && state.walking && state.visible &&
     Math.abs(state.doorZ - state.rearOpeningZ) <= 0.01,
     `phase=${state.phase} visible=${state.visible} seam=${state.doorZ}/${state.rearOpeningZ}`);
+  check('incoming pump connector is long and the legacy end wall is disabled',
+    state.connectorLength >= 15.9 && state.runDistance >= 19.5 && !state.vestibuleVisible,
+    `connector=${state.connectorLength} run=${state.runDistance} vestibule=${state.vestibuleVisible}`);
   check('continuous approach never starts behind the camera',
     Math.abs(state.z) <= 0.05 && state.hubCenterZ < state.doorZ,
     `phase=${state.phase} walking=${state.walking} visible=${state.visible}`);
@@ -69,6 +72,9 @@ for (const profile of profiles) {
     thresholdStart.visible && thresholdStart.anchors.front.inView &&
     thresholdStart.fadeOpacity <= 0.01,
     `front=${JSON.stringify(thresholdStart.anchors.front)} fade=${thresholdStart.fadeOpacity}`);
+  check('raycast from the open doorway reaches the pump room without a wall',
+    thresholdStart.sightline.clear,
+    JSON.stringify(thresholdStart.sightline));
   check('carried flashlight lights the connector from the first running frame',
     thresholdStart.flashlightIntensity >= 30,
     `flashlight=${thresholdStart.flashlightIntensity}`);
@@ -88,9 +94,13 @@ for (const profile of profiles) {
   }, walkStart.z, { timeout: 10000 });
   const walkMoved = await page.evaluate(() => window.__door3());
   check('camera keeps advancing toward the already-visible hub',
-    walkStart.visible && walkStart.z < 0 && walkMoved.z < walkStart.z &&
+    walkStart.visible && walkStart.distanceToHub > 17 && walkStart.z < 0 &&
+    walkMoved.z < walkStart.z &&
     walkMoved.distanceToHub < walkStart.distanceToHub,
     `z=${walkStart.z}>${walkMoved.z} distance=${walkStart.distanceToHub}>${walkMoved.distanceToHub}`);
+  check('sprint lens and unobstructed sightline persist through the long hall',
+    walkMoved.fov >= 57.5 && walkMoved.sightline.clear,
+    `fov=${walkMoved.fov} sightline=${JSON.stringify(walkMoved.sightline)}`);
   check('flashlight stays bright instead of fading back to lock range',
     walkMoved.flashlightIntensity >= 30 && walkMoved.fadeOpacity <= 0.01,
     `flashlight=${walkMoved.flashlightIntensity} fade=${walkMoved.fadeOpacity}`);

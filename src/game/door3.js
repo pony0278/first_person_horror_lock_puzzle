@@ -10,16 +10,20 @@ import {
 } from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
-import { doorHinge, scene } from '../render/scene.js';
+import { camera, doorHinge, scene, vestibule } from '../render/scene.js';
 import { monster } from '../render/monster.js';
 import { flash3d } from '../render/hintwall.js';
 import { PUMP_HUB, pumpHub, updatePumpHub } from '../render/pumphub.js';
-import { resize } from '../render/viewport.js';
-import { beep } from './audio.js';
+import { resize, setCameraFov } from '../render/viewport.js';
+import { beep, wetStep } from './audio.js';
 import { T } from './transit.js';
 
 const OPEN_RAD = 1.92;
 const START_Z = 0;
+const BASE_FOV = camera.fov;
+const SPRINT_FOV = BASE_FOV + 3.5;
+const APPROACH_FOG = 0.041;
+const STEP_SEC = 0.38;
 const ease = x => x * x * (3 - 2 * x);
 const DOOR3_CUE = '左右拖曳環視　·　W / A / S / D 快速轉向';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
@@ -29,12 +33,13 @@ export const D3 = {
   phase: 'idle',
   t: 0,
   travelT: 0,
+  stepT: 0,
 };
 
-function bobWalk(dt, strength = 1) {
-  intro.bobPhase += dt * 6.0;
-  intro.bobY = Math.sin(intro.bobPhase * 2) * 0.025 * strength;
-  intro.roll = Math.sin(intro.bobPhase) * 0.72 * strength;
+function bobRun(dt, strength = 1) {
+  intro.bobPhase += dt * 7.1;
+  intro.bobY = Math.sin(intro.bobPhase * 2) * 0.047 * strength;
+  intro.roll = Math.sin(intro.bobPhase) * 1.02 * strength;
 }
 
 function clearSceneCover() {
@@ -71,6 +76,8 @@ function finishPumpWalk() {
   D3.phase = 'explore';
   D3.t = 0;
   D3.travelT = DOOR3_APPROACH.runSec;
+  D3.stepT = 0;
+  setCameraFov(BASE_FOV);
 }
 
 hooks.startDoor3 = () => {
@@ -82,6 +89,7 @@ hooks.startDoor3 = () => {
   D3.phase = 'open';
   D3.t = 0;
   D3.travelT = 0;
+  D3.stepT = 0;
 
   // Keep the shared intro state machine from competing for the camera.
   R.door = 3;
@@ -109,9 +117,13 @@ hooks.startDoor3 = () => {
 
   // The hub is already attached to Door 2 in world space. Reveal it by opening
   // the physical door, not by spawning or swapping it after the threshold.
+  // The old Door 1 → Door 2 vestibule contains a terminal wall and corner void;
+  // hide only that legacy set while preserving the shared Door 2 frame.
+  vestibule.visible = false;
   pumpHub.visible = true;
-  scene.fog.density = 0.052;
+  scene.fog.density = APPROACH_FOG;
   setFlashlightRange(0);
+  setCameraFov(BASE_FOV);
 
   // Expand the solved Door 2 view before opening its physical door.
   document.body.classList.add('door3');
@@ -129,7 +141,9 @@ hooks.resetDoor3 = () => {
   D3.phase = 'idle';
   D3.t = 0;
   D3.travelT = 0;
+  D3.stepT = 0;
   pumpHub.visible = false;
+  vestibule.visible = true;
   doorHinge.rotation.y = 0;
 
   R.timer.resume('door3-greybox');
@@ -141,6 +155,7 @@ hooks.resetDoor3 = () => {
   document.body.classList.remove('door3');
   $turnCue.textContent = DEFAULT_CUE;
   scene.fog.density = CFG.fog.density;
+  setCameraFov(BASE_FOV);
   clearSceneCover();
   resize();
 };
@@ -161,15 +176,23 @@ export function updateDoor3(dt) {
       intro.phase = 'run';
       intro.z = START_Z;
       intro.arriveF = 0;
+      D3.stepT = STEP_SEC * 0.55;
       anim.handsOverride = null;
       $panel.classList.remove('blind');
       beep('tap');
     }
   } else if (D3.phase === 'through' || D3.phase === 'walk') {
     D3.travelT += dt;
+    D3.stepT += dt;
     intro.z = door3ApproachZ(START_Z, PUMP_HUB.centerWorldZ, D3.travelT);
     const progress = Math.min(1, D3.travelT / DOOR3_APPROACH.runSec);
-    bobWalk(dt, 0.72 + (1 - progress) * 0.28);
+    bobRun(dt, 0.92 + (1 - progress) * 0.18);
+    while (D3.stepT >= STEP_SEC) {
+      D3.stepT -= STEP_SEC;
+      wetStep(0.86 + (1 - progress) * 0.18);
+    }
+    const sprintIn = ease(Math.min(1, D3.travelT / 0.42));
+    setCameraFov(BASE_FOV + (SPRINT_FOV - BASE_FOV) * sprintIn);
     setFlashlightRange(1);
 
     if (D3.phase === 'through' && D3.travelT >= DOOR3_APPROACH.throughSec) {
@@ -186,6 +209,7 @@ export function updateDoor3(dt) {
     const settle = Math.max(0, 1 - D3.t / DOOR3_APPROACH.settleSec);
     intro.bobY *= settle;
     intro.roll *= settle;
+    setCameraFov(BASE_FOV + (SPRINT_FOV - BASE_FOV) * settle);
     if (D3.t >= DOOR3_APPROACH.settleSec) finishPumpWalk();
   }
 
