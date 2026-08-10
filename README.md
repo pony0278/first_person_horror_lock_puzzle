@@ -6,8 +6,8 @@
 （`main` 有新 commit 就自動重新發布；手機請橫向）
 
 設計文件：[`docs/first_person_horror_lock_puzzle_design_v2.md`](docs/first_person_horror_lock_puzzle_design_v2.md)
-v3 草案（三扇門三種謎題，討論中）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
-門 3 泵房決策與灰盒契約：[`docs/door3-pump-hub.md`](docs/door3-pump-hub.md)
+v3 草案（三扇門三種謎題，Door 3 已改為三缸均壓）：[`docs/first_person_horror_lock_puzzle_design_v3_draft.md`](docs/first_person_horror_lock_puzzle_design_v3_draft.md)
+門 3 泵房決策與灰盒契約（Door 3 空間與玩法方向的準據）：[`docs/door3-pump-hub.md`](docs/door3-pump-hub.md)
 目前階段：**F2 門 3 場景灰盒**（門 1、門 2 玩法已接通；門 2 成功後會進入可環視的淹水十字泵房。門 3 水量謎題與三向怪物仍刻意保持凍結）
 
 ## 自動化
@@ -18,7 +18,7 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、82 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **建置與發布** | `npm run check`（型別、相依分層、64 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
 | **手機視窗測試** | 基礎裝置、safe-area、中斷、門間流程、Door 2 雙線盤與 Door 3 場景 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
