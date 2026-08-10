@@ -3,11 +3,15 @@
    要重新套一次尺寸，主迴圈也要，兩邊都只是消費者。 */
 
 import * as THREE from 'three';
+import { CFG } from '../logic/config.js';
+import { effectivePixelRatio } from '../logic/door3-performance.js';
 import { view } from '../dom.js';
 import { camera, renderer } from './scene.js';
 import { vig, vigMat } from './hintwall.js';
 import { sizeCut } from './cutaway.js';
 import { sizeCircuit } from './circuitboard.js';
+
+let pixelRatioCap = CFG.render.pixelRatio;
 
 function syncProjection() {
   const w = view.clientWidth, h = view.clientHeight;
@@ -26,11 +30,26 @@ export function setCameraFov(fov) {
   syncProjection();
 }
 
+/** Set a stage-specific DPR cap. The next resize applies it in one buffer allocation. */
+export function setRenderPixelRatioCap(cap = CFG.render.pixelRatio) {
+  pixelRatioCap = Number.isFinite(cap) && cap > 0 ? cap : CFG.render.pixelRatio;
+}
+
+export function renderPixelRatioCap() {
+  return pixelRatioCap;
+}
+
 export function resize() {
   sizeCut();
   sizeCircuit();
   const w = view.clientWidth, h = view.clientHeight;
   syncProjection();
-  renderer.setSize(w, h);
+  const ratio = effectivePixelRatio(devicePixelRatio, pixelRatioCap);
+  // setDrawingBufferSize updates logical size, DPR, and the backing buffer in
+  // one operation. setPixelRatio()+setSize() would allocate twice exactly when
+  // Door 3 expands from the 66% lock view to the full viewport.
+  renderer.setDrawingBufferSize(w, h, ratio);
+  renderer.domElement.style.width = `${w}px`;
+  renderer.domElement.style.height = `${h}px`;
 }
 addEventListener('resize', resize);

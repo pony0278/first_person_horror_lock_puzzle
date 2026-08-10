@@ -5,6 +5,7 @@
  */
 
 import { CFG } from '../logic/config.js';
+import { DOOR3_PERFORMANCE } from '../logic/door3-performance.js';
 import {
   DOOR3_APPROACH, door3ApproachZ,
 } from '../logic/door3-transition.js';
@@ -12,9 +13,10 @@ import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
 import { camera, doorHinge, scene, vestibule } from '../render/scene.js';
 import { monster } from '../render/monster.js';
-import { flash3d } from '../render/hintwall.js';
+import { decayGroup, lamp } from '../render/decay.js';
+import { fill, flash3d, markerLight } from '../render/hintwall.js';
 import { PUMP_HUB, pumpHub, updatePumpHub } from '../render/pumphub.js';
-import { resize, setCameraFov } from '../render/viewport.js';
+import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
 import { beep, wetStep } from './audio.js';
 import { T } from './transit.js';
 
@@ -34,7 +36,24 @@ export const D3 = {
   t: 0,
   travelT: 0,
   stepT: 0,
+  previousLightVisibility: null,
 };
+
+const legacyPointLights = () => [lamp, decayGroup.userData.farLight, markerLight, fill];
+
+function enterDoor3Lighting() {
+  const lights = legacyPointLights();
+  D3.previousLightVisibility = lights.map(light => light.visible);
+  for (const light of lights) light.visible = false;
+}
+
+function restoreLegacyLighting() {
+  if (!D3.previousLightVisibility) return;
+  legacyPointLights().forEach((light, index) => {
+    light.visible = D3.previousLightVisibility[index];
+  });
+  D3.previousLightVisibility = null;
+}
 
 function bobRun(dt, strength = 1) {
   intro.bobPhase += dt * 7.1;
@@ -121,12 +140,14 @@ hooks.startDoor3 = () => {
   // hide only that legacy set while preserving the shared Door 2 frame.
   vestibule.visible = false;
   pumpHub.visible = true;
+  enterDoor3Lighting();
   scene.fog.density = APPROACH_FOG;
   setFlashlightRange(0);
   setCameraFov(BASE_FOV);
 
   // Expand the solved Door 2 view before opening its physical door.
   document.body.classList.add('door3');
+  setRenderPixelRatioCap(DOOR3_PERFORMANCE.maxPixelRatio);
   $turnCue.textContent = '';
   resize();
 
@@ -144,6 +165,7 @@ hooks.resetDoor3 = () => {
   D3.stepT = 0;
   pumpHub.visible = false;
   vestibule.visible = true;
+  restoreLegacyLighting();
   doorHinge.rotation.y = 0;
 
   R.timer.resume('door3-greybox');
@@ -153,6 +175,7 @@ hooks.resetDoor3 = () => {
   intro.roll = 0;
   anim.handsOverride = null;
   document.body.classList.remove('door3');
+  setRenderPixelRatioCap(CFG.render.pixelRatio);
   $turnCue.textContent = DEFAULT_CUE;
   scene.fog.density = CFG.fog.density;
   setCameraFov(BASE_FOV);

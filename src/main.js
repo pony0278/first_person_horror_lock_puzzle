@@ -39,11 +39,12 @@ import './game/input.js';
 import './game/loop.js';
 
 import { CFG } from './logic/config.js';
+import { DOOR3_PERFORMANCE, drawingBufferPixelBudget } from './logic/door3-performance.js';
 import { $pins } from './dom.js';
 import { R, ST, hooks, intro, look } from './state.js';
 import { DOOR_Z, camera, renderer, scene, vestibule } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
-import { audioState } from './game/audio.js';
+import { audioPerformanceState, audioState } from './game/audio.js';
 import { newRound, skipIntro } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2, testDoor2 } from './game/door2-circuit.js';
@@ -55,7 +56,7 @@ import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { PUMP_HUB, door3Anchors, pumpHub } from './render/pumphub.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
-import { resize } from './render/viewport.js';
+import { renderPixelRatioCap, resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
 import { initDebug } from './game/debug.js';
 
@@ -227,6 +228,41 @@ function door3SightlineProbe() {
   };
 }
 
+function door3PerformanceProbe() {
+  let pointLights = 0;
+  let transparentSurfaces = 0;
+  const transmissionMaterials = new Set();
+  scene.traverse(object => {
+    if (!visibleInHierarchy(object)) return;
+    if (object.isPointLight) pointLights++;
+    if (!object.isMesh || !object.material) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (material.transparent) transparentSurfaces++;
+      if (Number(material.transmission) > 0) transmissionMaterials.add(material);
+    }
+  });
+  const cssWidth = renderer.domElement.clientWidth;
+  const cssHeight = renderer.domElement.clientHeight;
+  const bufferWidth = renderer.domElement.width;
+  const bufferHeight = renderer.domElement.height;
+  return {
+    pixelRatio: +renderer.getPixelRatio().toFixed(2),
+    pixelRatioCap: renderPixelRatioCap(),
+    cssSize: [cssWidth, cssHeight],
+    bufferSize: [bufferWidth, bufferHeight],
+    bufferPixels: bufferWidth * bufferHeight,
+    pixelBudget: drawingBufferPixelBudget(cssWidth, cssHeight),
+    pointLights,
+    transmissionMaterials: transmissionMaterials.size,
+    transparentSurfaces,
+    drawCalls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles,
+    wetStepBufferBuilds: audioPerformanceState().wetStepBufferBuilds,
+    budget: DOOR3_PERFORMANCE,
+  };
+}
+
 window.__door3 = () => ({
   active: D3.active,
   phase: D3.phase,
@@ -249,6 +285,7 @@ window.__door3 = () => ({
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
   sightline: door3SightlineProbe(),
+  performance: door3PerformanceProbe(),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
 window.__door3Look = yaw => {

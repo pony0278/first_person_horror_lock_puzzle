@@ -4,6 +4,9 @@
 
 
 export let actx = null;
+let wetStepBuffer = null;
+let wetStepBufferContext = null;
+let wetStepBufferBuilds = 0;
 
 /* iOS Safari 與 Chrome Android 只允許在使用者手勢中啟動 AudioContext。
    開場演出（beep('tap') / beep('thunk')）發生在任何手勢之前，因此 context
@@ -48,11 +51,8 @@ export function zap(pitch = 0) {
   o.start(t); o.stop(t + 0.1);
 }
 
-/** Short procedural wet footfall used by the flooded Door 3 connector. */
-export function wetStep(strength = 1) {
-  actx ??= new (window.AudioContext || window.webkitAudioContext)();
-  if (actx.state === 'suspended') actx.resume().catch(() => {});
-  const t = actx.currentTime;
+function getWetStepBuffer() {
+  if (wetStepBuffer && wetStepBufferContext === actx) return wetStepBuffer;
   const duration = 0.13;
   const frames = Math.max(1, Math.floor(actx.sampleRate * duration));
   const buffer = actx.createBuffer(1, frames, actx.sampleRate);
@@ -62,13 +62,24 @@ export function wetStep(strength = 1) {
     const envelope = Math.sin(Math.PI * Math.min(1, p * 2.2)) * Math.pow(1 - p, 2.2);
     data[i] = (Math.random() * 2 - 1) * envelope;
   }
+  wetStepBuffer = buffer;
+  wetStepBufferContext = actx;
+  wetStepBufferBuilds++;
+  return buffer;
+}
 
+/** Short procedural wet footfall used by the flooded Door 3 connector. */
+export function wetStep(strength = 1) {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
   const source = actx.createBufferSource();
   const filter = actx.createBiquadFilter();
   const gain = actx.createGain();
-  source.buffer = buffer;
+  source.buffer = getWetStepBuffer();
+  source.playbackRate.value = 0.92 + Math.random() * 0.16;
   filter.type = 'lowpass';
-  filter.frequency.value = 780;
+  filter.frequency.value = 720 + Math.random() * 120;
   gain.gain.value = Math.max(0.025, Math.min(0.075, 0.052 * strength));
   source.connect(filter); filter.connect(gain); gain.connect(actx.destination);
   source.start(t);
@@ -76,3 +87,4 @@ export function wetStep(strength = 1) {
 
 /** 給測試接點讀的音訊狀態。不直接輸出 actx，避免其他模組拿去亂改。 */
 export const audioState = () => (actx ? actx.state : 'not-created');
+export const audioPerformanceState = () => ({ wetStepBufferBuilds });

@@ -58,6 +58,13 @@ for (const profile of profiles) {
   check('incoming pump connector is long and the legacy end wall is disabled',
     state.connectorLength >= 15.9 && state.runDistance >= 19.5 && !state.vestibuleVisible,
     `connector=${state.connectorLength} run=${state.runDistance} vestibule=${state.vestibuleVisible}`);
+  check('Door 3 applies the 1.5x fullscreen pixel budget',
+    state.performance.pixelRatio <= 1.5 &&
+    state.performance.bufferPixels <= state.performance.pixelBudget,
+    JSON.stringify(state.performance));
+  check('pump room has no transmission pass and at most two point lights',
+    state.performance.transmissionMaterials === 0 && state.performance.pointLights <= 2,
+    JSON.stringify(state.performance));
   check('continuous approach never starts behind the camera',
     Math.abs(state.z) <= 0.05 && state.hubCenterZ < state.doorZ,
     `phase=${state.phase} walking=${state.walking} visible=${state.visible}`);
@@ -104,6 +111,9 @@ for (const profile of profiles) {
   check('flashlight stays bright instead of fading back to lock range',
     walkMoved.flashlightIntensity >= 30 && walkMoved.fadeOpacity <= 0.01,
     `flashlight=${walkMoved.flashlightIntensity} fade=${walkMoved.fadeOpacity}`);
+  check('wet footsteps reuse one procedural audio buffer',
+    walkMoved.performance.wetStepBufferBuilds <= 1,
+    `bufferBuilds=${walkMoved.performance.wetStepBufferBuilds}`);
   if (profile.name === 'landscape') {
     await page.screenshot({ path: `${OUT}/door3-walk-mid.png` });
   }

@@ -55,20 +55,19 @@ const matHazard = new THREE.MeshStandardMaterial({
 const matCable = new THREE.MeshStandardMaterial({
   color: 0x11171b, roughness: 0.78, metalness: 0.08,
 });
-const matGlass = new THREE.MeshPhysicalMaterial({
-  color: 0x7f9aa0, roughness: 0.18, metalness: 0.04,
-  transparent: true, opacity: 0.30, transmission: 0.08,
-  side: THREE.DoubleSide, depthWrite: false,
+const matGlass = new THREE.MeshStandardMaterial({
+  color: 0x7f9aa0, roughness: 0.28, metalness: 0.08,
+  transparent: true, opacity: 0.24, depthWrite: false,
 });
-const matWater = new THREE.MeshStandardMaterial({
-  color: 0x172d32, roughness: 0.17, metalness: 0.18,
+matGlass.forceSinglePass = true;
+const matWater = new THREE.MeshBasicMaterial({
+  color: 0x172d32,
   transparent: true, opacity: 0.62, depthWrite: false,
   polygonOffset: true, polygonOffsetFactor: -2,
 });
-const matFluid = new THREE.MeshStandardMaterial({
-  color: 0x426f70, roughness: 0.25, metalness: 0.06,
-  emissive: 0x102c30, emissiveIntensity: 0.34,
-  transparent: true, opacity: 0.88,
+matWater.forceSinglePass = true;
+const matFluid = new THREE.MeshBasicMaterial({
+  color: 0x315b5d,
 });
 const matRipple = new THREE.MeshBasicMaterial({
   color: 0x76989b, transparent: true, opacity: 0,
@@ -161,7 +160,7 @@ for (const z of [-BRANCH_HALF, BRANCH_HALF]) {
 /* Repeated bulkhead ribs make forward motion readable across the long incoming
  * connector. They frame the centre sightline but never enter it. */
 const matApproachLamp = new THREE.MeshBasicMaterial({ color: 0x6d3328 });
-for (const [index, z] of [15.2, 11.2, 7.2, 3.2].entries()) {
+for (const z of [15.2, 11.2, 7.2, 3.2]) {
   for (const side of [-1, 1]) {
     const pillar = addBox(pumpHub, matBulkhead, 0.16, H, 0.18,
       side * (BRANCH_HALF - 0.08), H / 2, z);
@@ -173,9 +172,6 @@ for (const [index, z] of [15.2, 11.2, 7.2, 3.2].entries()) {
   const tube = addBox(pumpHub, matApproachLamp, 0.42, 0.035, 0.10,
     0, H - 0.19, z - 0.08);
   tube.name = 'door3-approach-lamp';
-  const guide = new THREE.PointLight(0x8c4030, index % 2 ? 0.18 : 0.28, 4.2, 1.9);
-  guide.position.set(0, H - 0.34, z - 0.10);
-  pumpHub.add(guide);
 }
 
 /* Deep exits reveal only darkness and a restrained directional colour. */
@@ -224,11 +220,8 @@ for (let i = 0; i < 4; i++) {
 }
 addPipe(wheel, 0.08, 0.07, 0, 0, 0.03, 'z', matMetal);
 
-const matFrontTube = new THREE.MeshBasicMaterial({ color: 0x668487 });
+const matFrontTube = new THREE.MeshBasicMaterial({ color: 0x668487, toneMapped: false });
 addBox(pumpHub, matFrontTube, 0.58, 0.045, 0.13, 0, 2.86, -6.28);
-const frontLight = new THREE.PointLight(0x789fa2, 0.92, 4.8, 1.9);
-frontLight.position.set(0, 2.62, -6.12);
-pumpHub.add(frontLight);
 
 
 /* Three sight glasses share the left bank, keeping the door as the primary goal. */
@@ -282,6 +275,7 @@ pumpWheel.position.set(-5.45, 1.35, BRANCH_HALF - 0.14);
 pumpHub.add(pumpWheel);
 
 const leftLight = new THREE.PointLight(0xd08a42, 1.30, 6.4, 1.8);
+leftLight.name = 'door3-key-light-left';
 leftLight.position.set(-5.4, 2.48, 0);
 pumpHub.add(leftLight);
 addBox(pumpHub, matHazard, 0.46, 0.07, 0.16, -5.4, 2.72, 0);
@@ -296,6 +290,7 @@ for (const x of [4.5, 6.2, 7.9]) {
     addBox(pumpHub, matDark, 0.46, 0.025, 0.025, x, 1.18 - k * 0.13, BRANCH_HALF - 0.24);
 }
 const rightLight = new THREE.PointLight(0x6f9fc2, 1.10, 6.5, 1.8);
+rightLight.name = 'door3-key-light-right';
 rightLight.position.set(5.7, 2.55, 0);
 pumpHub.add(rightLight);
 addBox(pumpHub, matMetal, 0.48, 0.07, 0.16, 5.7, 2.73, 0);
@@ -309,10 +304,8 @@ for (const x of [-0.42, 0.38]) {
     pumpHub.add(link);
   }
 }
-const rearLight = new THREE.PointLight(0x7f2f28, 0.72, 5.8, 1.9);
-rearLight.position.set(0, 2.5, 6.8);
-pumpHub.add(rearLight);
-addBox(pumpHub, matRust, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
+const matRearTube = new THREE.MeshBasicMaterial({ color: 0x612721, toneMapped: false });
+addBox(pumpHub, matRearTube, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
 
 /* Flooding and ripple rigs reserve an honest visual language for future threats. */
 for (const [sx, sz, x, z] of [
@@ -385,9 +378,11 @@ export function updatePumpHub(dt) {
     0.24 * Math.abs(Math.sin(hubTime * 7.1) * Math.sin(hubTime * 2.3));
   rightLight.intensity = 0.88 +
     0.20 * Math.abs(Math.sin(hubTime * 11.7));
-  rearLight.intensity = 0.58 + 0.10 * Math.sin(hubTime * 1.7);
-  frontLight.intensity = 0.82 +
+  const rearPulse = 0.76 + 0.10 * Math.sin(hubTime * 1.7);
+  matRearTube.color.setRGB(0.38 * rearPulse, 0.15 * rearPulse, 0.12 * rearPulse);
+  const frontPulse = 0.82 +
     0.16 * Math.abs(Math.sin(hubTime * 8.9) * Math.sin(hubTime * 2.0));
+  matFrontTube.color.setRGB(0.40 * frontPulse, 0.52 * frontPulse, 0.53 * frontPulse);
 
   pumpRipples.forEach((ring, i) => {
     const cycle = (hubTime * (0.18 + i * 0.012) + ring.userData.phase) % 1;
