@@ -26,6 +26,11 @@ export const clock = new THREE.Clock();
 const door3FrameTimes = new RollingFrameTime();
 let door3LastFrameAt = null;
 
+const isThreatFrozen = () =>
+  (R.door === 2 && D2.awaitingFuse) ||
+  R.timer.pauseReasons.includes('probe') ||
+  debugThreatFrozen();
+
 hooks.resetDoor3FrameTimes = () => {
   door3FrameTimes.reset();
   door3LastFrameAt = null;
@@ -190,7 +195,7 @@ export function tick(frameAt) {
     // Door 2's replacement pickup is mandatory. Its fixed one-station advance
     // is already paid at burnout, so no lethal face/lurk progression may run
     // while the player is forced to look away from the board.
-    const threatFrozen = (R.door === 2 && D2.awaitingFuse) || debugThreatFrozen();
+    const threatFrozen = isThreatFrozen();
 
     // 該到下一站了嗎
     let want = 0;
@@ -431,7 +436,7 @@ export function tick(frameAt) {
   // 死亡條件：
   //  · 臉已經出現 → 給 faceGraceSec 的極限窗口，那一秒還能解鎖活下來
   //  · 潛伏中但玩家一直不回頭 → 超時後強制兌現貼臉，再走同一條窗口
-  if (!R.over && !(R.door === 2 && D2.awaitingFuse) && !debugThreatFrozen()) {
+  if (!R.over && !isThreatFrozen()) {
     const S2 = CFG.stations;
     const overtime = R.elapsed > R.limit + CFG.round.grabMs / 1000;
     if (ST.phase === 'face') {

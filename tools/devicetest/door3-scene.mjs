@@ -107,10 +107,12 @@ for (const profile of profiles) {
   }, walkStart.z, { timeout: 10000 });
   const walkMoved = await page.evaluate(() => window.__door3());
   check('camera keeps advancing toward the already-visible hub',
-    walkStart.visible && walkStart.distanceToHub > 17 && walkStart.z < 0 &&
+    walkStart.visible && walkStart.z < thresholdStart.z &&
+    walkStart.distanceToHub < thresholdStart.distanceToHub &&
     walkMoved.z < walkStart.z &&
     walkMoved.distanceToHub < walkStart.distanceToHub,
-    `z=${walkStart.z}>${walkMoved.z} distance=${walkStart.distanceToHub}>${walkMoved.distanceToHub}`);
+    `z=${thresholdStart.z}>${walkStart.z}>${walkMoved.z} ` +
+    `distance=${thresholdStart.distanceToHub}>${walkStart.distanceToHub}>${walkMoved.distanceToHub}`);
   check('sprint lens and unobstructed sightline persist through the long hall',
     walkMoved.fov >= 57.5 && walkMoved.sightline.clear,
     `fov=${walkMoved.fov} sightline=${JSON.stringify(walkMoved.sightline)}`);
