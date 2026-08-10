@@ -1,11 +1,14 @@
 /* Door 2 → Door 3 場景交接。
  *
- * 這一輪只開放十字泵房的環視灰盒，不啟動水量謎題或怪物計時器。
- * 先驗證空間與方向語言，再把兩套狀態機接上來。
+ * This pass activates the low pump console and live tank/pressure controls.
+ * The final water-balance goal and monster timer remain deliberately inactive.
  */
 
 import { CFG } from '../logic/config.js';
 import { DOOR3_PERFORMANCE } from '../logic/door3-performance.js';
+import {
+  PUMP_CONSOLE, adjustPumpLevel, pumpPressureBar,
+} from '../logic/pump-console.js';
 import {
   DOOR3_APPROACH, door3ApproachZ,
 } from '../logic/door3-transition.js';
@@ -15,7 +18,10 @@ import { camera, doorHinge, scene, vestibule } from '../render/scene.js';
 import { monster } from '../render/monster.js';
 import { decayGroup, lamp } from '../render/decay.js';
 import { fill, flash3d, markerLight } from '../render/hintwall.js';
-import { PUMP_HUB, pumpHub, updatePumpHub } from '../render/pumphub.js';
+import {
+  PUMP_HUB, pumpHub, setPumpHubLevels, updatePumpHub,
+} from '../render/pumphub.js';
+import { pulsePumpControl } from '../render/pumpconsole.js';
 import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
 import { beep, wetStep } from './audio.js';
 import { T } from './transit.js';
@@ -27,7 +33,7 @@ const SPRINT_FOV = BASE_FOV + 3.5;
 const APPROACH_FOG = 0.041;
 const STEP_SEC = 0.38;
 const ease = x => x * x * (3 - 2 * x);
-const DOOR3_CUE = '左右拖曳環視　·　W / A / S / D 快速轉向';
+const DOOR3_CUE = '工作檯 ± 調液面　·　拖曳環視　·　W / A / S / D';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
 
 export const D3 = {
@@ -37,7 +43,50 @@ export const D3 = {
   travelT: 0,
   stepT: 0,
   previousLightVisibility: null,
+  pump: {
+    levels: [...PUMP_CONSOLE.initialLevels],
+    pressureBar: pumpPressureBar(PUMP_CONSOLE.initialLevels),
+    interactions: 0,
+    lastControl: null,
+  },
 };
+
+function resetDoor3Pump() {
+  D3.pump.levels = [...PUMP_CONSOLE.initialLevels];
+  D3.pump.pressureBar = pumpPressureBar(D3.pump.levels);
+  D3.pump.interactions = 0;
+  D3.pump.lastControl = null;
+  setPumpHubLevels(D3.pump.levels, D3.pump.pressureBar);
+}
+
+export function adjustDoor3Pump(index, direction) {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  const signedDirection = Math.sign(Number(direction));
+  if (!Number.isInteger(index) || index < 0 ||
+      index >= PUMP_CONSOLE.tankCount || !signedDirection) return false;
+
+  const next = adjustPumpLevel(D3.pump.levels, index, signedDirection);
+  const changed = next.some((level, i) => level !== D3.pump.levels[i]);
+  D3.pump.lastControl = { index, direction: signedDirection };
+  pulsePumpControl(index, signedDirection);
+  if (changed) {
+    D3.pump.levels = next;
+    D3.pump.pressureBar = pumpPressureBar(next);
+    D3.pump.interactions++;
+    setPumpHubLevels(D3.pump.levels, D3.pump.pressureBar);
+    beep('tap');
+  } else beep('release');
+  return true;
+}
+
+export function door3PumpSnapshot() {
+  return {
+    levels: [...D3.pump.levels],
+    pressureBar: D3.pump.pressureBar,
+    interactions: D3.pump.interactions,
+    lastControl: D3.pump.lastControl ? { ...D3.pump.lastControl } : null,
+  };
+}
 
 const legacyPointLights = () => [lamp, decayGroup.userData.farLight, markerLight, fill];
 
@@ -110,6 +159,7 @@ hooks.startDoor3 = () => {
   D3.t = 0;
   D3.travelT = 0;
   D3.stepT = 0;
+  resetDoor3Pump();
 
   // Keep the shared intro state machine from competing for the camera.
   R.door = 3;
@@ -165,6 +215,7 @@ hooks.resetDoor3 = () => {
   D3.t = 0;
   D3.travelT = 0;
   D3.stepT = 0;
+  resetDoor3Pump();
   pumpHub.visible = false;
   vestibule.visible = true;
   restoreLegacyLighting();

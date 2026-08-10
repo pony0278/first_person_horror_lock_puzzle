@@ -48,12 +48,16 @@ import { audioPerformanceState, audioState } from './game/audio.js';
 import { newRound, skipIntro } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2, testDoor2 } from './game/door2-circuit.js';
-import { D3 } from './game/door3.js';
+import { D3, door3PumpSnapshot } from './game/door3.js';
 import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
 import { emptyFuseSlot, isCircuitSolved, solveCircuit, traceCircuit } from './logic/circuit.js';
 import { CB, breakerCentreClient, switchCentreClient } from './render/circuitboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { PUMP_HUB, door3Anchors, pumpHub } from './render/pumphub.js';
+import {
+  PUMP_CONSOLE_LAYOUT, pumpConsole, pumpControlCentreClient,
+  pumpGaugeCentreClient,
+} from './render/pumpconsole.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
 import { renderPixelRatioCap, resize } from './render/viewport.js';
@@ -313,12 +317,24 @@ window.__door3 = () => ({
   panelHidden: document.body.classList.contains('door3'),
   fadeOpacity: +getComputedStyle(document.getElementById('fade')).opacity,
   flashlightIntensity: +flash3d.intensity.toFixed(2),
+  console: {
+    ...door3PumpSnapshot(),
+    visible: visibleInHierarchy(pumpConsole),
+    layout: { ...PUMP_CONSOLE_LAYOUT },
+    gauge: pumpGaugeCentreClient(),
+    controls: [0, 1, 2].flatMap(index => [-1, 1]
+      .map(direction => ({
+        index, direction, ...pumpControlCentreClient(index, direction),
+      }))),
+  },
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
   sightline: door3SightlineProbe(),
   performance: door3PerformanceProbe(),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
+window.__door3ControlCentre = (index, direction) =>
+  pumpControlCentreClient(Number(index), Number(direction));
 window.__door3Look = yaw => {
   if (!D3.active || intro.active) return false;
   look.yaw = Math.max(-180, Math.min(180, Number(yaw) || 0));
