@@ -4,9 +4,11 @@
 import { CFG } from '../logic/config.js';
 import { $dev, $hdbg, $pins, view } from '../dom.js';
 import { buildPins, renderPins } from '../render/cutaway.js';
+import { pumpControlAtClient } from '../render/pumpconsole.js';
 import { hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
+import { adjustDoor3Pump } from './door3.js';
 import { interrupted } from './halt.js';
 
 /* ═══════════════════════════════════════════════════════════
@@ -75,6 +77,7 @@ export function doRelease(i) {
 let lookId = null;
 let keyLook = false;
 let door3Drag = null;
+let door3ControlId = null;
 const clampYaw = yaw => Math.max(-180, Math.min(180, yaw));
 
 /** Door 1/2 保留按住回頭；Door 3 改為可停留在任一岔路的拖曳環視。 */
@@ -91,6 +94,17 @@ function syncLook() {
 view.addEventListener('pointerdown', e => {
   if (intro.active || interrupted()) return;
   if (e.button !== 0 || lookId !== null || (keyLook && R.door !== 3)) return;
+
+  if (R.door === 3) {
+    const control = pumpControlAtClient(e.clientX, e.clientY);
+    if (control && adjustDoor3Pump(control.index, control.direction)) {
+      view.setPointerCapture(e.pointerId);
+      door3ControlId = e.pointerId;
+      e.preventDefault();
+      return;
+    }
+  }
+
   view.setPointerCapture(e.pointerId);
   lookId = e.pointerId;
 
@@ -101,6 +115,8 @@ view.addEventListener('pointerdown', e => {
 });
 
 view.addEventListener('pointermove', e => {
+  if (R.door === 3 && lookId === null && door3ControlId === null)
+    view.style.cursor = pumpControlAtClient(e.clientX, e.clientY) ? 'pointer' : 'grab';
   if (e.pointerId !== lookId || R.door !== 3 || !door3Drag) return;
   const dx = e.clientX - door3Drag.x;
   look.target = clampYaw(door3Drag.yaw + dx / Math.max(1, view.clientWidth) * 300);
@@ -111,10 +127,15 @@ export const stopLook = () => {
   lookId = null;
   keyLook = false;
   door3Drag = null;
+  door3ControlId = null;
   if (R.door === 3) look.holding = false;
   else syncLook();
 };
 const onUp = e => {
+  if (e.pointerId === door3ControlId) {
+    door3ControlId = null;
+    return;
+  }
   if (e.pointerId !== lookId) return;
   lookId = null;
   door3Drag = null;

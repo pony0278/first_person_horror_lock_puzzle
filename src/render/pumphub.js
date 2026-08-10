@@ -6,7 +6,11 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DOOR_Z, boxGeo, cylGeo, planeGeo, scene } from './scene.js';
+import { PUMP_CONSOLE, pumpPressureBar } from '../logic/pump-console.js';
 import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
+import {
+  attachPumpConsole, setPumpConsoleReadout, updatePumpConsole,
+} from './pumpconsole.js';
 
 const H = 3.45;
 const HUB_HALF = 2.70;
@@ -161,10 +165,12 @@ addMergedBoxes(pumpHub, matCeil,
   surfaceFootprint.map(([sx, sz, x, z]) => [sx, 0.10, sz, x, H + 0.05, z]),
   'door3-ceiling-batch');
 
-/* Short corner walls and columns frame each opening without narrowing sightlines. */
+/* Short corner walls and columns frame the side and rear openings. The two
+ * front threshold panels stay open, reserving a clear bay for the low
+ * water-level and pressure workbench without blocking the rear sightline. */
 const cornerSpan = HUB_HALF - BRANCH_HALF;
 const wallDefinitions = [];
-for (const z of [-HUB_HALF, HUB_HALF]) {
+for (const z of [HUB_HALF]) {
   for (const side of [-1, 1]) {
     wallDefinitions.push([cornerSpan, H, 0.12,
       side * (BRANCH_HALF + cornerSpan / 2), H / 2, z]);
@@ -268,7 +274,7 @@ addBox(pumpHub, matFrontTube, 0.58, 0.045, 0.13, 0, 2.86, -6.28);
 
 /* Three sight glasses share the left bank, keeping the door as the primary goal. */
 export const pressureTanks = [];
-const tankLevels = [0.74, 0.46, 0.92];
+const tankLevels = [...PUMP_CONSOLE.initialLevels];
 for (let i = 0; i < 3; i++) {
   const tank = new THREE.Group();
   tank.position.set(-2.18 + i * 0.43, 0.42, 0.36);
@@ -284,7 +290,7 @@ for (let i = 0; i < 3; i++) {
   tank.add(fluid);
   for (const y of [0, 1.32]) addPipe(tank, 0.07, 0.18, 0, y, 0, 'y', matMetal);
   addBox(tank, matHazard, 0.26, 0.025, 0.025, 0, 0.66, 0.16);
-  tank.userData = { fluid, baseLevel: h };
+  tank.userData = { fluid, displayLevel: h, targetLevel: h };
   pressureTanks.push(tank);
 }
 
@@ -304,6 +310,21 @@ for (const x of [-2.18, -1.75, -1.32]) {
   addPipe(floodDoor, 0.60, 0.035, x, 1.95, 0.12, 'y', matPipe);
   addPipe(floodDoor, 0.44, 0.035, x + 0.20, 2.23, 0.12, 'x', matPipe);
 }
+
+export function setPumpHubLevels(levels, pressureBar = pumpPressureBar(levels)) {
+  pressureTanks.forEach((tank, index) => {
+    const level = Number(levels[index]);
+    tank.userData.targetLevel = Math.max(
+      PUMP_CONSOLE.minLevel,
+      Math.min(PUMP_CONSOLE.maxLevel,
+        Number.isFinite(level) ? level : PUMP_CONSOLE.initialLevels[index]),
+    );
+  });
+  setPumpConsoleReadout(levels, pressureBar);
+}
+
+attachPumpConsole(pumpHub);
+setPumpHubLevels(tankLevels);
 
 /* Left branch: heavy pumps, deeper water, and damaged amber lighting. */
 addPipe(pumpHub, 7.7, 0.18, -6.75, 2.72, -0.62, 'x', matPipe);
@@ -445,13 +466,18 @@ export function updatePumpHub(dt) {
     ring.material.opacity = Math.sin(cycle * Math.PI) * 0.22;
   });
 
+  const levelBlend = 1 - Math.exp(-Math.max(0, dt) * 5.5);
   pressureTanks.forEach((tank, i) => {
+    tank.userData.displayLevel +=
+      (tank.userData.targetLevel - tank.userData.displayLevel) * levelBlend;
+    tank.userData.fluid.scale.y = tank.userData.displayLevel;
     tank.userData.fluid.position.y =
-      tank.userData.baseLevel / 2 + Math.sin(hubTime * 0.65 + i) * 0.008;
+      tank.userData.displayLevel / 2 + Math.sin(hubTime * 0.65 + i) * 0.006;
   });
   pressurePistons.forEach((piston, i) => {
     piston.userData.collar.position.y =
       0.67 + Math.sin(hubTime * 0.55 + i * 1.7) * 0.025;
   });
+  updatePumpConsole(dt);
   pumpHub.userData.dust.rotation.y += dt * 0.008;
 }

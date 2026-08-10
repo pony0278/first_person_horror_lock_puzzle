@@ -69,7 +69,7 @@ for (const profile of profiles) {
     state.performance.batching.instancedBatches >= 3 &&
     state.performance.batching.instances >= 30 &&
     state.performance.batching.staticBatches >= 3 &&
-    state.performance.batching.batchedSourceDrawCalls >= 55,
+    state.performance.batching.batchedSourceDrawCalls >= 54,
     JSON.stringify(state.performance.batching));
   check('continuous approach never starts behind the camera',
     Math.abs(state.z) <= 0.05 && state.hubCenterZ < state.doorZ,
@@ -156,6 +156,63 @@ for (const profile of profiles) {
     Math.abs(layout.view[0] - layout.viewport[0]) <= 1 &&
     Math.abs(layout.view[1] - layout.viewport[1]) <= 1 &&
     layout.panelDisplay === 'none', JSON.stringify(layout));
+
+  const frontConsole = state.console;
+  check('low left pump console preserves the centre route',
+    frontConsole.visible && frontConsole.layout.x < 0 &&
+    frontConsole.layout.height <= 1.2 &&
+    frontConsole.layout.clearLaneMinX <= -0.25 &&
+    state.sightline.clear,
+    JSON.stringify({ console: frontConsole.layout, sightline: state.sightline }));
+
+  const consoleYaw = 30;
+  await page.evaluate(yaw => window.__door3Look(yaw), consoleYaw);
+  await page.waitForTimeout(180);
+  state = await page.evaluate(() => window.__door3());
+  const consoleBefore = state.console;
+  check('all six tank controls and the gauge are visible after one short left turn',
+    consoleBefore.controls.length === 6 &&
+    consoleBefore.controls.every(control => control.inView &&
+      control.x >= 0 && control.x <= layout.viewport[0] &&
+      control.y >= 0 && control.y <= layout.viewport[1]) &&
+    consoleBefore.gauge.inView &&
+    consoleBefore.gauge.x >= 0 && consoleBefore.gauge.x <= layout.viewport[0] &&
+    consoleBefore.gauge.y >= 0 && consoleBefore.gauge.y <= layout.viewport[1],
+    JSON.stringify({
+      yaw: state.yaw, controls: consoleBefore.controls, gauge: consoleBefore.gauge,
+    }));
+  await page.screenshot({
+    path: `${OUT}/door3-${profile.name}-console.png`,
+  });
+
+  const raiseCentre = await page.evaluate(() => window.__door3ControlCentre(1, 1));
+  await page.mouse.click(raiseCentre.x, raiseCentre.y);
+  await page.waitForTimeout(220);
+  const raised = await page.evaluate(() => window.__door3());
+  check('tank control raises one level and the shared pressure gauge',
+    raised.console.levels[1] > consoleBefore.levels[1] &&
+    raised.console.levels[0] === consoleBefore.levels[0] &&
+    raised.console.levels[2] === consoleBefore.levels[2] &&
+    raised.console.pressureBar > consoleBefore.pressureBar &&
+    raised.console.interactions === consoleBefore.interactions + 1,
+    JSON.stringify({ before: consoleBefore, after: raised.console }));
+
+  const lowerCentre = await page.evaluate(() => window.__door3ControlCentre(1, -1));
+  await page.mouse.click(lowerCentre.x, lowerCentre.y);
+  await page.waitForTimeout(220);
+  state = await page.evaluate(() => window.__door3());
+  check('opposite control restores the tank and pressure without moving the view',
+    state.console.levels[1] === consoleBefore.levels[1] &&
+    state.console.pressureBar === consoleBefore.pressureBar &&
+    state.console.interactions === consoleBefore.interactions + 2 &&
+    Math.abs(state.yaw - consoleYaw) <= 1,
+    JSON.stringify({ before: consoleBefore, after: state.console, yaw: state.yaw }));
+
+  await page.evaluate(() => window.__door3Look(0));
+  state = await page.evaluate(() => window.__door3());
+  check('returning to the flood door restores the clear centre route',
+    Math.abs(state.yaw) <= 1 && state.sightline.clear,
+    JSON.stringify({ yaw: state.yaw, sightline: state.sightline }));
 
   const expected = [
     { yaw: 0, branch: 'front' },
