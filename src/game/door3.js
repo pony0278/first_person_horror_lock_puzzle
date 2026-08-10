@@ -5,6 +5,7 @@
  */
 
 import { CFG } from '../logic/config.js';
+import { DOOR3_REVEAL, door3CoverOpacity } from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
 import {
@@ -14,7 +15,7 @@ import { monster } from '../render/monster.js';
 import {
   decayGroup, lamp, lampFixture, reflection, seepPatches, waterPlane,
 } from '../render/decay.js';
-import { marker, markerLight, paintPlane } from '../render/hintwall.js';
+import { flash3d, marker, markerLight, paintPlane } from '../render/hintwall.js';
 import { electroRoom } from '../render/fuseroom.js';
 import { doorPanel2 } from '../render/doorpanel.js';
 import { pumpHub, updatePumpHub } from '../render/pumphub.js';
@@ -26,8 +27,6 @@ const OPEN_RAD = 1.92;
 const OPEN_SEC = 0.78;
 const THROUGH_SEC = 0.88;
 const THROUGH_Z = -2.35;
-const BLACKOUT_DOWN_SEC = 0.18;
-const BLACKOUT_HOLD_SEC = 0.12;
 const WALK_SEC = 3.10;
 const SETTLE_SEC = 0.46;
 const PUMP_ENTRY_Z = 7.60;
@@ -88,7 +87,23 @@ function bobWalk(dt, strength = 1) {
   intro.roll = Math.sin(intro.bobPhase) * 0.72 * strength;
 }
 
-// Swap worlds only at full black; enter from the pump hub's rear branch.
+function setSceneCover(opacity) {
+  // Inline opacity is intentional during this transition: CSS milliseconds do
+  // not respect Debug pause or playback speed. It is cleared before walking so
+  // later death/interruption fades can keep using the shared #fade element.
+  $fade.classList.remove('on');
+  $fade.style.transition = 'none';
+  $fade.style.opacity = String(Math.max(0, Math.min(1, opacity)));
+}
+
+function clearSceneCover() {
+  $fade.classList.remove('on');
+  $fade.style.transition = '';
+  $fade.style.opacity = '';
+}
+
+// Swap worlds at the peak of a brief cover; reveal the rear pump corridor
+// while stationary, then begin the straight walk only after the cover is gone.
 function enterPumpWalk() {
   hidePreviousWorld();
   pumpHub.visible = true;
@@ -117,9 +132,15 @@ function enterPumpWalk() {
   look.holding = false;
   anim.handsOverride = null;
 
+  // The carried flashlight is the primary reveal light. Apply the long-range
+  // beam immediately instead of waiting for the next render-loop frame.
+  flash3d.intensity = CFG.light.far.intensity;
+  flash3d.decay = CFG.light.far.decay;
+  flash3d.angle = CFG.light.far.angle;
+
   scene.fog.density = 0.052;
   $panel.classList.remove('blind');
-  D3.phase = 'blackout-hold';
+  D3.phase = 'reveal';
   D3.t = 0;
   beep('thunk');
 }
@@ -179,8 +200,7 @@ hooks.startDoor3 = () => {
   resize();
 
   $fade.querySelector('div').textContent = '';
-  $fade.style.transition = '';
-  $fade.classList.remove('on');
+  clearSceneCover();
   beep('release');
   return true;
 };
@@ -202,7 +222,7 @@ hooks.resetDoor3 = () => {
   document.body.classList.remove('door3');
   $turnCue.textContent = DEFAULT_CUE;
   scene.fog.density = CFG.fog.density;
-  $fade.style.transition = '';
+  clearSceneCover();
   resize();
 };
 
@@ -228,16 +248,21 @@ export function updateDoor3(dt) {
     if (p >= 1) {
       D3.phase = 'blackout';
       D3.t = 0;
-      $fade.style.transition = `opacity ${Math.round(BLACKOUT_DOWN_SEC * 1000)}ms linear`;
-      $fade.classList.add('on');
+      setSceneCover(0);
     }
-  } else if (D3.phase === 'blackout' && D3.t >= BLACKOUT_DOWN_SEC) {
-    enterPumpWalk();
-  } else if (D3.phase === 'blackout-hold' && D3.t >= BLACKOUT_HOLD_SEC) {
-    D3.phase = 'walk';
-    D3.t = 0;
-    $fade.style.transition = 'opacity 300ms ease-out';
-    $fade.classList.remove('on');
+  } else if (D3.phase === 'blackout') {
+    setSceneCover(door3CoverOpacity('cover', D3.t));
+    if (D3.t >= DOOR3_REVEAL.coverSec) {
+      setSceneCover(1);
+      enterPumpWalk();
+    }
+  } else if (D3.phase === 'reveal') {
+    setSceneCover(door3CoverOpacity('reveal', D3.t));
+    if (D3.t >= DOOR3_REVEAL.revealSec) {
+      clearSceneCover();
+      D3.phase = 'walk';
+      D3.t = 0;
+    }
   } else if (D3.phase === 'walk') {
     const p = Math.min(1, D3.t / WALK_SEC);
     intro.z = PUMP_ENTRY_Z * Math.pow(1 - p, 1.12);

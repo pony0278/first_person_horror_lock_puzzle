@@ -53,6 +53,18 @@ for (const profile of profiles) {
 
   await page.waitForFunction(() => window.__door3?.().phase === 'walk', null, { timeout: 90000 });
   const walkStart = await page.evaluate(() => window.__door3());
+  check('walk starts only after the scene cover is fully gone',
+    walkStart.fadeOpacity <= 0.01,
+    `fade=${walkStart.fadeOpacity}`);
+  check('carried flashlight reveals the rear corridor from the first step',
+    walkStart.flashlightIntensity >= 30,
+    `flashlight=${walkStart.flashlightIntensity}`);
+  check('Door 3 approach stays straight',
+    Math.abs(walkStart.yaw) <= 0.5 && Math.abs(walkStart.x) <= 0.05,
+    `yaw=${walkStart.yaw} x=${walkStart.x}`);
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-walk-start.png` });
+  }
   await page.waitForFunction(startZ => {
     const state = window.__door3?.();
     return state?.phase === 'walk' && state.z < startZ - 0.45;
@@ -61,6 +73,12 @@ for (const profile of profiles) {
   check('camera walks in from the rear pump corridor',
     walkStart.visible && walkStart.z > 6 && walkMoved.z < walkStart.z,
     `z=${walkStart.z}>${walkMoved.z}`);
+  check('flashlight stays bright instead of fading back to lock range',
+    walkMoved.flashlightIntensity >= 30 && walkMoved.fadeOpacity <= 0.01,
+    `flashlight=${walkMoved.flashlightIntensity} fade=${walkMoved.fadeOpacity}`);
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-walk-mid.png` });
+  }
 
   await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
   state = await page.evaluate(() => window.__door3());

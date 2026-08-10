@@ -21,7 +21,7 @@ import './render/materials.js';
 import './render/scene.js';
 import './render/monster.js';
 import './render/decay.js';
-import { markerLight, paintPlane, paintStatus } from './render/hintwall.js';
+import { flash3d, markerLight, paintPlane, paintStatus } from './render/hintwall.js';
 import './render/fuseroom.js';
 import './render/pumphub.js';
 import './render/doorpanel.js';
@@ -180,9 +180,12 @@ window.__door3 = () => ({
   phase: D3.phase,
   visible: pumpHub.visible,
   yaw: +look.yaw.toFixed(1),
+  x: +camera.position.x.toFixed(2),
   z: +intro.z.toFixed(2),
   walking: intro.active,
   panelHidden: document.body.classList.contains('door3'),
+  fadeOpacity: +getComputedStyle(document.getElementById('fade')).opacity,
+  flashlightIntensity: +flash3d.intensity.toFixed(2),
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
 });

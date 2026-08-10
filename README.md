@@ -18,7 +18,7 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、78 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **建置與發布** | `npm run check`（型別、相依分層、82 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
 | **手機視窗測試** | 基礎裝置、safe-area、中斷、門間流程、Debug 過場播放器、Door 2 雙線盤與 Door 3 場景 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
@@ -48,7 +48,7 @@ https://pony0278.github.io/first_person_horror_lock_puzzle/?debug=1
 
 - Door 1 解鎖、穿門、轉角停電、跑向 Door 2 與 Door 2 初始化。
 - Door 2 缺件、第一根保險絲、熔斷後第二次回頭與最後機會。
-- Door 2 正解提交、電磁鎖解開、開門、穿門、泵房步行與 Door 3 中心。
+- Door 2 正解提交、電磁鎖解開、開門、直線手電筒揭露、泵房步行與 Door 3 中心。
 - `0.25× / 0.5× / 1× / 2×`、暫停、循環、威脅凍結、怪物站位與牆鐘控制。
 - Door 2 套用正解／錯誤、觸發熔斷、取得備用件與最終失敗快捷操作。
 
@@ -155,7 +155,7 @@ v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` �
 目前下一步是先用真機確認 Door 3 的方向辨識、閘門可見度與拖曳手感，再設計可在 4～6 步內完成的均壓盤面，最後接入誠實但不完整的三向怪物提示。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 78 個單元測試
+npm run check      # 型別 + 相依分層 + 82 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項

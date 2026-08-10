@@ -430,7 +430,12 @@ export function tick() {
 
   // 手電筒：near/far 隨轉頭角度過渡（曝光適應），加上閃爍
   {
-    const runF = intro.active && intro.phase === 'run' ? Math.min(1, intro.z / 2.5) : 0;
+    // Door 3 is an open pump hub rather than a lock at arm's length. Keep the
+    // carried light on its long-range beam for the walk and later exploration;
+    // otherwise it would fade back to the near-lock intensity at the hub centre.
+    const runF = R.door === 3
+      ? 1
+      : intro.active && intro.phase === 'run' ? Math.min(1, intro.z / 2.5) : 0;
     const turnF = Math.max(runF, Math.min(1, Math.abs(look.yaw) / 110));
     const farDim = (intro.active ? 1 : (CFG.seep.farDim[envLevel(ST.index)] ?? 1)) * (ST.blink > 0 ? 0.10 : 1);
     const L = CFG.light, lerp = (a, b) => a + (b - a) * turnF;
