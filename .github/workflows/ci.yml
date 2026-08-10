@@ -8,27 +8,22 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── 發布：快路徑 ──────────────────────────────────────────
+  # ── 建置驗證：快路徑 ──────────────────────────────────────
   # 只擋在「快且穩定」的檢查後面：型別、相依分層、單元測試都是純 Node，
   # 加起來兩秒且完全確定性。整個 job 約一分鐘。
   #
   # 手機視窗測試刻意不放在這裡。那套跑真 Chromium + 軟體渲染 WebGL，
   # 三到五分鐘且對 runner 負載敏感 —— 拿它擋發布的話，每次想上線都要賭一次
   # 瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
-  deploy:
-    name: 建置與發布
+  verify:
+    name: 建置驗證
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,21 +51,33 @@ jobs:
           fi
 
       - name: 上傳 Pages 產物
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
+  # ── GitHub Pages：只允許 main 的 push 進入部署環境 ────────
+  # PR 只執行 verify，不會建立 github-pages deployment。
+  deploy:
+    name: 發布 GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       # enablement: true 會在 Pages 尚未啟用時自動開啟並設成 GitHub Actions 來源。
       - name: 設定 Pages
-        if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
       - name: 發布
         id: deployment
-        if: github.ref == 'refs/heads/main'
         uses: actions/deploy-pages@v4
 
   # ── 手機視窗測試：與發布並行，不擋發布 ──────────────────────

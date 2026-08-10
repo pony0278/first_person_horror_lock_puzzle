@@ -50,9 +50,18 @@ const autoGrab = async expectedTug => {
   await page.mouse.down();
   await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130,
     null, { timeout: 30000 });
-  const point = await page.evaluate(() => window.__grabPoint());
-  check(`Fuse ${expectedTug} is visible after turning around`, Boolean(point),
-    point ? `(${point.x.toFixed(0)},${point.y.toFixed(0)})` : 'null');
+  await page.waitForFunction(expected =>
+    Boolean(window.__grabPoint()) || window.__probe().tug === expected,
+  expectedTug, { timeout: 30000 });
+  const focus = await page.evaluate(expected => ({
+    point: window.__grabPoint(),
+    retrieved: window.__probe().tug === expected,
+  }), expectedTug);
+  check(`Fuse ${expectedTug} is visible after turning around`,
+    Boolean(focus.point) || focus.retrieved,
+    focus.point
+      ? `(${focus.point.x.toFixed(0)},${focus.point.y.toFixed(0)})`
+      : 'retrieved before coordinate sample');
   await page.screenshot({ path: `${OUT}/door2-fuse-focus.png` });
   await page.waitForFunction(expected => window.__probe().tug === expected &&
     ['grab', 'retrieved', 'door2'].includes(window.__probe().transit),

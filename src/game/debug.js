@@ -301,12 +301,19 @@ function syncPanel(force = false) {
 
   const answer = board ? board.solution.join(' ') : '—';
   const pauses = R.timer.pauseReasons.join(', ') || 'none';
+  const perf = D3.active ? hooks.door3Performance?.() : null;
+  const perfText = perf
+    ? `\nD3 calls ${perf.drawCalls}/${perf.budget.maxDrawCalls} · lights ${perf.pointLights}` +
+      ` · transmission ${perf.transmissionMaterials} · pixels ${perf.bufferPixels}` +
+      `\nframe avg ${perf.frameTime.averageMs.toFixed(1)}ms · p95 ${perf.frameTime.p95Ms.toFixed(1)}ms` +
+      ` · worst ${perf.frameTime.worstMs.toFixed(1)}ms · slow ${perf.frameTime.slowFrames}/${perf.frameTime.samples}`
+    : '';
   $status.textContent =
     `door ${R.door} · ${phase}\n` +
     `clock ${elapsed.toFixed(2)} / ${R.limit}s · remain ${remaining.toFixed(2)}s · ${R.timer.rate}×\n` +
     `paused ${pauses}\n` +
     `monster station ${ST.index} · threat ${DBG.threatFrozen ? 'frozen' : 'live'}\n` +
-    `board ${board?.id ?? '—'} · fuse ${D2.fuseNumber || '—'} · answer ${answer}` +
+    `board ${board?.id ?? '—'} · fuse ${D2.fuseNumber || '—'} · answer ${answer}` + perfText +
     (DBG.notice ? `\n${DBG.notice}` : '');
 }
 
