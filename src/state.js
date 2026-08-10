@@ -18,7 +18,7 @@ export const ST = { index: 0, z: 0, targetZ: 0, moveT: 0, pendingJump: false,
    斑駁噴漆風格，每局依新答案重畫。回頭讀提示的同時
    必然看到怪物 —— 資訊與威脅耦合在同一個視角裡。 */
 
-export const intro = { active: false, phase: 'run', t: 0, z: 0, bobPhase: 0,
+export const intro = { active: false, phase: 'run', t: 0, x: 0, z: 0, bobPhase: 0,
                 bobY: 0, roll: 0, arriveF: 1, beeped: false, th1: false, th2: false };
 
 /* ── 光 ─────────────────────────────────────────────── */

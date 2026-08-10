@@ -217,9 +217,13 @@ check('Successful pulse unlocks Door 2 and freezes its clock',
 
 await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
 const door3 = await page.evaluate(() => ({ ...window.__door3(), probe: window.__probe() }));
-check('Door 2 completion enters the Door 3 pump hub',
-  door3.active && door3.visible && door3.panelHidden && door3.probe.door === 3,
-  `visible=${door3.visible} door=${door3.probe.door}`);
+check('Door 2 completion reaches the Door 3 console operator pose',
+  door3.active && door3.visible && door3.panelHidden && door3.probe.door === 3 &&
+  door3.distanceToOperator <= 0.03 &&
+  Math.abs(door3.x - door3.operator.x) <= 0.02 &&
+  Math.abs(door3.z - door3.operator.z) <= 0.02,
+  'visible=' + door3.visible + ' door=' + door3.probe.door +
+  ' operator=' + door3.distanceToOperator);
 
 await page.evaluate(() => window.__setThreatPaused(false));
 await page.evaluate(() => window.__newRound());

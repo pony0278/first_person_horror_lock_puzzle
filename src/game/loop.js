@@ -140,10 +140,11 @@ export function tick(frameAt) {
   // Door 3 shares world coordinates with Door 2. Keep the pump-hub centre as
   // the exploration origin after the run ends instead of snapping the camera
   // back to z=0 (the Door 2 threshold).
+  const camX = R.door === 3 ? standX + (intro.x || 0) : standX;
   const camZ = R.door === 3
     ? intro.z
     : intro.active && intro.phase === 'run' ? intro.z : 0;
-  camera.position.set(standX,
+  camera.position.set(camX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
   // Door 2 找件前沿用上一回合的 R.over 凍結計時，但盤面要看得見；仍由 pointer handler
   // 擋操作。回頭、運鏡、中斷，以及其餘真正結束狀態才壓暗面板。

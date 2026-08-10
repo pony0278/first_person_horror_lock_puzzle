@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DOOR_Z, boxGeo, cylGeo, planeGeo, scene } from './scene.js';
 import { PUMP_CONSOLE, pumpPressureBar } from '../logic/pump-console.js';
+import { DOOR3_OPERATOR } from '../logic/door3-transition.js';
 import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
 import {
   attachPumpConsole, setPumpConsoleReadout, updatePumpConsole,
@@ -31,10 +32,13 @@ export const PUMP_HUB = Object.freeze({
   rearOpeningWorldZ: DOOR_Z,
   /** Clear narrow connector visible between Door 2 and the hub threshold. */
   connectorLength: REAR_END - HUB_HALF,
-  /** Total camera travel from its Door 2 origin to the hub centre. */
+  /** Straight travel from the Door 2 origin to the hub-centre reveal point. */
   runDistance: Math.abs(CENTER_WORLD_Z),
-  /** The camera remains here during Door 3 exploration; no arrival teleport. */
   centerWorldZ: CENTER_WORLD_Z,
+  /** Final exploration pose in front of the low pump console. */
+  operatorWorldX: DOOR3_OPERATOR.x,
+  operatorWorldZ: CENTER_WORLD_Z + DOOR3_OPERATOR.z,
+  operatorYaw: DOOR3_OPERATOR.yawDeg,
   leftEndX: -SIDE_END,
   rightEndX: SIDE_END,
 });

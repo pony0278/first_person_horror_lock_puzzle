@@ -310,7 +310,18 @@ window.__door3 = () => ({
   hubCenterZ: +pumpHub.position.z.toFixed(2),
   connectorLength: +PUMP_HUB.connectorLength.toFixed(2),
   runDistance: +PUMP_HUB.runDistance.toFixed(2),
-  distanceToHub: +Math.abs(camera.position.z - pumpHub.position.z).toFixed(2),
+  operator: {
+    x: +PUMP_HUB.operatorWorldX.toFixed(2),
+    z: +PUMP_HUB.operatorWorldZ.toFixed(2),
+    yaw: +PUMP_HUB.operatorYaw.toFixed(1),
+  },
+  distanceToHub: +Math.hypot(
+    camera.position.x, camera.position.z - pumpHub.position.z,
+  ).toFixed(2),
+  distanceToOperator: +Math.hypot(
+    camera.position.x - PUMP_HUB.operatorWorldX,
+    camera.position.z - PUMP_HUB.operatorWorldZ,
+  ).toFixed(2),
   fov: +camera.fov.toFixed(2),
   walking: intro.active,
   vestibuleVisible: vestibule.visible,

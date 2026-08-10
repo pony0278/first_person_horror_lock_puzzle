@@ -126,11 +126,31 @@ for (const profile of profiles) {
     await page.screenshot({ path: `${OUT}/door3-walk-mid.png` });
   }
 
+  await page.waitForFunction(() => window.__door3?.().phase === 'cross', null, { timeout: 90000 });
+  await page.waitForTimeout(180);
+  const cross = await page.evaluate(() => window.__door3());
+  check('cross phase passes through the reveal zone before the console leg',
+    cross.walking &&
+    cross.x <= 0 && cross.x > cross.operator.x &&
+    cross.distanceToHub <= 0.25 &&
+    cross.distanceToOperator >= 0.4 &&
+    cross.yaw >= 0 && cross.yaw < cross.operator.yaw,
+    JSON.stringify(cross));
+
   await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
   state = await page.evaluate(() => window.__door3());
-  check('arrival stays at the same pump-hub world position',
-    state.active && state.visible && Math.abs(state.z - state.hubCenterZ) <= 0.02,
-    `camera=${state.z} hub=${state.hubCenterZ}`);
+  check('formal arrival ends at the console operator pose, not the crossroads',
+    state.active && state.visible &&
+    Math.abs(state.x - state.operator.x) <= 0.02 &&
+    Math.abs(state.z - state.operator.z) <= 0.02 &&
+    Math.abs(state.yaw - state.operator.yaw) <= 1 &&
+    state.distanceToOperator <= 0.03 &&
+    state.distanceToHub >= 0.5,
+    JSON.stringify({
+      camera: { x: state.x, z: state.z, yaw: state.yaw },
+      operator: state.operator,
+      distanceToHub: state.distanceToHub,
+    }));
   check('puzzle panel hidden', state.panelHidden, 'panelHidden=' + state.panelHidden);
   check('Door 3 stays within the draw-call budget',
     state.performance.drawCalls <= state.performance.budget.maxDrawCalls,
@@ -165,12 +185,9 @@ for (const profile of profiles) {
     state.sightline.clear,
     JSON.stringify({ console: frontConsole.layout, sightline: state.sightline }));
 
-  const consoleYaw = 30;
-  await page.evaluate(yaw => window.__door3Look(yaw), consoleYaw);
-  await page.waitForTimeout(180);
-  state = await page.evaluate(() => window.__door3());
+  const consoleYaw = state.operator.yaw;
   const consoleBefore = state.console;
-  check('all six tank controls and the gauge are visible after one short left turn',
+  check('automatic console-facing arrival shows all six controls and the gauge',
     consoleBefore.controls.length === 6 &&
     consoleBefore.controls.every(control => control.inView &&
       control.x >= 0 && control.x <= layout.viewport[0] &&

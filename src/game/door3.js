@@ -10,7 +10,7 @@ import {
   PUMP_CONSOLE, adjustPumpLevel, pumpPressureBar,
 } from '../logic/pump-console.js';
 import {
-  DOOR3_APPROACH, door3ApproachZ,
+  DOOR3_APPROACH, door3ApproachX, door3ApproachYaw, door3ApproachZ,
 } from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
@@ -35,6 +35,7 @@ const STEP_SEC = 0.38;
 const ease = x => x * x * (3 - 2 * x);
 const DOOR3_CUE = '工作檯 ± 調液面　·　拖曳環視　·　W / A / S / D';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
+const exploreFov = () => camera.aspect < 0.75 ? 70 : BASE_FOV;
 
 export const D3 = {
   active: false,
@@ -132,20 +133,21 @@ function finishPumpWalk() {
   // Door 3 remains in the same world coordinates as Door 2. The loop keeps
   // this base position after intro.active becomes false, so looking back shows
   // the actual corridor the player just crossed.
-  intro.z = PUMP_HUB.centerWorldZ;
+  intro.x = PUMP_HUB.operatorWorldX;
+  intro.z = PUMP_HUB.operatorWorldZ;
   intro.bobY = 0;
   intro.roll = 0;
   intro.arriveF = 0;
   anim.handsOverride = 'side';
 
-  look.yaw = 0;
-  look.target = 0;
+  look.yaw = PUMP_HUB.operatorYaw;
+  look.target = PUMP_HUB.operatorYaw;
   $turnCue.textContent = DOOR3_CUE;
   D3.phase = 'explore';
   D3.t = 0;
   D3.travelT = DOOR3_APPROACH.runSec;
   D3.stepT = 0;
-  setCameraFov(BASE_FOV);
+  setCameraFov(exploreFov());
 }
 
 hooks.startDoor3 = () => {
@@ -174,6 +176,7 @@ hooks.startDoor3 = () => {
   intro.active = true;
   intro.phase = 'handle';
   intro.t = 0;
+  intro.x = 0;
   intro.z = START_Z;
   intro.bobPhase = 0;
   intro.bobY = 0;
@@ -223,6 +226,7 @@ hooks.resetDoor3 = () => {
 
   R.timer.resume('door3-greybox');
   intro.active = false;
+  intro.x = 0;
   intro.z = 0;
   intro.bobY = 0;
   intro.roll = 0;
@@ -257,10 +261,13 @@ export function updateDoor3(dt) {
       $panel.classList.remove('blind');
       beep('tap');
     }
-  } else if (D3.phase === 'through' || D3.phase === 'walk') {
+  } else if (D3.phase === 'through' || D3.phase === 'walk' || D3.phase === 'cross') {
     D3.travelT += dt;
     D3.stepT += dt;
+    intro.x = door3ApproachX(D3.travelT);
     intro.z = door3ApproachZ(START_Z, PUMP_HUB.centerWorldZ, D3.travelT);
+    look.yaw = door3ApproachYaw(D3.travelT);
+    look.target = look.yaw;
     const progress = Math.min(1, D3.travelT / DOOR3_APPROACH.runSec);
     bobRun(dt, 0.92 + (1 - progress) * 0.18);
     while (D3.stepT >= STEP_SEC) {
@@ -276,17 +283,28 @@ export function updateDoor3(dt) {
       D3.t = 0;
     }
 
+    if (D3.phase === 'walk' && D3.travelT >= DOOR3_APPROACH.hubSec) {
+      D3.phase = 'cross';
+      D3.t = 0;
+    }
+
     if (D3.travelT >= DOOR3_APPROACH.runSec) {
       D3.phase = 'settle';
       D3.t = 0;
-      intro.z = PUMP_HUB.centerWorldZ;
+      intro.x = PUMP_HUB.operatorWorldX;
+      intro.z = PUMP_HUB.operatorWorldZ;
+      look.yaw = PUMP_HUB.operatorYaw;
+      look.target = PUMP_HUB.operatorYaw;
     }
   } else if (D3.phase === 'settle') {
     const settle = Math.max(0, 1 - D3.t / DOOR3_APPROACH.settleSec);
     intro.bobY *= settle;
     intro.roll *= settle;
-    setCameraFov(BASE_FOV + (SPRINT_FOV - BASE_FOV) * settle);
+    const targetFov = exploreFov();
+    setCameraFov(targetFov + (SPRINT_FOV - targetFov) * settle);
     if (D3.t >= DOOR3_APPROACH.settleSec) finishPumpWalk();
+  } else if (D3.phase === 'explore') {
+    setCameraFov(exploreFov());
   }
 
   if (pumpHub.visible) updatePumpHub(dt);

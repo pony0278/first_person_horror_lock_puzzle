@@ -13,7 +13,7 @@ export const DEBUG_SEQUENCES = {
   door1: ['lock'],
   'door1-door2': ['unlock', 'through', 'corner', 'approach', 'arrive', 'door2'],
   door2: ['missing', 'first-fuse', 'burnout', 'final-fuse'],
-  'door2-door3': ['success', 'unlocked', 'open', 'through', 'walk', 'explore'],
+  'door2-door3': ['success', 'unlocked', 'open', 'through', 'walk', 'cross', 'explore'],
   door3: ['explore'],
 } as const;
 
