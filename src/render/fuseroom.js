@@ -65,11 +65,24 @@ for (const y of railY) {
 export const loosePiece = new THREE.Group();
 export const LOOSE = {
   home: new THREE.Vector3(wallX + 0.125, ELECTRO.gapY - 0.01, ELECTRO.gapZ),
+  // The spare lives lower on the transformer cabinet, not in the first socket.
+  // It is revealed only after the blackout, so the second pickup reads as a
+  // finite backup rather than the first fuse magically respawning.
+  spare: new THREE.Vector3(wallX + 0.205, 0.72, Z + 0.42),
   homeRotZ: 0.045,
 };
 loosePiece.position.copy(LOOSE.home);
 loosePiece.rotation.z = LOOSE.homeRotZ;
 electroRoom.add(loosePiece);
+
+/* Empty spare cradle: visible from the start, cartridge revealed on burnout. */
+add(boxGeo, matSocket, 0.032, 0.21, 0.40,
+  LOOSE.spare.x - 0.025, LOOSE.spare.y, LOOSE.spare.z);
+for (const y of [LOOSE.spare.y - 0.07, LOOSE.spare.y + 0.07]) {
+  for (const z of [LOOSE.spare.z - 0.28, LOOSE.spare.z + 0.28])
+    add(cylGeo, matMetal, 0.032, 0.05, 0.032,
+      LOOSE.spare.x + 0.015, y, z, Math.PI / 2);
+}
 
 /** Transit animates this emissive shell while the player is looking at it. */
 export const matLoose = new THREE.MeshStandardMaterial({

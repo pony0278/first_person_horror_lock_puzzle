@@ -1,5 +1,6 @@
 /* Door 1 -> Door 2 -> Door 3 integration acceptance.
-   Door 2 v5 uses a removable dual-channel fuse and four straight/cross switches. */
+   Door 2 uses one cold restart: failed submission burns the first fuse, resets
+   the four switches, advances the monster and forces a spare-fuse pickup. */
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -44,18 +45,18 @@ const waitDoor2 = (timeout = 90000) => page.waitForFunction(
   () => window.__probe().transit === 'door2' && window.__circuit()?.active,
   null, { timeout },
 );
-const autoGrab = async () => {
+const autoGrab = async expectedTug => {
   await page.mouse.move(422, 110);
   await page.mouse.down();
   await page.waitForFunction(() => Math.abs(window.__probe().yaw) >= 130,
     null, { timeout: 30000 });
   const point = await page.evaluate(() => window.__grabPoint());
-  check('Fuse is visible after turning around', Boolean(point),
+  check(`Fuse ${expectedTug} is visible after turning around`, Boolean(point),
     point ? `(${point.x.toFixed(0)},${point.y.toFixed(0)})` : 'null');
   await page.screenshot({ path: `${OUT}/door2-fuse-focus.png` });
-  await page.waitForFunction(() => window.__probe().tug === 1 &&
+  await page.waitForFunction(expected => window.__probe().tug === expected &&
     ['grab', 'retrieved', 'door2'].includes(window.__probe().transit),
-    null, { timeout: 30000 });
+    expectedTug, { timeout: 30000 });
   await page.mouse.up();
   await page.waitForFunction(() => window.__circuit()?.slot === null,
     null, { timeout: 30000 });
@@ -109,7 +110,7 @@ check('Search phase leaks no hidden time',
   Math.abs(frozen.elapsed - beforePickup.elapsed) < 0.15,
   `elapsed ${beforePickup.elapsed.toFixed(2)}>${frozen.elapsed.toFixed(2)}`);
 
-await autoGrab();
+await autoGrab(1);
 const afterPickup = await probe();
 check('A single sustained look retrieves and inserts the fuse',
   afterPickup.tug === 1 && afterPickup.door === 2,
@@ -141,38 +142,60 @@ check('Blindly toggling all four once still fails',
   `solved=${allToggled.solved} cost=${allToggled.cost}`);
 for (const control of state.controls) await tapSwitch(control);
 
-let previousFault = -1;
+const openingStates = JSON.stringify(state.initial);
+const firstFix = await page.evaluate(() => window.__circuitNext());
+await tapSwitch(firstFix);
+await page.evaluate(() => window.__setThreatPaused(false));
+const stationBeforeBurnout = (await probe()).station;
+await pressBreaker();
+await page.waitForFunction(() => window.__circuit()?.power === 'burnout', null, { timeout: 10000 });
+const tripped = await page.evaluate(() => ({
+  state: window.__circuit(), blackout: document.querySelector('#trip').classList.contains('on'),
+  probe: window.__probe(),
+}));
+check('First submitted fault burns the fuse instead of granting unlimited retries',
+  tripped.blackout && !tripped.probe.over && tripped.state.burnouts === 1,
+  `burnouts=${tripped.state.burnouts} over=${tripped.probe.over}`);
+await page.waitForFunction(() => {
+  const s = window.__circuit();
+  return s?.power === 'off' && s.awaitingFuse && s.slot === 0;
+}, null, { timeout: 30000 });
+state = await circuit();
+const pickupPaused = await probe();
+check('Cold restart restores the opening switches but preserves the learned scorch',
+  JSON.stringify(state.switches.map(item => item.state)) === openingStates &&
+  state.scorchedGate === state.fault && state.scorchedGate > 0,
+  `fault=${state.fault} scorch=${state.scorchedGate}`);
+check('Burnout advances exactly one station and freezes the forced pickup interval',
+  pickupPaused.station === Math.min(3, stationBeforeBurnout + 1) &&
+  pickupPaused.pauseReasons.includes('door2-fuse-pickup'),
+  `station=${stationBeforeBurnout}>${pickupPaused.station} pauses=${pickupPaused.pauseReasons.join(',')}`);
+
+const pickupElapsed = pickupPaused.elapsed;
+await page.waitForTimeout(500);
+check('Waiting for the spare leaks no hidden time',
+  Math.abs((await probe()).elapsed - pickupElapsed) < 0.15,
+  `elapsed=${pickupElapsed.toFixed(2)}>${(await probe()).elapsed.toFixed(2)}`);
+await autoGrab(2);
+await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 15000 });
+await page.evaluate(() => window.__setThreatPaused(true));
+state = await circuit();
+check('Spare insertion gives no second free diagnostic',
+  state.fuseNumber === 2 && state.tests === 2 && state.autoTests === 1,
+  `fuse=${state.fuseNumber} tests=${state.tests} auto=${state.autoTests}`);
+
 let changes = 0;
 for (let guard = 0; guard < 4; guard++) {
   const index = await page.evaluate(() => window.__circuitNext());
   if (index < 0) break;
   await tapSwitch(index);
   changes++;
-  state = await circuit();
-  if (state.cost === 0) break;
-  const clock0 = await page.evaluate(() => performance.now());
-  await pressBreaker();
-  await page.waitForFunction(() => window.__circuit()?.power === 'trip', null, { timeout: 10000 });
-  const tripped = await page.evaluate(() => ({
-    state: window.__circuit(), blackout: document.querySelector('#trip').classList.contains('on'),
-    over: window.__probe().over,
-  }));
-  check(`Wrong diagnostic ${changes} causes a recoverable blackout`,
-    tripped.blackout && !tripped.over && tripped.state.lastOutcome === 'fault',
-    `fault=${tripped.state.fault} over=${tripped.over}`);
-  await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 30000 });
-  const clock1 = await page.evaluate(() => performance.now());
-  state = await circuit();
-  check(`Diagnostic ${changes} advances to a later gate`,
-    state.fault > previousFault && clock1 - clock0 >= 750,
-    `fault=${state.fault} wall=${((clock1 - clock0) / 1000).toFixed(2)}s`);
-  previousFault = state.fault;
 }
 
 state = await circuit();
-check('Curated board needs three intentional changes',
-  changes === 3 && state.cost === 0 && state.power === 'off',
-  `changes=${changes} cost=${state.cost}`);
+check('Final cold-restart repair needs the same three intentional changes',
+  changes === 3 && state.cost === 0 && state.power === 'off' && state.scorchedGate !== null,
+  `changes=${changes} cost=${state.cost} scorch=${state.scorchedGate}`);
 const breaker = await page.evaluate(() => window.__circuitBreakerCentre());
 check('Breaker touch target is at least 48px', breaker.r >= 24,
   `diameter=${(breaker.r * 2).toFixed(0)}px`);
@@ -189,6 +212,7 @@ check('Door 2 completion enters the Door 3 pump hub',
   door3.active && door3.visible && door3.panelHidden && door3.probe.door === 3,
   `visible=${door3.visible} door=${door3.probe.door}`);
 
+await page.evaluate(() => window.__setThreatPaused(false));
 await page.evaluate(() => window.__newRound());
 await page.waitForFunction(() => window.__probe().transit === 'idle' && window.__probe().door === 1,
   null, { timeout: 30000 });
@@ -196,7 +220,37 @@ await page.evaluate(() => window.__skipIntro());
 await page.waitForTimeout(250);
 await page.evaluate(() => window.__solveDoor1());
 await waitDoor2();
-await autoGrab();
+await autoGrab(1);
+await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 15000 });
+await page.evaluate(() => window.__setThreatPaused(true));
+const fatalFirstFix = await page.evaluate(() => window.__circuitNext());
+await tapSwitch(fatalFirstFix);
+await pressBreaker();
+await page.waitForFunction(() => window.__circuit()?.awaitingFuse, null, { timeout: 30000 });
+await autoGrab(2);
+await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 15000 });
+await pressBreaker();
+await page.waitForFunction(() => window.__probe().over && !window.__probe().won,
+  null, { timeout: 30000 });
+const fatal = await page.evaluate(() => ({
+  circuit: window.__circuit(), probe: window.__probe(),
+  message: document.querySelector('#fade div')?.textContent || '',
+}));
+check('A wrong submission on the spare fuse is fatal and offers no third pickup',
+  fatal.circuit.burnouts === 2 && !fatal.circuit.awaitingFuse && fatal.probe.over,
+  `burnouts=${fatal.circuit.burnouts} awaiting=${fatal.circuit.awaitingFuse}`);
+check('Fatal cold restart reports one precise cause',
+  fatal.message === '備用保險絲也熔斷了', `message=${fatal.message}`);
+
+await page.evaluate(() => window.__setThreatPaused(false));
+await page.evaluate(() => window.__newRound());
+await page.waitForFunction(() => window.__probe().transit === 'idle' && window.__probe().door === 1,
+  null, { timeout: 30000 });
+await page.evaluate(() => window.__skipIntro());
+await page.waitForTimeout(250);
+await page.evaluate(() => window.__solveDoor1());
+await waitDoor2();
+await autoGrab(1);
 await page.evaluate(() => window.__addThreatTime(25));
 await page.waitForFunction(() => window.__probe().over && !window.__probe().won,
   null, { timeout: 30000 });

@@ -86,6 +86,20 @@ hooks.resetTransit = () => {
   $fade.style.transition = '';
 };
 
+/** Reveal the one spare fuse after Door 2's first cold restart. */
+export function stageDoor2SpareFuse() {
+  if (!T.active || T.phase !== 'door2') return false;
+  loosePiece.visible = true;
+  loosePiece.position.copy(LOOSE.spare);
+  loosePiece.rotation.set(0, 0, LOOSE.homeRotZ);
+  matLoose.emissiveIntensity = LOOSE_GLOW;
+  markerLight.position.copy(LOOSE.spare);
+  markerLight.position.x += 0.12;
+  T.t = 0; T.focusT = 0; T.reachT = 0; T.flyT = 0;
+  anim.handsOverride = null;
+  return true;
+}
+
 /* 電力驟暗：借 #fade 當黑幕。時序獨立於 phase，全黑的那一格做換裝。 */
 let swapped = false;
 function dip(dt) {
@@ -313,7 +327,7 @@ export function tug(aimed = false) {
   if (T.phase !== 'door2') return false;
   if (!aimed && Math.abs(look.yaw) < C.grabYawMin) return false;
 
-  T.tug = 1;
+  T.tug++;
   T.focusT = C.autoGrabSec;
   T.reachT = 0.45;
   anim.handsOverride = 'reach';

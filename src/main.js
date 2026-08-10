@@ -121,16 +121,20 @@ window.__circuit = () => {
   if (!D2.board) return null;
   const solution = solveCircuit(D2.board);
   const trace = traceCircuit(D2.board);
+  const visibleTrace = D2.lastTrace ?? trace;
   const switches = D2.board.switches.map((state, i) => ({ i, state, rot: state }));
   return {
     active: D2.active, phase: D2.phase,
     fuseInstalled: D2.board.fuseInstalled, slot: emptyFuseSlot(D2.board),
-    solved: isCircuitSolved(D2.board), outcome: trace.outcome, fault: trace.fault,
-    passed: [...trace.passed], reached: trace.stages.length,
+    solved: isCircuitSolved(D2.board), outcome: trace.outcome, fault: visibleTrace.fault,
+    passed: [...visibleTrace.passed], reached: visibleTrace.stages.length,
     power: D2.power, lastOutcome: D2.lastOutcome,
     failures: D2.failCount, shorts: D2.failCount,
     tests: D2.tests, autoTests: D2.autoTests,
+    fuseNumber: D2.fuseNumber, burnouts: D2.burnouts,
+    awaitingFuse: D2.awaitingFuse, scorchedGate: D2.scorchedGate,
     controls: [0, 1, 2, 3], switches, selectors: switches, diverters: switches,
+    initial: [...D2.board.initial],
     fuse: D2.board.fuseInstalled,
     cueT: +CB.cueT.toFixed(2), cueSerial: CB.cueSerial,
     cueLight: +markerLight.intensity.toFixed(2),

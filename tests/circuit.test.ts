@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CIRCUIT_POOL, applyCircuitSolution, emptyFuseSlot, gatesFor, insertFuse,
+  CIRCUIT_POOL, applyCircuitSolution, coldResetCircuit, emptyFuseSlot, fuseFaultDisposition,
+  gatesFor, insertFuse,
   isCircuitSolved, newCircuit, seededCircuit, solutionFor, solveCircuit,
   toggleSwitch, traceCircuit,
 } from '../src/logic/circuit';
@@ -100,6 +101,36 @@ describe('開局、公平性與診斷', () => {
     insertFuse(board);
     expect(applyCircuitSolution(board)).toBe(true);
     expect(solveCircuit(board)?.cost).toBe(0);
+  });
+
+  it('熔斷只重置操作進度，不更換題目、閘門或答案', () => {
+    const board = seededCircuit(31);
+    const opening = [...board.switches];
+    const gates = board.gates.map(gate => ({ ...gate }));
+    const solution = [...board.solution];
+    const id = board.id;
+    insertFuse(board);
+    toggleSwitch(board, 0);
+    toggleSwitch(board, 1);
+    const learnedFault = traceCircuit(board).fault;
+
+    expect(coldResetCircuit(board)).toBe(true);
+    expect(board.fuseInstalled).toBe(false);
+    expect(board.switches).toEqual(opening);
+    expect(board.id).toBe(id);
+    expect(board.gates).toEqual(gates);
+    expect(board.solution).toEqual(solution);
+    expect(learnedFault).not.toBeNull();
+    expect(coldResetCircuit(board)).toBe(false);
+
+    expect(insertFuse(board)).toBe(true);
+    expect(solveCircuit(board)?.cost).toBe(3);
+  });
+
+  it('免費診斷、第一根與備用保險絲各有唯一失敗結果', () => {
+    expect(fuseFaultDisposition(true, 1)).toBe('free-diagnostic');
+    expect(fuseFaultDisposition(false, 1)).toBe('burnout');
+    expect(fuseFaultDisposition(false, 2)).toBe('fatal');
   });
 });
 

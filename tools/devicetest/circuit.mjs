@@ -49,6 +49,7 @@ const missing = await page.evaluate(() => window.__circuit());
 check('Fuse slot is visible before pickup and controls are locked',
   missing.slot === 0 && missing.cost === -1 && missing.power === 'off',
   `slot=${missing.slot} cost=${missing.cost} power=${missing.power}`);
+const openingSwitches = JSON.stringify(missing.switches.map(item => item.state));
 
 await page.evaluate(() => {
   window.__insertDoor2Fuse();
@@ -72,27 +73,46 @@ check('All four switch hit columns exceed the 44px mobile target', spacing >= 88
 check('Breaker target diameter is at least 48px', breaker.r * 2 >= 48,
   `diameter=${(breaker.r * 2).toFixed(1)}px`);
 
-let diagnosisSteps = 0;
+const firstFix = await page.evaluate(() => window.__circuitNext());
+await page.touchscreen.tap(switchPoints[firstFix].x, switchPoints[firstFix].y);
+await page.touchscreen.tap(breaker.x, breaker.y);
+await page.waitForFunction(() => window.__circuit()?.power === 'burnout', null, { timeout: 10000 });
+const burnoutStation = await page.evaluate(() => window.__probe().station);
+await page.waitForFunction(() => {
+  const state = window.__circuit();
+  return state?.power === 'off' && state.awaitingFuse;
+}, null, { timeout: 10000 });
+const burned = await page.evaluate(() => ({ circuit: window.__circuit(), probe: window.__probe() }));
+check('First submitted fault burns the fuse and restores the opening switches',
+  burned.circuit.burnouts === 1 && burned.circuit.slot === 0 &&
+  JSON.stringify(burned.circuit.switches.map(item => item.state)) === openingSwitches,
+  `burnouts=${burned.circuit.burnouts} slot=${burned.circuit.slot}`);
+check('Cold restart keeps the learned fault as a permanent scorch',
+  burned.circuit.scorchedGate === burned.circuit.fault && burned.circuit.scorchedGate > 0,
+  `fault=${burned.circuit.fault} scorch=${burned.circuit.scorchedGate}`);
+check('Burnout advances the monster once and pauses the mandatory pickup',
+  burnoutStation === 1 && burned.probe.pauseReasons.includes('door2-fuse-pickup'),
+  `station=${burnoutStation} pauses=${burned.probe.pauseReasons.join(',')}`);
+
+await page.evaluate(() => window.__insertDoor2Fuse());
+await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 10000 });
+const restarted = await page.evaluate(() => ({ circuit: window.__circuit(), probe: window.__probe() }));
+check('Spare fuse resumes the same board without another free diagnostic',
+  restarted.circuit.fuseNumber === 2 && restarted.circuit.tests === 2 &&
+  restarted.circuit.autoTests === 1 && !restarted.probe.pauseReasons.includes('door2-fuse-pickup'),
+  `fuse=${restarted.circuit.fuseNumber} tests=${restarted.circuit.tests} auto=${restarted.circuit.autoTests}`);
+
+let repairSteps = 0;
 for (let guard = 0; guard < 4; guard++) {
   const index = await page.evaluate(() => window.__circuitNext());
   if (index < 0) break;
-  const point = switchPoints[index];
-  await page.touchscreen.tap(point.x, point.y);
-  diagnosisSteps++;
-  const ready = await page.evaluate(() => window.__circuit());
-  if (ready.cost === 0) break;
-  await page.touchscreen.tap(breaker.x, breaker.y);
-  await page.waitForFunction(() => window.__circuit()?.power === 'off', null, { timeout: 10000 });
-  const diagnosed = await page.evaluate(() => window.__circuit());
-  check(`Diagnostic ${diagnosisSteps} advances beyond the repaired section`,
-    diagnosed.fault === null || diagnosed.fault >= diagnosisSteps,
-    `fault=${diagnosed.fault} cost=${diagnosed.cost}`);
+  await page.touchscreen.tap(switchPoints[index].x, switchPoints[index].y);
+  repairSteps++;
 }
-
 const configured = await page.evaluate(() => window.__circuit());
-check('Curated opening requires three intentional switch changes',
-  diagnosisSteps === 3 && configured.cost === 0 && configured.power === 'off',
-  `changes=${diagnosisSteps} cost=${configured.cost}`);
+check('Cold restart remains a short three-change final repair',
+  repairSteps === 3 && configured.cost === 0 && configured.scorchedGate !== null,
+  `changes=${repairSteps} cost=${configured.cost} scorch=${configured.scorchedGate}`);
 await page.screenshot({ path: `${OUT}/door2-circuit-ready.png` });
 
 await page.touchscreen.tap(breaker.x, breaker.y);

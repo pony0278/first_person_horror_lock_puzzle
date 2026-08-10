@@ -197,4 +197,8 @@ describe('門 2 失敗原因', () => {
   it('保險絲已取回後只歸因時間不足', () => {
     expect(door2Cause(true)).toBe('時間不夠');
   });
+
+  it('第二根保險絲熔斷時只回報最後的致命原因', () => {
+    expect(door2Cause(false, 2)).toBe('備用保險絲也熔斷了');
+  });
 });

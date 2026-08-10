@@ -127,7 +127,9 @@ export function completeDoor() {
 }
 
 export function primaryCause() {
-  if (R.door === 2) return door2Cause(Boolean(hooks.door2HasPiece?.()));
+  if (R.door === 2) return door2Cause(
+    Boolean(hooks.door2HasPiece?.()), Number(hooks.door2Burnouts?.() ?? 0),
+  );
   return primaryCauseOf({
     jamSec: R.jamTime / 1000,
     lookSec: R.lookTime / 1000,

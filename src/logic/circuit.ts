@@ -14,6 +14,7 @@ export type SwitchState = 0 | 1;
 export type Rail = 0 | 1;
 export type Signal = 'red' | 'blue';
 export type CircuitOutcome = 'missing' | 'fault' | 'solved';
+export type FuseFaultDisposition = 'free-diagnostic' | 'burnout' | 'fatal';
 
 export interface CircuitSpec {
   readonly id: string;
@@ -30,6 +31,8 @@ export interface Gate {
 export interface CircuitBoard {
   readonly id: string;
   readonly switches: SwitchState[];
+  /** Curated opening state restored after the first fuse burns out. */
+  readonly initial: readonly [SwitchState, SwitchState, SwitchState, SwitchState];
   readonly solution: readonly [SwitchState, SwitchState, SwitchState, SwitchState];
   readonly gates: readonly [Gate, Gate, Gate, Gate];
   fuseInstalled: boolean;
@@ -105,6 +108,7 @@ export function newCircuit(
   return {
     id: spec.id,
     switches,
+    initial: [...switches] as [SwitchState, SwitchState, SwitchState, SwitchState],
     solution,
     gates: gatesFor(spec),
     fuseInstalled: false,
@@ -146,6 +150,25 @@ export function insertFuse(board: CircuitBoard): boolean {
   if (board.fuseInstalled) return false;
   board.fuseInstalled = true;
   return true;
+}
+
+/**
+ * Burn the installed fuse and restore only the physical switch positions.
+ * The board identity, gate targets and solution stay unchanged, so the player
+ * keeps every fact learned from the failed diagnostic instead of receiving a
+ * different puzzle.
+ */
+export function coldResetCircuit(board: CircuitBoard): boolean {
+  if (!board.fuseInstalled) return false;
+  board.fuseInstalled = false;
+  board.switches.splice(0, board.switches.length, ...board.initial);
+  return true;
+}
+
+/** Automatic teaching pulse is free; one replacement fuse is the hard limit. */
+export function fuseFaultDisposition(automatic: boolean, fuseNumber: number): FuseFaultDisposition {
+  if (automatic) return 'free-diagnostic';
+  return fuseNumber <= 1 ? 'burnout' : 'fatal';
 }
 
 export function canToggleSwitch(board: CircuitBoard, index: number): boolean {

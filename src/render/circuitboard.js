@@ -11,7 +11,7 @@ const C = {
   plate: '#090d12', plate2: '#10171e', edge: '#29333c', seam: '#1d262e',
   track: '#4b5861', trackHi: '#73818a', brass: '#b69a62', brassDim: '#665a42',
   red: '#e55d64', redCore: '#ffd6d5', blue: '#5688e8', blueCore: '#d7e5ff',
-  good: '#74c994', bad: '#d26862', spark: '#ffe5a8', ghost: '#52616c',
+  good: '#74c994', bad: '#d26862', scorch: '#6f332f', spark: '#ffe5a8', ghost: '#52616c',
 };
 
 const FLOW_STAGE_SEC = 0.22;
@@ -272,13 +272,13 @@ function drawLockGlyph(x, y, open, color) {
   ctx.stroke();
 }
 
-function drawGate(board, index, L, trace, power, dim) {
+function drawGate(board, index, L, trace, power, dim, scorched = false) {
   const x = L.seqX + (index * 2 + 1) * L.unit + 4;
   const y = 6, w = L.unit - 8, h = L.h - 12;
   const reached = power === 'testing' && CB.flow >= index + 0.98;
   const passed = (trace?.passed ?? []).includes(index) && (power !== 'testing' || reached);
   const failed = trace?.fault === index && (power !== 'testing' || reached);
-  moduleFrame(x, y, w, h, failed ? C.bad : passed ? C.good : null);
+  moduleFrame(x, y, w, h, failed ? C.bad : passed ? C.good : scorched ? C.scorch : null);
   ctx.globalAlpha = 0.5 + dim * 0.5;
   line(x + 5, L.topY, x + w - 5, L.topY, C.track, 5);
   line(x + 5, L.bottomY, x + w - 5, L.bottomY, C.track, 5);
@@ -291,12 +291,25 @@ function drawGate(board, index, L, trace, power, dim) {
     ctx.strokeStyle = '#53616a'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x + w / 2, L.topY + 10); ctx.lineTo(x + w / 2, L.bottomY - 10); ctx.stroke();
   }
-  if (failed) drawSpark(x + w / 2, L.h / 2);
+  if (scorched) drawScorch(x + w / 2, L.h / 2);
+  if (failed && power !== 'off' && power !== 'reboot') drawSpark(x + w / 2, L.h / 2);
+}
+
+function drawScorch(x, y) {
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = '#120d0c';
+  ctx.beginPath(); ctx.ellipse(x, y, 13, 7, -0.18, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#7a3930'; ctx.lineWidth = 1.3;
+  for (const [dx, dy] of [[-15, -7], [14, -6], [-12, 9], [15, 8]]) {
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + dx, y + dy); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawBreaker(board, L, power) {
   const active = power === 'testing' || power === 'boot' || power === 'solved';
-  const tripped = power === 'trip';
+  const tripped = power === 'trip' || power === 'burnout' || power === 'fatal';
   const ready = board.fuseInstalled && power === 'off';
   const pulse = ready ? 1 + 0.06 * Math.sin(performance.now() / 240) : 1;
   const ring = tripped ? C.bad : active ? '#8de2ef' : ready ? '#7faeb8' : C.ghost;
@@ -368,7 +381,7 @@ function drawSpark(x, y) {
   ctx.restore();
 }
 
-export function drawCircuit(board, dt, dimF = 1, power = 'off', lastTrace = null) {
+export function drawCircuit(board, dt, dimF = 1, power = 'off', lastTrace = null, scorchedGate = null) {
   const L = layout();
   const dpr = Math.min(devicePixelRatio, 2);
   if (circuitCanvas.width !== Math.round(L.w * dpr) || circuitCanvas.height !== Math.round(L.h * dpr)) sizeCircuit();
@@ -396,7 +409,7 @@ export function drawCircuit(board, dt, dimF = 1, power = 'off', lastTrace = null
   drawFuse(board, L, dim);
   for (let i = 0; i < 4; i++) {
     drawSwitch(board, i, L, dim);
-    drawGate(board, i, L, trace, power, dim);
+    drawGate(board, i, L, trace, power, dim, scorchedGate === i);
   }
   if (power === 'testing' || power === 'solved') drawFlow(trace, L);
   drawBreaker(board, L, power);

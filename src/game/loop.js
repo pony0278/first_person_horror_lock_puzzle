@@ -167,15 +167,19 @@ export function tick() {
   // ── 怪物：離散站位。移動只發生在玩家低頭時 ──────────
   {
     const S = CFG.stations, D = CFG.dread;
+    // Door 2's replacement pickup is mandatory. Its fixed one-station advance
+    // is already paid at burnout, so no lethal face/lurk progression may run
+    // while the player is forced to look away from the board.
+    const threatFrozen = R.door === 2 && D2.awaitingFuse;
 
     // 該到下一站了嗎
     let want = 0;
     for (let i = 0; i < ST.thresholds.length; i++) if (R.elapsed >= ST.thresholds[i]) want = i + 1;
     want = Math.min(want, S.z.length - 1);
-    if (want > ST.index && !R.over) ST.pendingJump = true;
+    if (want > ST.index && !R.over && !threatFrozen) ST.pendingJump = true;
 
     // 凝視計時：一直盯著會鎖住牠，但鎖不了太久
-    ST.stareT = blind() ? ST.stareT + dt : 0;
+    ST.stareT = !threatFrozen && blind() ? ST.stareT + dt : 0;
     const stareForced = ST.pendingJump && ST.stareT > S.stareLimit;
 
     // 換站條件：玩家沒在看，或凝視太久（此時藉燈閃遮掩位移）
@@ -197,11 +201,11 @@ export function tick() {
     // ── 潛伏：抵達最後一站後，牠不在那裡 ──────────────
     // 每次回頭看到空走廊算一次；累積夠了，下一次回頭牠就貼在你臉上。
     // 觸發權在玩家手上，所以絕不會錯過，而且愛看的人比較快遇到。
-    if (ST.phase === 'off' && ST.index >= S.z.length - 1 && !R.over) {
+    if (!threatFrozen && ST.phase === 'off' && ST.index >= S.z.length - 1 && !R.over) {
       ST.phase = 'lurk'; ST.glanceT = 0; ST.counted = false;
     }
 
-    if (ST.phase === 'lurk') {
+    if (ST.phase === 'lurk' && !threatFrozen) {
       if (blind()) {
         ST.glanceT += dt;
         // 看滿門檻算一次；持續盯著的話每隔一段再算一次（盯空走廊也是一種空無）
@@ -213,7 +217,7 @@ export function tick() {
         }
       } else { ST.glanceT = 0; ST.counted = false; }
     }
-    else if (ST.phase === 'armed') {
+    else if (ST.phase === 'armed' && !threatFrozen) {
       // 兩種兌現方式：轉回門鎖後再回頭，或盯著空走廊盯到牠出現
       if (!blind()) { ST.readyOff = true; ST.armedT = 0; }
       else ST.armedT += dt;
@@ -225,7 +229,7 @@ export function tick() {
         beep('face');
       }
     }
-    else if (ST.phase === 'face') {
+    else if (ST.phase === 'face' && !threatFrozen) {
       ST.faceT += dt;
       // 保底：整局沒遇過正面事件的人（例如全程盯著走廊），
       // 在極限窗口轉回門鎖的瞬間補一次門把 —— 出路也不安全。
@@ -407,7 +411,7 @@ export function tick() {
   // 死亡條件：
   //  · 臉已經出現 → 給 faceGraceSec 的極限窗口，那一秒還能解鎖活下來
   //  · 潛伏中但玩家一直不回頭 → 超時後強制兌現貼臉，再走同一條窗口
-  if (!R.over) {
+  if (!R.over && !(R.door === 2 && D2.awaitingFuse)) {
     const S2 = CFG.stations;
     const overtime = R.elapsed > R.limit + CFG.round.grabMs / 1000;
     if (ST.phase === 'face') {
