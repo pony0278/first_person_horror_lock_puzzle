@@ -65,6 +65,12 @@ for (const profile of profiles) {
   check('pump room has no transmission pass and at most two point lights',
     state.performance.transmissionMaterials === 0 && state.performance.pointLights <= 2,
     JSON.stringify(state.performance));
+  check('repeated props and static shell are batched',
+    state.performance.batching.instancedBatches >= 3 &&
+    state.performance.batching.instances >= 30 &&
+    state.performance.batching.staticBatches >= 3 &&
+    state.performance.batching.batchedSourceDrawCalls >= 55,
+    JSON.stringify(state.performance.batching));
   check('continuous approach never starts behind the camera',
     Math.abs(state.z) <= 0.05 && state.hubCenterZ < state.doorZ,
     `phase=${state.phase} walking=${state.walking} visible=${state.visible}`);
@@ -124,6 +130,15 @@ for (const profile of profiles) {
     state.active && state.visible && Math.abs(state.z - state.hubCenterZ) <= 0.02,
     `camera=${state.z} hub=${state.hubCenterZ}`);
   check('puzzle panel hidden', state.panelHidden, 'panelHidden=' + state.panelHidden);
+  check('Door 3 stays within the draw-call budget',
+    state.performance.drawCalls <= state.performance.budget.maxDrawCalls,
+    `calls=${state.performance.drawCalls}/${state.performance.budget.maxDrawCalls}`);
+  check('rolling frame-time probe has live finite samples',
+    state.performance.frameTime.samples >= 30 &&
+    Number.isFinite(state.performance.frameTime.averageMs) &&
+    Number.isFinite(state.performance.frameTime.p95Ms) &&
+    Number.isFinite(state.performance.frameTime.worstMs),
+    JSON.stringify(state.performance.frameTime));
 
   const layout = await page.evaluate(() => {
     const view = document.getElementById('view').getBoundingClientRect();

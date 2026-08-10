@@ -102,6 +102,7 @@ function finishPumpWalk() {
 hooks.startDoor3 = () => {
   if (D3.active) return false;
 
+  hooks.resetDoor3FrameTimes?.();
   T.active = false;
   T.phase = 'done';
   D3.active = true;
@@ -158,6 +159,7 @@ hooks.startDoor3 = () => {
 };
 
 hooks.resetDoor3 = () => {
+  hooks.resetDoor3FrameTimes?.();
   D3.active = false;
   D3.phase = 'idle';
   D3.t = 0;

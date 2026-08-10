@@ -4,6 +4,7 @@
  * The three-tank pressure puzzle and three-way monster chase stay inactive.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DOOR_Z, boxGeo, cylGeo, planeGeo, scene } from './scene.js';
 import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
 
@@ -99,41 +100,80 @@ const addPipe = (parent, length, radius, x, y, z, axis = 'y', mat = matPipe) => 
   return mesh;
 };
 
+const transformMatrix = ([sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0]) =>
+  new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(sx, sy, sz),
+  );
+
+/** Merge immutable solid boxes that share one material into one draw call. */
+const addMergedBoxes = (parent, mat, definitions, name) => {
+  const sources = definitions.map(definition => boxGeo.clone().applyMatrix4(
+    transformMatrix(definition),
+  ));
+  const geometry = mergeGeometries(sources, false);
+  sources.forEach(source => source.dispose());
+  if (!geometry) throw new Error(`Unable to merge Door 3 geometry batch: ${name}`);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, mat);
+  mesh.name = name;
+  mesh.userData.performanceBatch = 'static';
+  mesh.userData.sourceDrawCalls = definitions.length;
+  parent.add(mesh);
+  return mesh;
+};
+
+/** Repeated props keep independent transforms while sharing geometry/material state. */
+const addInstancedBoxes = (parent, mat, definitions, name) => {
+  const mesh = new THREE.InstancedMesh(boxGeo, mat, definitions.length);
+  definitions.forEach((definition, index) => {
+    mesh.setMatrixAt(index, transformMatrix(definition));
+  });
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.computeBoundingBox();
+  mesh.computeBoundingSphere();
+  mesh.name = name;
+  mesh.userData.performanceBatch = 'instances';
+  mesh.userData.sourceDrawCalls = definitions.length;
+  parent.add(mesh);
+  return mesh;
+};
+
 /* Cross-shaped footprint: centre and four branches remain visually distinct. */
 const frontLen = Math.abs(FRONT_END) - HUB_HALF;
 const rearLen = REAR_END - HUB_HALF;
 const sideLen = SIDE_END - HUB_HALF;
 
-addBox(pumpHub, matFloor, HUB_HALF * 2, 0.08, HUB_HALF * 2, 0, -0.04, 0);
-addBox(pumpHub, matFloor, HUB_HALF * 2, 0.08, frontLen, 0, -0.04,
-  -(HUB_HALF + frontLen / 2));
-addBox(pumpHub, matFloor, BRANCH_HALF * 2, 0.08, rearLen, 0, -0.04,
-  HUB_HALF + rearLen / 2);
-addBox(pumpHub, matFloor, sideLen, 0.08, BRANCH_HALF * 2,
-  -(HUB_HALF + sideLen / 2), -0.04, 0);
-addBox(pumpHub, matFloor, sideLen, 0.08, BRANCH_HALF * 2,
-  HUB_HALF + sideLen / 2, -0.04, 0);
-
-for (const [sx, sz, x, z] of [
+const surfaceFootprint = [
   [HUB_HALF * 2, HUB_HALF * 2, 0, 0],
   [HUB_HALF * 2, frontLen, 0, -(HUB_HALF + frontLen / 2)],
   [BRANCH_HALF * 2, rearLen, 0, HUB_HALF + rearLen / 2],
   [sideLen, BRANCH_HALF * 2, -(HUB_HALF + sideLen / 2), 0],
   [sideLen, BRANCH_HALF * 2, HUB_HALF + sideLen / 2, 0],
-]) addBox(pumpHub, matCeil, sx, 0.10, sz, x, H + 0.05, z);
+];
+addMergedBoxes(pumpHub, matFloor,
+  surfaceFootprint.map(([sx, sz, x, z]) => [sx, 0.08, sz, x, -0.04, z]),
+  'door3-floor-batch');
+addMergedBoxes(pumpHub, matCeil,
+  surfaceFootprint.map(([sx, sz, x, z]) => [sx, 0.10, sz, x, H + 0.05, z]),
+  'door3-ceiling-batch');
 
 /* Short corner walls and columns frame each opening without narrowing sightlines. */
 const cornerSpan = HUB_HALF - BRANCH_HALF;
+const wallDefinitions = [];
 for (const z of [-HUB_HALF, HUB_HALF]) {
   for (const side of [-1, 1]) {
-    addBox(pumpHub, matWall, cornerSpan, H, 0.12,
-      side * (BRANCH_HALF + cornerSpan / 2), H / 2, z);
+    wallDefinitions.push([cornerSpan, H, 0.12,
+      side * (BRANCH_HALF + cornerSpan / 2), H / 2, z]);
   }
 }
 for (const x of [-HUB_HALF, HUB_HALF]) {
   for (const side of [-1, 1]) {
-    addBox(pumpHub, matWall, 0.12, H, cornerSpan,
-      x, H / 2, side * (BRANCH_HALF + cornerSpan / 2));
+    wallDefinitions.push([0.12, H, cornerSpan,
+      x, H / 2, side * (BRANCH_HALF + cornerSpan / 2)]);
   }
 }
 for (const x of [-HUB_HALF + 0.16, HUB_HALF - 0.16]) {
@@ -145,34 +185,36 @@ for (const x of [-HUB_HALF + 0.16, HUB_HALF - 0.16]) {
 
 /* Branch walls. The wider front arm keeps both the bulkhead and tanks readable. */
 for (const x of [-HUB_HALF, HUB_HALF])
-  addBox(pumpHub, matWall, 0.12, H, frontLen, x, H / 2,
-    -(HUB_HALF + frontLen / 2));
+  wallDefinitions.push([0.12, H, frontLen, x, H / 2,
+    -(HUB_HALF + frontLen / 2)]);
 for (const x of [-BRANCH_HALF, BRANCH_HALF])
-  addBox(pumpHub, matWall, 0.12, H, rearLen, x, H / 2,
-    HUB_HALF + rearLen / 2);
+  wallDefinitions.push([0.12, H, rearLen, x, H / 2,
+    HUB_HALF + rearLen / 2]);
 for (const z of [-BRANCH_HALF, BRANCH_HALF]) {
-  addBox(pumpHub, matWall, sideLen, H, 0.12,
-    -(HUB_HALF + sideLen / 2), H / 2, z);
-  addBox(pumpHub, matWall, sideLen, H, 0.12,
-    HUB_HALF + sideLen / 2, H / 2, z);
+  wallDefinitions.push([sideLen, H, 0.12,
+    -(HUB_HALF + sideLen / 2), H / 2, z]);
+  wallDefinitions.push([sideLen, H, 0.12,
+    HUB_HALF + sideLen / 2, H / 2, z]);
 }
+addMergedBoxes(pumpHub, matWall, wallDefinitions, 'door3-wall-batch');
 
 /* Repeated bulkhead ribs make forward motion readable across the long incoming
  * connector. They frame the centre sightline but never enter it. */
 const matApproachLamp = new THREE.MeshBasicMaterial({ color: 0x6d3328 });
+const approachRibDefinitions = [];
+const approachLampDefinitions = [];
 for (const z of [15.2, 11.2, 7.2, 3.2]) {
   for (const side of [-1, 1]) {
-    const pillar = addBox(pumpHub, matBulkhead, 0.16, H, 0.18,
-      side * (BRANCH_HALF - 0.08), H / 2, z);
-    pillar.name = 'door3-approach-rib';
+    approachRibDefinitions.push([0.16, H, 0.18,
+      side * (BRANCH_HALF - 0.08), H / 2, z]);
   }
-  const beam = addBox(pumpHub, matBulkhead, BRANCH_HALF * 2, 0.16, 0.18,
-    0, H - 0.08, z);
-  beam.name = 'door3-approach-rib';
-  const tube = addBox(pumpHub, matApproachLamp, 0.42, 0.035, 0.10,
-    0, H - 0.19, z - 0.08);
-  tube.name = 'door3-approach-lamp';
+  approachRibDefinitions.push([BRANCH_HALF * 2, 0.16, 0.18,
+    0, H - 0.08, z]);
+  approachLampDefinitions.push([0.42, 0.035, 0.10,
+    0, H - 0.19, z - 0.08]);
 }
+addInstancedBoxes(pumpHub, matBulkhead, approachRibDefinitions, 'door3-approach-ribs');
+addInstancedBoxes(pumpHub, matApproachLamp, approachLampDefinitions, 'door3-approach-lamps');
 
 /* Deep exits reveal only darkness and a restrained directional colour. */
 const rearVoid = addBox(pumpHub, matDark, BRANCH_HALF * 2, H, 0.04,
@@ -296,14 +338,26 @@ pumpHub.add(rightLight);
 addBox(pumpHub, matMetal, 0.48, 0.07, 0.16, 5.7, 2.73, 0);
 
 /* Incoming branch: hanging chains and a dim red lamp layer the distant approach. */
+const chainGeometry = new THREE.TorusGeometry(0.065, 0.014, 6, 10);
+const chainDefinitions = [];
 for (const x of [-0.42, 0.38]) {
   for (let i = 0; i < 7; i++) {
-    const link = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.014, 6, 10), matMetal);
-    link.position.set(x, 2.86 - i * 0.15, 5.2 + (x > 0 ? 0.32 : 0));
-    link.rotation.y = i % 2 ? Math.PI / 2 : 0;
-    pumpHub.add(link);
+    chainDefinitions.push([1, 1, 1, x, 2.86 - i * 0.15,
+      5.2 + (x > 0 ? 0.32 : 0), 0, i % 2 ? Math.PI / 2 : 0, 0]);
   }
 }
+const chainLinks = new THREE.InstancedMesh(chainGeometry, matMetal, chainDefinitions.length);
+chainDefinitions.forEach((definition, index) => {
+  chainLinks.setMatrixAt(index, transformMatrix(definition));
+});
+chainLinks.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+chainLinks.instanceMatrix.needsUpdate = true;
+chainLinks.computeBoundingBox();
+chainLinks.computeBoundingSphere();
+chainLinks.name = 'door3-chain-links';
+chainLinks.userData.performanceBatch = 'instances';
+chainLinks.userData.sourceDrawCalls = chainDefinitions.length;
+pumpHub.add(chainLinks);
 const matRearTube = new THREE.MeshBasicMaterial({ color: 0x612721, toneMapped: false });
 addBox(pumpHub, matRearTube, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
 

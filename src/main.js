@@ -231,10 +231,22 @@ function door3SightlineProbe() {
 function door3PerformanceProbe() {
   let pointLights = 0;
   let transparentSurfaces = 0;
+  let instancedBatches = 0;
+  let instances = 0;
+  let staticBatches = 0;
+  let batchedSourceDrawCalls = 0;
   const transmissionMaterials = new Set();
   scene.traverse(object => {
     if (!visibleInHierarchy(object)) return;
     if (object.isPointLight) pointLights++;
+    if (object.isInstancedMesh) {
+      instancedBatches++;
+      instances += object.count;
+    }
+    if (object.userData.performanceBatch === 'static') staticBatches++;
+    if (object.userData.performanceBatch) {
+      batchedSourceDrawCalls += Number(object.userData.sourceDrawCalls) || 0;
+    }
     if (!object.isMesh || !object.material) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
@@ -246,6 +258,10 @@ function door3PerformanceProbe() {
   const cssHeight = renderer.domElement.clientHeight;
   const bufferWidth = renderer.domElement.width;
   const bufferHeight = renderer.domElement.height;
+  const frameTime = hooks.door3FrameTimes?.() ?? {
+    samples: 0, averageMs: 0, p95Ms: 0, worstMs: 0,
+    slowFrames: 0, slowFrameRatio: 0,
+  };
   return {
     pixelRatio: +renderer.getPixelRatio().toFixed(2),
     pixelRatioCap: renderPixelRatioCap(),
@@ -258,10 +274,25 @@ function door3PerformanceProbe() {
     transparentSurfaces,
     drawCalls: renderer.info.render.calls,
     triangles: renderer.info.render.triangles,
+    batching: {
+      instancedBatches,
+      instances,
+      staticBatches,
+      batchedSourceDrawCalls,
+    },
+    frameTime: {
+      samples: frameTime.samples,
+      averageMs: +frameTime.averageMs.toFixed(2),
+      p95Ms: +frameTime.p95Ms.toFixed(2),
+      worstMs: +frameTime.worstMs.toFixed(2),
+      slowFrames: frameTime.slowFrames,
+      slowFrameRatio: +frameTime.slowFrameRatio.toFixed(3),
+    },
     wetStepBufferBuilds: audioPerformanceState().wetStepBufferBuilds,
     budget: DOOR3_PERFORMANCE,
   };
 }
+hooks.door3Performance = door3PerformanceProbe;
 
 window.__door3 = () => ({
   active: D3.active,

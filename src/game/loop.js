@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { CFG } from '../logic/config.js';
+import { RollingFrameTime } from '../logic/door3-performance.js';
 import { $dev, $panel, $pins, view } from '../dom.js';
 import { drawCutaway, renderPins, sizeCut, tracks } from '../render/cutaway.js';
 import { decay, decayStages, envLevel, lamp, lampFixture, reflection, seepUni } from '../render/decay.js';
@@ -15,16 +16,30 @@ import { interrupted } from './halt.js';
 import { die } from './round.js';
 import { T, cinematic, updateTransit } from './transit.js';
 import { D2, updateDoor2 } from './door2-circuit.js';
-import { updateDoor3 } from './door3.js';
+import { D3, updateDoor3 } from './door3.js';
 import { debugThreatFrozen, updateDebug } from './debug.js';
 /* ═══════════════════════════════════════════════════════════
    主迴圈
    ═══════════════════════════════════════════════════════════ */
 
 export const clock = new THREE.Clock();
+const door3FrameTimes = new RollingFrameTime();
+let door3LastFrameAt = null;
+
+hooks.resetDoor3FrameTimes = () => {
+  door3FrameTimes.reset();
+  door3LastFrameAt = null;
+};
+hooks.door3FrameTimes = () => door3FrameTimes.snapshot();
 
 /* anim.timeScale 已併入 anim（見上方 ui/anim 的說明） */
-export function tick() {
+export function tick(frameAt) {
+  const frameNow = Number.isFinite(frameAt) ? frameAt : performance.now();
+  if (D3.active) {
+    if (door3LastFrameAt !== null) door3FrameTimes.record(frameNow - door3LastFrameAt);
+    door3LastFrameAt = frameNow;
+  } else door3LastFrameAt = null;
+
   let dt = Math.min(clock.getDelta(), 0.05);
   dt *= anim.timeScale * anim.debugScale;
 

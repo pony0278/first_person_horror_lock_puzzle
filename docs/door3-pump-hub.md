@@ -1,6 +1,6 @@
 # Door 3：淹水十字泵房
 
-狀態：**Long Continuous Pump Approach v2＋Performance Stabilization v2.1 已接入；水量謎題與怪物追逐尚未解凍。**
+狀態：**Long Continuous Pump Approach v2＋Performance Stabilization v2.2 已接入；水量謎題與怪物追逐尚未解凍。**
 
 這份文件記錄 Door 3 已確定的空間契約，避免後續解謎或怪物系統破壞已驗證的視線。
 
@@ -54,6 +54,8 @@
 - 泵房只保留左暖、右冷兩顆 PointLight；連接廊、正面與後方燈具以 MeshBasicMaterial 發光外觀取代動態燈。
 - 三缸玻璃禁止 transmission，積水與缸內液體不使用 PBR 光照；透明材質使用單次繪製。
 - 濕腳步的程序化 noise buffer 每個 AudioContext 只建立一次，以 playback rate 與濾波變化避免重複感。
+- 12 個長廊肋架、4 個導引燈管與 14 個鏈節使用 3 個 InstancedMesh；5 片地板、5 片天花板與 16 片牆面依材質合併為 3 個靜態 Mesh。原本 56 個來源 draw calls 由 6 個批次承接。
+- Door 3 效能探針回報 draw calls、三角形、PointLight、transmission、drawing-buffer 像素、批次數與最近 120 幀的平均／P95／最差 frame-time；超過 33.3ms 的幀另行計數。
 - 灰盒階段不啟動計時器、怪物或正式水量操作。
 
 ## 下一階段仍待決定
@@ -78,6 +80,8 @@ tools/devicetest/door3-scene.mjs 會在手機橫向與直向檢查：
 - 手電筒在穿門起步與接近中段都維持遠距亮度。
 - 全視窗實際 DPR 不超過 1.5，drawing-buffer 像素不超過同尺寸的 1.5² 預算。
 - 可見 PointLight 不超過 2，非零 transmission 材質必須為 0。
+- 重複物件至少形成 3 個 InstancedMesh／30 個 instance，靜態殼體至少形成 3 個合併批次；批次必須承接至少 55 個原始 draw calls。
+- 抵達泵房後實際 draw calls 不超過 120；rolling frame-time 必須取得至少 30 筆有限數值樣本。CI 的軟體 WebGL 只驗證探針有效，不用其毫秒數冒充真機門檻。
 - 長廊濕腳步重複使用同一個程序化 AudioBuffer，不得每步重新配置。
 - Door 3 階段下方面板完全收起，3D 視野佔滿視窗。
 - 正面、左、右、後四個錨點在對應視角內可見。
