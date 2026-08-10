@@ -11,6 +11,7 @@ import {
 } from '../logic/pump-console.js';
 import {
   DOOR3_APPROACH, door3ApproachX, door3ApproachYaw, door3ApproachZ,
+  door3OperatorProgress,
 } from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
@@ -32,10 +33,11 @@ const BASE_FOV = camera.fov;
 const SPRINT_FOV = BASE_FOV + 3.5;
 const APPROACH_FOG = 0.041;
 const STEP_SEC = 0.38;
+const CONSOLE_STEP_SEC = 0.48;
 const ease = x => x * x * (3 - 2 * x);
 const DOOR3_CUE = '工作檯 ± 調液面　·　拖曳環視　·　W / A / S / D';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
-const exploreFov = () => camera.aspect < 0.75 ? 70 : BASE_FOV;
+const exploreFov = () => camera.aspect < 0.75 ? 80 : BASE_FOV;
 
 export const D3 = {
   active: false,
@@ -261,14 +263,14 @@ export function updateDoor3(dt) {
       $panel.classList.remove('blind');
       beep('tap');
     }
-  } else if (D3.phase === 'through' || D3.phase === 'walk' || D3.phase === 'cross') {
+  } else if (D3.phase === 'through' || D3.phase === 'walk') {
     D3.travelT += dt;
     D3.stepT += dt;
     intro.x = door3ApproachX(D3.travelT);
     intro.z = door3ApproachZ(START_Z, PUMP_HUB.centerWorldZ, D3.travelT);
     look.yaw = door3ApproachYaw(D3.travelT);
     look.target = look.yaw;
-    const progress = Math.min(1, D3.travelT / DOOR3_APPROACH.runSec);
+    const progress = Math.min(1, D3.travelT / DOOR3_APPROACH.hubSec);
     bobRun(dt, 0.92 + (1 - progress) * 0.18);
     while (D3.stepT >= STEP_SEC) {
       D3.stepT -= STEP_SEC;
@@ -286,8 +288,45 @@ export function updateDoor3(dt) {
     if (D3.phase === 'walk' && D3.travelT >= DOOR3_APPROACH.hubSec) {
       D3.phase = 'cross';
       D3.t = 0;
+      D3.travelT = DOOR3_APPROACH.hubSec;
+      D3.stepT = 0;
+      intro.x = 0;
+      intro.z = PUMP_HUB.centerWorldZ;
+      look.yaw = 0;
+      look.target = 0;
     }
-
+  } else if (D3.phase === 'cross') {
+    intro.x = 0;
+    intro.z = PUMP_HUB.centerWorldZ;
+    look.yaw = 0;
+    look.target = 0;
+    intro.bobY *= Math.max(0, 1 - dt * 8);
+    intro.roll *= Math.max(0, 1 - dt * 8);
+    const hold = ease(Math.min(1, D3.t / DOOR3_APPROACH.crossHoldSec));
+    setCameraFov(SPRINT_FOV + (BASE_FOV - SPRINT_FOV) * hold);
+    setFlashlightRange(1);
+    if (D3.t >= DOOR3_APPROACH.crossHoldSec) {
+      D3.phase = 'console';
+      D3.t = 0;
+      D3.travelT = DOOR3_APPROACH.hubSec + DOOR3_APPROACH.crossHoldSec;
+      D3.stepT = CONSOLE_STEP_SEC * 0.35;
+    }
+  } else if (D3.phase === 'console') {
+    D3.travelT = Math.min(DOOR3_APPROACH.runSec, D3.travelT + dt);
+    D3.stepT += dt;
+    intro.x = door3ApproachX(D3.travelT);
+    intro.z = door3ApproachZ(START_Z, PUMP_HUB.centerWorldZ, D3.travelT);
+    look.yaw = door3ApproachYaw(D3.travelT);
+    look.target = look.yaw;
+    const operatorProgress = door3OperatorProgress(D3.travelT);
+    bobRun(dt, 0.52);
+    while (D3.stepT >= CONSOLE_STEP_SEC) {
+      D3.stepT -= CONSOLE_STEP_SEC;
+      wetStep(0.72);
+    }
+    const targetFov = exploreFov();
+    setCameraFov(BASE_FOV + (targetFov - BASE_FOV) * operatorProgress);
+    setFlashlightRange(1);
     if (D3.travelT >= DOOR3_APPROACH.runSec) {
       D3.phase = 'settle';
       D3.t = 0;
@@ -300,8 +339,7 @@ export function updateDoor3(dt) {
     const settle = Math.max(0, 1 - D3.t / DOOR3_APPROACH.settleSec);
     intro.bobY *= settle;
     intro.roll *= settle;
-    const targetFov = exploreFov();
-    setCameraFov(targetFov + (SPRINT_FOV - targetFov) * settle);
+    setCameraFov(exploreFov());
     if (D3.t >= DOOR3_APPROACH.settleSec) finishPumpWalk();
   } else if (D3.phase === 'explore') {
     setCameraFov(exploreFov());

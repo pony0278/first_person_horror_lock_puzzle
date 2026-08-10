@@ -58,4 +58,9 @@ describe('Developer Debug Lab URL contract', () => {
       expect(debugStages(sequence).length).toBeGreaterThan(0);
     }
   });
+
+  it('exposes the crossroads hold before the console walk checkpoint', () => {
+    const stages = debugStages('door2-door3');
+    expect(stages.slice(-3)).toEqual(['cross', 'console', 'explore']);
+  });
 });

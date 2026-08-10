@@ -37,7 +37,8 @@ const STAGE_LABELS = {
   missing: '尚未取得保險絲', 'first-fuse': '第一根已插入',
   burnout: '熔斷後／第二次回頭', 'final-fuse': '最後機會',
   success: '正解提交瞬間', unlocked: '電磁鎖解開', open: 'Door 2 開門',
-  walk: '直線接近十字中心', cross: '十字中心／轉向工作檯', explore: '工作檯操作位',
+  walk: '直線接近十字中心', cross: '十字中心／停留觀察',
+  console: '走向工作檯正面', explore: '工作檯正面操作位',
 };
 
 const el = id => document.getElementById(id);

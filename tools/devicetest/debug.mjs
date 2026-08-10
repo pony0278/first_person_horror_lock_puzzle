@@ -107,6 +107,15 @@ check('Door 2 to Door 3 walk checkpoint enters through the real transition machi
   door3Walk.door3.active && door3Walk.door3.visible && door3Walk.door3.walking,
   JSON.stringify(door3Walk));
 
+await page.evaluate(() => window.__debugLoad('door2-door3', 'console'));
+const door3Console = await page.evaluate(() => ({ lab: window.__debugLab(), door3: window.__door3() }));
+check('Console checkpoint starts the post-pause walk toward the centred operator pose',
+  door3Console.lab.stage === 'console' && door3Console.lab.phase === 'console' &&
+  door3Console.door3.walking &&
+  Math.abs(door3Console.door3.operator.x - door3Console.door3.console.layout.x) <= 0.02 &&
+  Math.abs(door3Console.door3.operator.yaw) <= 0.1,
+  JSON.stringify(door3Console));
+
 check('Debug mode produces no browser exceptions', errors.length === 0,
   errors.slice(0, 3).join(' | ') || 'none');
 console.log(`\n=== FAIL ${failures} ===`);

@@ -7,36 +7,39 @@ export const DOOR3_APPROACH = Object.freeze({
   throughSec: 0.34,
   /** Time spent on the straight run from Door 2 to the pump-hub centre. */
   hubSec: 4.90,
-  /** Total run, including the final left-forward move to the console. */
-  runSec: 5.64,
+  /** Still beat at the crossroads, so the room reveal has time to register. */
+  crossHoldSec: 0.70,
+  /** Slower walk from the crossroads to the console operation line. */
+  consoleSec: 1.12,
+  /** Total movement sequence, including the crossroads hold. */
+  runSec: 6.72,
   /** Residual head-bob settles after the player reaches the console. */
   settleSec: 0.42,
 });
 
 /** Operator pose in pump-hub local coordinates. */
 export const DOOR3_OPERATOR = Object.freeze({
-  x: -0.62,
+  x: -1.40,
   z: -0.25,
-  yawDeg: 21.5,
+  yawDeg: 0,
 });
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const smoothstep = (value: number) => value * value * (3 - 2 * value);
 
 /**
- * The whole run uses one curve even though Debug exposes through, walk,
- * and cross checkpoints. The final leg bends left only after the camera has
- * reached the hub centre, so the intersection remains a readable reveal point.
+ * The hall run stops at the hub centre. A separate operator curve starts only
+ * after the crossroads hold, so the reveal is a real stationary beat.
  */
 export function door3ApproachProgress(elapsedSec: number): number {
   const progress = clamp01(elapsedSec / DOOR3_APPROACH.hubSec);
   return 1 - Math.pow(1 - progress, 1.08);
 }
 
-/** Final left-forward leg after the camera crosses the hub centre. */
+/** Final walk to the centred, straight-on console operation line. */
 export function door3OperatorProgress(elapsedSec: number): number {
-  const span = DOOR3_APPROACH.runSec - DOOR3_APPROACH.hubSec;
-  return smoothstep(clamp01((elapsedSec - DOOR3_APPROACH.hubSec) / span));
+  const start = DOOR3_APPROACH.hubSec + DOOR3_APPROACH.crossHoldSec;
+  return smoothstep(clamp01((elapsedSec - start) / DOOR3_APPROACH.consoleSec));
 }
 
 export function door3ApproachZ(

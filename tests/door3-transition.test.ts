@@ -9,21 +9,27 @@ import {
   door3OperatorProgress,
 } from '../src/logic/door3-transition';
 
-describe('Door 2 to Door 3 continuous console approach v3', () => {
-  it('opens once, reveals the hub, then continues to the console', () => {
+describe('Door 2 to Door 3 crossroads hold and console approach v4', () => {
+  it('opens once, reveals the hub, pauses, then walks to the console', () => {
     expect(DOOR3_APPROACH.openSec).toBeGreaterThanOrEqual(0.7);
     expect(DOOR3_APPROACH.hubSec).toBeGreaterThanOrEqual(4.8);
     expect(DOOR3_APPROACH.hubSec).toBeLessThanOrEqual(5.0);
     expect(DOOR3_APPROACH.runSec).toBeGreaterThan(DOOR3_APPROACH.hubSec);
-    expect(DOOR3_APPROACH.runSec).toBeLessThanOrEqual(5.8);
+    expect(DOOR3_APPROACH.crossHoldSec).toBeGreaterThanOrEqual(0.6);
+    expect(DOOR3_APPROACH.consoleSec).toBeGreaterThanOrEqual(1);
+    expect(DOOR3_APPROACH.runSec).toBeLessThanOrEqual(6.9);
     expect(DOOR3_APPROACH.throughSec).toBeLessThan(DOOR3_APPROACH.hubSec);
   });
 
   it('passes through the hub centre before ending at the operator pose', () => {
+    const operatorStart = DOOR3_APPROACH.hubSec + DOOR3_APPROACH.crossHoldSec;
     expect(door3ApproachZ(0, -19.62, 0)).toBe(0);
     expect(door3ApproachZ(0, -19.62, DOOR3_APPROACH.hubSec)).toBe(-19.62);
     expect(door3ApproachX(DOOR3_APPROACH.hubSec)).toBe(0);
     expect(door3ApproachYaw(DOOR3_APPROACH.hubSec)).toBe(0);
+    expect(door3ApproachZ(0, -19.62, operatorStart)).toBe(-19.62);
+    expect(door3ApproachX(operatorStart)).toBe(0);
+    expect(door3ApproachYaw(operatorStart)).toBe(0);
 
     expect(door3ApproachZ(0, -19.62, DOOR3_APPROACH.runSec))
       .toBeCloseTo(-19.62 + DOOR3_OPERATOR.z, 6);
@@ -44,14 +50,27 @@ describe('Door 2 to Door 3 continuous console approach v3', () => {
       door3ApproachZ(0, -19.62, i * 0.05));
     expect(samples.every((value, i) => i === 0 || value <= samples[i - 1]!)).toBe(true);
 
-    for (const boundary of [DOOR3_APPROACH.throughSec, DOOR3_APPROACH.hubSec]) {
+    const operatorStart = DOOR3_APPROACH.hubSec + DOOR3_APPROACH.crossHoldSec;
+    for (const boundary of [
+      DOOR3_APPROACH.throughSec, DOOR3_APPROACH.hubSec, operatorStart,
+    ]) {
       const before = door3ApproachZ(0, -19.62, boundary - 0.001);
       const after = door3ApproachZ(0, -19.62, boundary + 0.001);
       expect(Math.abs(after - before)).toBeLessThan(0.02);
     }
 
     expect(door3OperatorProgress(DOOR3_APPROACH.hubSec)).toBe(0);
+    expect(door3OperatorProgress(operatorStart)).toBe(0);
     expect(door3OperatorProgress(DOOR3_APPROACH.runSec)).toBe(1);
+  });
+
+  it('keeps the entire crossroads hold stationary before the centred approach', () => {
+    const midpoint = DOOR3_APPROACH.hubSec + DOOR3_APPROACH.crossHoldSec / 2;
+    expect(door3ApproachX(midpoint)).toBe(0);
+    expect(door3ApproachZ(0, -19.62, midpoint)).toBe(-19.62);
+    expect(door3ApproachYaw(midpoint)).toBe(0);
+    expect(DOOR3_OPERATOR.x).toBe(-1.4);
+    expect(DOOR3_OPERATOR.yawDeg).toBe(0);
   });
 
   it('clamps delayed and negative frames safely', () => {

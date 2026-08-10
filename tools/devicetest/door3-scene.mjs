@@ -129,23 +129,39 @@ for (const profile of profiles) {
   await page.waitForFunction(() => window.__door3?.().phase === 'cross', null, { timeout: 90000 });
   await page.waitForTimeout(180);
   const cross = await page.evaluate(() => window.__door3());
-  check('cross phase passes through the reveal zone before the console leg',
+  check('cross phase holds still at the reveal point before the console walk',
     cross.walking &&
-    cross.x <= 0 && cross.x > cross.operator.x &&
-    cross.distanceToHub <= 0.25 &&
-    cross.distanceToOperator >= 0.4 &&
-    cross.yaw >= 0 && cross.yaw < cross.operator.yaw,
+    Math.abs(cross.x) <= 0.02 &&
+    Math.abs(cross.z - cross.hubCenterZ) <= 0.02 &&
+    cross.distanceToHub <= 0.03 &&
+    cross.distanceToOperator >= 1.35 &&
+    Math.abs(cross.yaw) <= 0.5,
     JSON.stringify(cross));
+
+  await page.waitForFunction(() => {
+    const state = window.__door3?.();
+    return state?.phase === 'console' && state.x < -0.08;
+  }, null, { timeout: 90000 });
+  const consoleWalk = await page.evaluate(() => window.__door3());
+  check('after the pause, the player walks from the crossroads to the console centreline',
+    consoleWalk.walking &&
+    consoleWalk.x < -0.08 && consoleWalk.x > consoleWalk.operator.x &&
+    consoleWalk.z < consoleWalk.hubCenterZ && consoleWalk.z > consoleWalk.operator.z &&
+    consoleWalk.distanceToOperator < cross.distanceToOperator &&
+    Math.abs(consoleWalk.yaw) <= 0.5,
+    JSON.stringify(consoleWalk));
 
   await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
   state = await page.evaluate(() => window.__door3());
-  check('formal arrival ends at the console operator pose, not the crossroads',
+  check('formal arrival is centred directly in front of the console',
     state.active && state.visible &&
     Math.abs(state.x - state.operator.x) <= 0.02 &&
     Math.abs(state.z - state.operator.z) <= 0.02 &&
-    Math.abs(state.yaw - state.operator.yaw) <= 1 &&
+    Math.abs(state.operator.x - state.console.layout.x) <= 0.02 &&
+    Math.abs(state.yaw) <= 1 &&
+    Math.abs(state.operator.yaw) <= 0.1 &&
     state.distanceToOperator <= 0.03 &&
-    state.distanceToHub >= 0.5,
+    state.distanceToHub >= 1.35,
     JSON.stringify({
       camera: { x: state.x, z: state.z, yaw: state.yaw },
       operator: state.operator,
