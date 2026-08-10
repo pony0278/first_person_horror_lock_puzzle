@@ -10,7 +10,7 @@ import { hd, updateHands } from '../render/hands.js';
 import { flash3d, markerLight, markerMat, vig, vigMat } from '../render/hintwall.js';
 import { FACE_DROP, MP, monster, monsterHead, monsterTorso } from '../render/monster.js';
 import { camera, cylinder, door, doorLever, dust, keyEye, pickTool, renderer, scene, wrench } from '../render/scene.js';
-import { R, ST, anim, blind, intro, look, pick, ui } from '../state.js';
+import { R, ST, anim, blind, hooks, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
 import { die } from './round.js';
