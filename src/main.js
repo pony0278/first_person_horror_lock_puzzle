@@ -40,7 +40,7 @@ import './game/loop.js';
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
 import { R, ST, hooks, intro, look } from './state.js';
-import { camera, renderer, scene } from './render/scene.js';
+import { DOOR_Z, camera, renderer, scene } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
 import { newRound, skipIntro } from './game/round.js';
@@ -51,7 +51,7 @@ import { inferPinOrder, missingPuzzlePins } from './logic/pin-puzzle.js';
 import { emptyFuseSlot, isCircuitSolved, solveCircuit, traceCircuit } from './logic/circuit.js';
 import { CB, breakerCentreClient, switchCentreClient } from './render/circuitboard.js';
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
-import { door3Anchors, pumpHub } from './render/pumphub.js';
+import { PUMP_HUB, door3Anchors, pumpHub } from './render/pumphub.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
 import { resize } from './render/viewport.js';
@@ -181,7 +181,11 @@ window.__door3 = () => ({
   visible: pumpHub.visible,
   yaw: +look.yaw.toFixed(1),
   x: +camera.position.x.toFixed(2),
-  z: +intro.z.toFixed(2),
+  z: +camera.position.z.toFixed(2),
+  doorZ: +DOOR_Z.toFixed(2),
+  rearOpeningZ: +(pumpHub.position.z + PUMP_HUB.rearEndZ).toFixed(2),
+  hubCenterZ: +pumpHub.position.z.toFixed(2),
+  distanceToHub: +Math.abs(camera.position.z - pumpHub.position.z).toFixed(2),
   walking: intro.active,
   panelHidden: document.body.classList.contains('door3'),
   fadeOpacity: +getComputedStyle(document.getElementById('fade')).opacity,

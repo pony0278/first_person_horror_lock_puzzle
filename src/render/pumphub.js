@@ -4,7 +4,7 @@
  * The three-tank pressure puzzle and three-way monster chase stay inactive.
  */
 import * as THREE from 'three';
-import { boxGeo, cylGeo, planeGeo, scene } from './scene.js';
+import { DOOR_Z, boxGeo, cylGeo, planeGeo, scene } from './scene.js';
 import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
 
 const H = 3.45;
@@ -13,18 +13,24 @@ const BRANCH_HALF = 1.28;
 const FRONT_END = -7.55;
 const REAR_END = 11.2;
 const SIDE_END = 11.2;
+const CENTER_WORLD_Z = DOOR_Z - REAR_END;
 
 export const PUMP_HUB = Object.freeze({
   height: H,
   hubHalf: HUB_HALF,
   frontDoorZ: FRONT_END,
   rearEndZ: REAR_END,
+  /** Door 2 and the rear pump corridor share this exact world-space seam. */
+  rearOpeningWorldZ: DOOR_Z,
+  /** The camera remains here during Door 3 exploration; no arrival teleport. */
+  centerWorldZ: CENTER_WORLD_Z,
   leftEndX: -SIDE_END,
   rightEndX: SIDE_END,
 });
 
 export const pumpHub = new THREE.Group();
 pumpHub.name = 'door3-pump-hub';
+pumpHub.position.z = CENTER_WORLD_Z;
 pumpHub.visible = false;
 scene.add(pumpHub);
 
@@ -154,6 +160,9 @@ const leftVoid = addBox(pumpHub, matDark, 0.04, H, BRANCH_HALF * 2,
 const rightVoid = addBox(pumpHub, matDark, 0.04, H, BRANCH_HALF * 2,
   SIDE_END, H / 2, 0);
 rearVoid.name = 'door3-rear-void';
+// Door 2 now opens directly into this branch. The old dark cap would turn the
+// connection into a wall and hide the pump room until after a scene swap.
+rearVoid.visible = false;
 leftVoid.name = 'door3-left-void';
 rightVoid.name = 'door3-right-void';
 

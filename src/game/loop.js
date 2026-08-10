@@ -117,7 +117,12 @@ export function tick() {
                       THREE.MathUtils.degToRad(look.yaw),
                       THREE.MathUtils.degToRad(intro.roll || 0), 'YXZ');
   const standX = 0.30 * intro.arriveF * (1 - Math.min(1, Math.abs(look.yaw) / 90));
-  const camZ = intro.active && intro.phase === 'run' ? intro.z : 0;
+  // Door 3 shares world coordinates with Door 2. Keep the pump-hub centre as
+  // the exploration origin after the run ends instead of snapping the camera
+  // back to z=0 (the Door 2 threshold).
+  const camZ = R.door === 3
+    ? intro.z
+    : intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(standX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
   // Door 2 找件前沿用上一回合的 R.over 凍結計時，但盤面要看得見；仍由 pointer handler

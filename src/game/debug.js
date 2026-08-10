@@ -32,12 +32,12 @@ const SEQUENCE_LABELS = {
 
 const STAGE_LABELS = {
   start: '正常開局', lock: '鎖前（略過開場）',
-  unlock: '解鎖瞬間', through: '穿門瞬間', corner: '轉角停電',
+  unlock: '解鎖瞬間', through: '連續穿門', corner: '轉角停電',
   approach: '跑向下一門', arrive: '下一門前減速', door2: 'Door 2 初始化',
   missing: '尚未取得保險絲', 'first-fuse': '第一根已插入',
   burnout: '熔斷後／第二次回頭', 'final-fuse': '最後機會',
   success: '正解提交瞬間', unlocked: '電磁鎖解開', open: 'Door 2 開門',
-  walk: '泵房進場步行', explore: '泵房中心',
+  walk: '直線接近泵房', explore: '泵房中心',
 };
 
 const el = id => document.getElementById(id);

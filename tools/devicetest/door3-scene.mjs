@@ -9,6 +9,11 @@ const chromiumPath = process.env.CHROMIUM_PATH
 const PAGE_URL = process.env.F0_URL || 'http://127.0.0.1:4173/index.html';
 const OUT = fileURLToPath(new URL('./build/shots/', import.meta.url));
 fs.mkdirSync(OUT, { recursive: true });
+const scenarioUrl = () => {
+  const url = new URL(PAGE_URL);
+  url.search = '?debug=1&sequence=door2-door3&stage=open&speed=0.25&loop=0&seed=1842';
+  return url.href;
+};
 
 let failures = 0;
 const check = (label, ok, detail) => {
@@ -41,38 +46,51 @@ for (const profile of profiles) {
   const errors = [];
   page.on('pageerror', error => errors.push(String(error).slice(0, 240)));
 
-  await page.goto(PAGE_URL, { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => typeof window.__startDoor3 === 'function');
-  const started = await page.evaluate(() => window.__startDoor3());
-  check('scene starts', started, 'start=' + started);
+  await page.goto(scenarioUrl(), { waitUntil: 'load' });
+  await page.waitForFunction(() => typeof window.__debugLab === 'function' &&
+    window.__door3?.().phase === 'open');
 
   let state = await page.evaluate(() => window.__door3());
-  check('transition opens Door 2 before swapping worlds',
-    state.phase === 'open' && state.walking && !state.visible,
+  check('Door 2 and the distant pump room coexist before movement',
+    state.phase === 'open' && state.walking && state.visible &&
+    Math.abs(state.doorZ - state.rearOpeningZ) <= 0.01,
+    `phase=${state.phase} visible=${state.visible} seam=${state.doorZ}/${state.rearOpeningZ}`);
+  check('continuous approach never starts behind the camera',
+    Math.abs(state.z) <= 0.05 && state.hubCenterZ < state.doorZ,
     `phase=${state.phase} walking=${state.walking} visible=${state.visible}`);
 
-  await page.waitForFunction(() => window.__door3?.().phase === 'walk', null, { timeout: 90000 });
-  const walkStart = await page.evaluate(() => window.__door3());
-  check('walk starts only after the scene cover is fully gone',
-    walkStart.fadeOpacity <= 0.01,
-    `fade=${walkStart.fadeOpacity}`);
-  check('carried flashlight reveals the rear corridor from the first step',
-    walkStart.flashlightIntensity >= 30,
-    `flashlight=${walkStart.flashlightIntensity}`);
-  check('Door 3 approach stays straight',
-    Math.abs(walkStart.yaw) <= 0.5 && Math.abs(walkStart.x) <= 0.05,
-    `yaw=${walkStart.yaw} x=${walkStart.x}`);
+  // Continue the legal transition at full speed after the deliberately slow
+  // opening checkpoint has been observed, then collapse the Debug overlay.
+  await page.locator('button[data-speed="2"]').click();
+  await page.keyboard.press('Backquote');
+  await page.waitForFunction(() => window.__door3?.().phase === 'through', null, { timeout: 90000 });
+  const thresholdStart = await page.evaluate(() => window.__door3());
+  check('the open door immediately reveals the flooded destination',
+    thresholdStart.visible && thresholdStart.anchors.front.inView &&
+    thresholdStart.fadeOpacity <= 0.01,
+    `front=${JSON.stringify(thresholdStart.anchors.front)} fade=${thresholdStart.fadeOpacity}`);
+  check('carried flashlight lights the connector from the first running frame',
+    thresholdStart.flashlightIntensity >= 30,
+    `flashlight=${thresholdStart.flashlightIntensity}`);
+  check('Door 3 approach starts straight through the threshold',
+    Math.abs(thresholdStart.yaw) <= 0.5 && Math.abs(thresholdStart.x) <= 0.05 &&
+    thresholdStart.z <= 0.05,
+    `yaw=${thresholdStart.yaw} x=${thresholdStart.x} z=${thresholdStart.z}`);
   if (profile.name === 'landscape') {
     await page.screenshot({ path: `${OUT}/door3-walk-start.png` });
   }
+
+  await page.waitForFunction(() => window.__door3?.().phase === 'walk', null, { timeout: 10000 });
+  const walkStart = await page.evaluate(() => window.__door3());
   await page.waitForFunction(startZ => {
     const state = window.__door3?.();
     return state?.phase === 'walk' && state.z < startZ - 0.45;
   }, walkStart.z, { timeout: 10000 });
   const walkMoved = await page.evaluate(() => window.__door3());
-  check('camera walks in from the rear pump corridor',
-    walkStart.visible && walkStart.z > 6 && walkMoved.z < walkStart.z,
-    `z=${walkStart.z}>${walkMoved.z}`);
+  check('camera keeps advancing toward the already-visible hub',
+    walkStart.visible && walkStart.z < 0 && walkMoved.z < walkStart.z &&
+    walkMoved.distanceToHub < walkStart.distanceToHub,
+    `z=${walkStart.z}>${walkMoved.z} distance=${walkStart.distanceToHub}>${walkMoved.distanceToHub}`);
   check('flashlight stays bright instead of fading back to lock range',
     walkMoved.flashlightIntensity >= 30 && walkMoved.fadeOpacity <= 0.01,
     `flashlight=${walkMoved.flashlightIntensity} fade=${walkMoved.fadeOpacity}`);
@@ -82,7 +100,9 @@ for (const profile of profiles) {
 
   await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
   state = await page.evaluate(() => window.__door3());
-  check('hub replaces corridor', state.active && state.visible, JSON.stringify(state));
+  check('arrival stays at the same pump-hub world position',
+    state.active && state.visible && Math.abs(state.z - state.hubCenterZ) <= 0.02,
+    `camera=${state.z} hub=${state.hubCenterZ}`);
   check('puzzle panel hidden', state.panelHidden, 'panelHidden=' + state.panelHidden);
 
   const layout = await page.evaluate(() => {

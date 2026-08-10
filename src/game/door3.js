@@ -5,31 +5,21 @@
  */
 
 import { CFG } from '../logic/config.js';
-import { DOOR3_REVEAL, door3CoverOpacity } from '../logic/door3-transition.js';
+import {
+  DOOR3_APPROACH, door3ApproachZ,
+} from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
-import {
-  corridorSeams, corridorShell, door, doorEnvironment, doorHinge, dust, scene, vestibule,
-} from '../render/scene.js';
+import { doorHinge, scene } from '../render/scene.js';
 import { monster } from '../render/monster.js';
-import {
-  decayGroup, lamp, lampFixture, reflection, seepPatches, waterPlane,
-} from '../render/decay.js';
-import { flash3d, marker, markerLight, paintPlane } from '../render/hintwall.js';
-import { electroRoom } from '../render/fuseroom.js';
-import { doorPanel2 } from '../render/doorpanel.js';
-import { pumpHub, updatePumpHub } from '../render/pumphub.js';
+import { flash3d } from '../render/hintwall.js';
+import { PUMP_HUB, pumpHub, updatePumpHub } from '../render/pumphub.js';
 import { resize } from '../render/viewport.js';
 import { beep } from './audio.js';
 import { T } from './transit.js';
 
 const OPEN_RAD = 1.92;
-const OPEN_SEC = 0.78;
-const THROUGH_SEC = 0.88;
-const THROUGH_Z = -2.35;
-const WALK_SEC = 3.10;
-const SETTLE_SEC = 0.46;
-const PUMP_ENTRY_Z = 7.60;
+const START_Z = 0;
 const ease = x => x * x * (3 - 2 * x);
 const DOOR3_CUE = '左右拖曳環視　·　W / A / S / D 快速轉向';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
@@ -38,62 +28,13 @@ export const D3 = {
   active: false,
   phase: 'idle',
   t: 0,
+  travelT: 0,
 };
-
-function hidePreviousWorld() {
-  corridorShell.visible = false;
-  corridorSeams.visible = false;
-  door.visible = false;
-  doorEnvironment.visible = false;
-  vestibule.visible = false;
-  dust.visible = false;
-
-  paintPlane.visible = false;
-  marker.visible = false;
-  markerLight.visible = false;
-  electroRoom.visible = false;
-  doorPanel2.visible = false;
-  monster.visible = false;
-
-  lamp.visible = false;
-  lampFixture.visible = false;
-  decayGroup.visible = false;
-  decayGroup.userData.farLight.visible = false;
-  decayGroup.userData.farTube.visible = false;
-  for (const patch of seepPatches) patch.mesh.visible = false;
-  waterPlane.visible = false;
-  reflection.mesh.visible = false;
-}
-
-function restorePreviousWorld() {
-  corridorShell.visible = true;
-  corridorSeams.visible = true;
-  door.visible = true;
-  doorEnvironment.visible = true;
-  vestibule.visible = true;
-  dust.visible = true;
-
-  markerLight.visible = true;
-  lamp.visible = true;
-  lampFixture.visible = true;
-  decayGroup.visible = true;
-  decayGroup.userData.farLight.visible = true;
-  decayGroup.userData.farTube.visible = true;
-}
 
 function bobWalk(dt, strength = 1) {
   intro.bobPhase += dt * 6.0;
   intro.bobY = Math.sin(intro.bobPhase * 2) * 0.025 * strength;
   intro.roll = Math.sin(intro.bobPhase) * 0.72 * strength;
-}
-
-function setSceneCover(opacity) {
-  // Inline opacity is intentional during this transition: CSS milliseconds do
-  // not respect Debug pause or playback speed. It is cleared before walking so
-  // later death/interruption fades can keep using the shared #fade element.
-  $fade.classList.remove('on');
-  $fade.style.transition = 'none';
-  $fade.style.opacity = String(Math.max(0, Math.min(1, opacity)));
 }
 
 function clearSceneCover() {
@@ -102,54 +43,23 @@ function clearSceneCover() {
   $fade.style.opacity = '';
 }
 
-// Swap worlds at the peak of a brief cover; reveal the rear pump corridor
-// while stationary, then begin the straight walk only after the cover is gone.
-function enterPumpWalk() {
-  hidePreviousWorld();
-  pumpHub.visible = true;
-
-  R.door = 3;
-  R.over = true;
-  R.won = true;
-  R.timer.pause('door3-greybox');
-
-  ST.front = null;
-  ST.phase = 'off';
-  ST.pendingJump = false;
-  monster.visible = false;
-
-  intro.active = true;
-  intro.phase = 'run';
-  intro.t = 0;
-  intro.z = PUMP_ENTRY_Z;
-  intro.bobPhase = 0;
-  intro.bobY = 0;
-  intro.roll = 0;
-  intro.arriveF = 0;
-
-  look.yaw = 0;
-  look.target = 0;
-  look.holding = false;
-  anim.handsOverride = null;
-
-  // The carried flashlight is the primary reveal light. Apply the long-range
-  // beam immediately instead of waiting for the next render-loop frame.
-  flash3d.intensity = CFG.light.far.intensity;
-  flash3d.decay = CFG.light.far.decay;
-  flash3d.angle = CFG.light.far.angle;
-
-  scene.fog.density = 0.052;
-  $panel.classList.remove('blind');
-  D3.phase = 'reveal';
-  D3.t = 0;
-  beep('thunk');
+function setFlashlightRange(progress = 1) {
+  const p = ease(Math.max(0, Math.min(1, progress)));
+  const near = CFG.light.near;
+  const far = CFG.light.far;
+  flash3d.intensity = near.intensity + (far.intensity - near.intensity) * p;
+  flash3d.decay = near.decay + (far.decay - near.decay) * p;
+  flash3d.angle = near.angle + (far.angle - near.angle) * p;
 }
 
 function finishPumpWalk() {
   intro.active = false;
   intro.phase = 'handle';
   intro.t = 0;
-  intro.z = 0;
+  // Door 3 remains in the same world coordinates as Door 2. The loop keeps
+  // this base position after intro.active becomes false, so looking back shows
+  // the actual corridor the player just crossed.
+  intro.z = PUMP_HUB.centerWorldZ;
   intro.bobY = 0;
   intro.roll = 0;
   intro.arriveF = 0;
@@ -160,6 +70,7 @@ function finishPumpWalk() {
   $turnCue.textContent = DOOR3_CUE;
   D3.phase = 'explore';
   D3.t = 0;
+  D3.travelT = DOOR3_APPROACH.runSec;
 }
 
 hooks.startDoor3 = () => {
@@ -170,8 +81,10 @@ hooks.startDoor3 = () => {
   D3.active = true;
   D3.phase = 'open';
   D3.t = 0;
+  D3.travelT = 0;
 
   // Keep the shared intro state machine from competing for the camera.
+  R.door = 3;
   R.over = true;
   R.won = true;
   R.timer.pause('door3-greybox');
@@ -183,7 +96,7 @@ hooks.startDoor3 = () => {
   intro.active = true;
   intro.phase = 'handle';
   intro.t = 0;
-  intro.z = 0;
+  intro.z = START_Z;
   intro.bobPhase = 0;
   intro.bobY = 0;
   intro.roll = 0;
@@ -193,6 +106,12 @@ hooks.startDoor3 = () => {
   look.target = 0;
   look.holding = false;
   anim.handsOverride = 'reach';
+
+  // The hub is already attached to Door 2 in world space. Reveal it by opening
+  // the physical door, not by spawning or swapping it after the threshold.
+  pumpHub.visible = true;
+  scene.fog.density = 0.052;
+  setFlashlightRange(0);
 
   // Expand the solved Door 2 view before opening its physical door.
   document.body.classList.add('door3');
@@ -209,8 +128,8 @@ hooks.resetDoor3 = () => {
   D3.active = false;
   D3.phase = 'idle';
   D3.t = 0;
+  D3.travelT = 0;
   pumpHub.visible = false;
-  restorePreviousWorld();
   doorHinge.rotation.y = 0;
 
   R.timer.resume('door3-greybox');
@@ -231,52 +150,43 @@ export function updateDoor3(dt) {
 
   D3.t += dt;
   if (D3.phase === 'open') {
-    const p = Math.min(1, D3.t / OPEN_SEC);
+    const p = Math.min(1, D3.t / DOOR3_APPROACH.openSec);
     doorHinge.rotation.y = OPEN_RAD * ease(p);
     intro.arriveF = 1 - p;
+    setFlashlightRange(p);
     if (p >= 1) {
       D3.phase = 'through';
       D3.t = 0;
+      D3.travelT = 0;
       intro.phase = 'run';
+      intro.z = START_Z;
+      intro.arriveF = 0;
       anim.handsOverride = null;
+      $panel.classList.remove('blind');
       beep('tap');
     }
-  } else if (D3.phase === 'through') {
-    const p = Math.min(1, D3.t / THROUGH_SEC);
-    intro.z = THROUGH_Z * ease(p);
-    bobWalk(dt, 0.72 + p * 0.28);
-    if (p >= 1) {
-      D3.phase = 'blackout';
-      D3.t = 0;
-      setSceneCover(0);
-    }
-  } else if (D3.phase === 'blackout') {
-    setSceneCover(door3CoverOpacity('cover', D3.t));
-    if (D3.t >= DOOR3_REVEAL.coverSec) {
-      setSceneCover(1);
-      enterPumpWalk();
-    }
-  } else if (D3.phase === 'reveal') {
-    setSceneCover(door3CoverOpacity('reveal', D3.t));
-    if (D3.t >= DOOR3_REVEAL.revealSec) {
-      clearSceneCover();
+  } else if (D3.phase === 'through' || D3.phase === 'walk') {
+    D3.travelT += dt;
+    intro.z = door3ApproachZ(START_Z, PUMP_HUB.centerWorldZ, D3.travelT);
+    const progress = Math.min(1, D3.travelT / DOOR3_APPROACH.runSec);
+    bobWalk(dt, 0.72 + (1 - progress) * 0.28);
+    setFlashlightRange(1);
+
+    if (D3.phase === 'through' && D3.travelT >= DOOR3_APPROACH.throughSec) {
       D3.phase = 'walk';
       D3.t = 0;
     }
-  } else if (D3.phase === 'walk') {
-    const p = Math.min(1, D3.t / WALK_SEC);
-    intro.z = PUMP_ENTRY_Z * Math.pow(1 - p, 1.12);
-    bobWalk(dt, 0.70 + (1 - p) * 0.30);
-    if (p >= 1) {
+
+    if (D3.travelT >= DOOR3_APPROACH.runSec) {
       D3.phase = 'settle';
       D3.t = 0;
-      intro.z = 0;
+      intro.z = PUMP_HUB.centerWorldZ;
     }
   } else if (D3.phase === 'settle') {
-    const settle = Math.max(0, 1 - D3.t / SETTLE_SEC);
+    const settle = Math.max(0, 1 - D3.t / DOOR3_APPROACH.settleSec);
     intro.bobY *= settle;
     intro.roll *= settle;
-    if (D3.t >= SETTLE_SEC) finishPumpWalk();
+    if (D3.t >= DOOR3_APPROACH.settleSec) finishPumpWalk();
   }
 
   if (pumpHub.visible) updatePumpHub(dt);
