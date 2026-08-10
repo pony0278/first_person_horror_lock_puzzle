@@ -18,8 +18,8 @@ CI 分成兩個**並行**的 job：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、67 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
-| **手機視窗測試** | 基礎裝置、safe-area、中斷、門間流程、Door 2 雙線盤與 Door 3 場景 | **否** |
+| **建置與發布** | `npm run check`（型別、相依分層、78 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **手機視窗測試** | 基礎裝置、safe-area、中斷、門間流程、Debug 過場播放器、Door 2 雙線盤與 Door 3 場景 | **否** |
 
 手機視窗測試不擋發布是刻意的：它三到五分鐘且對 runner 負載敏感，
 拿它擋發布等於每次上線都要賭一次瀏覽器測試的穩定度，而它失敗多半不代表網站壞了。
@@ -35,6 +35,30 @@ npm run dev        # 開發伺服器
 npm run build      # 建置成單一 HTML → dist/index.html
 npm run check      # 型別檢查 + 單元測試 + 相依分層檢查
 ```
+
+## Debug 檢查點與過場播放器
+
+一般網址不建立 Debug 行為或操作介面。開發時在網址加上 `?debug=1`：
+
+```text
+https://pony0278.github.io/first_person_horror_lock_puzzle/?debug=1
+```
+
+面板以正式狀態機建立合法檢查點，不會只傳送攝影機。可反覆播放：
+
+- Door 1 解鎖、穿門、轉角停電、跑向 Door 2 與 Door 2 初始化。
+- Door 2 缺件、第一根保險絲、熔斷後第二次回頭與最後機會。
+- Door 2 正解提交、電磁鎖解開、開門、穿門、泵房步行與 Door 3 中心。
+- `0.25× / 0.5× / 1× / 2×`、暫停、循環、威脅凍結、怪物站位與牆鐘控制。
+- Door 2 套用正解／錯誤、觸發熔斷、取得備用件與最終失敗快捷操作。
+
+目前流程、起點、速度、循環與 Door 2 Seed 都會寫回網址。發現問題時可直接分享同一條網址：
+
+```text
+?debug=1&sequence=door2-door3&stage=walk&speed=0.5&loop=1&seed=1842
+```
+
+按反引號鍵（<code>`</code>）可收合面板。Debug 預設凍結威脅，解除後才會讓隱藏牆鐘與怪物繼續推進。
 
 ## 專案結構
 
@@ -53,6 +77,7 @@ src/
     glyphs.ts               撞針的顏色＋形狀符號（§8）
     rng.ts                  可重現亂數
     circuit.ts              門 2 雙線診斷、熔斷冷重啟與題型池
+    debug.ts                Debug 網址、流程、起點、倍率與 Seed 契約
   render/                 ── 場景建構與繪製 ──
     materials.js            程序化材質
     scene.js                走廊、門、鎖芯、工具
@@ -72,6 +97,7 @@ src/
     transit.js              門 1 → 門 2 過場與注視自動取件狀態機
     door2-circuit.js        門 2 免費首測、熔斷冷重啟、備用件與追逐流程
     door3.js                門 2 → 門 3 換場與灰盒環視生命週期
+    debug.js                合法檢查點、過場重播、時間／怪物與 Door 2 快捷控制
     halt.js                 中斷（切背景、context 遺失）
     input.js                觸控與鍵盤
     loop.js                 主迴圈
@@ -129,12 +155,13 @@ v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` �
 目前下一步是先用真機確認 Door 3 的方向辨識、閘門可見度與拖曳手感，再設計可在 4～6 步內完成的均壓盤面，最後接入誠實但不完整的三向怪物提示。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 67 個單元測試
+npm run check      # 型別 + 相依分層 + 78 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/interrupt.mjs    # 15 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/transit.mjs      # 門 1→2→3 完整流程
-```
+F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/debug.mjs        # Debug 檢查點、Seed 與過場播放器
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/circuit.mjs      # Door 2 雙線盤視覺與觸控
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/door3-scene.mjs  # Door 3 四向視線與環視
+```

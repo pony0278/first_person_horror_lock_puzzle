@@ -29,55 +29,77 @@ export interface RoundStats {
  * 因此記的是「還有哪些原因暫停中」，全部解除才真的繼續走。
  */
 export class HiddenTimer {
-  private t0 = 0;
-  private pausedAt: number | null = null;
+  private anchor = 0;
+  private accrued = 0;
   /** 錯誤造成的時間損失（怪物瞬移換算，§6）。 */
   private penalty = 0;
+  private playbackRate = 1;
   private readonly reasons = new Set<string>();
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
   start(): void {
-    this.t0 = this.now();
+    this.anchor = this.now();
+    this.accrued = 0;
     this.penalty = 0;
-    // 若開新回合時仍在背景／context 未恢復，就直接以暫停狀態起跑
-    this.pausedAt = this.reasons.size > 0 ? this.t0 : null;
   }
 
-  /** 開場演出期間反覆呼叫，讓計時器不啟動。 */
   /**
    * 開場演出期間反覆呼叫，讓計時器不啟動。
    *
-   * 暫停中也必須把 pausedAt 一起前移。只推 t0 的話，凍結的 pausedAt 會停在過去，
-   * `elapsed = (pausedAt - t0)` 就變成負的而且愈來愈負 —— 玩家等於白拿時間。
-   * 觸發條件是「暫停期間換了新回合」：死亡後 1.5 秒自動重開，而那時 App 在背景。
+   * `accrued` 與 `anchor` 要一起歸零；暫停中換新回合時也因此保持 0，直到所有
+   * 具名暫停原因解除。觸發條件是死亡後自動重開，而 App 當時仍在背景。
    */
   hold(): void {
-    const now = this.now();
-    this.t0 = now;
-    if (this.pausedAt !== null) this.pausedAt = now;
+    this.anchor = this.now();
+    this.accrued = 0;
   }
 
   addPenalty(seconds: number): void {
     this.penalty += seconds;
   }
 
+  /** Debug playback only: preserve elapsed time while changing wall-clock speed. */
+  setRate(rate: number): void {
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new RangeError('timer rate must be finite and non-negative');
+    }
+    this.capture();
+    this.playbackRate = rate;
+  }
+
+  get rate(): number {
+    return this.playbackRate;
+  }
+
+  /** Debug checkpoint only: move the clock to an exact elapsed value. */
+  setElapsed(seconds: number): void {
+    if (!Number.isFinite(seconds)) throw new RangeError('elapsed time must be finite');
+    this.penalty += seconds - this.elapsed;
+  }
+
+  private capture(): void {
+    const now = this.now();
+    if (this.reasons.size === 0) {
+      this.accrued += (now - this.anchor) / 1000 * this.playbackRate;
+    }
+    this.anchor = now;
+  }
+
   /** 記下一個暫停原因。同一個原因重複記不會有副作用。 */
   pause(reason = 'manual'): void {
+    if (this.reasons.size === 0) this.capture();
     this.reasons.add(reason);
-    if (this.pausedAt === null) this.pausedAt = this.now();
   }
 
   /** 解除一個暫停原因；還有其他原因存在時計時器不會繼續走。 */
   resume(reason = 'manual'): void {
-    this.reasons.delete(reason);
-    if (this.reasons.size > 0 || this.pausedAt === null) return;
-    this.t0 += this.now() - this.pausedAt;
-    this.pausedAt = null;
+    const removed = this.reasons.delete(reason);
+    if (removed && this.reasons.size === 0) this.anchor = this.now();
   }
 
   get paused(): boolean {
-    return this.pausedAt !== null;
+    return this.reasons.size > 0;
   }
 
   /** 目前有哪些原因讓計時器停著 —— dev overlay 會顯示。 */
@@ -87,8 +109,10 @@ export class HiddenTimer {
 
   /** 已經過的秒數，含錯誤懲罰。 */
   get elapsed(): number {
-    const ref = this.pausedAt ?? this.now();
-    return (ref - this.t0) / 1000 + this.penalty;
+    const active = this.reasons.size === 0
+      ? (this.now() - this.anchor) / 1000 * this.playbackRate
+      : 0;
+    return this.accrued + active + this.penalty;
   }
 }
 

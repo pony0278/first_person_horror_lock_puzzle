@@ -148,6 +148,12 @@ jobs:
           F0_URL: http://127.0.0.1:8100/index.html
         run: node tools/devicetest/door3-scene.mjs
 
+      - name: Debug 檢查點與門間過場播放器
+        if: always()
+        env:
+          F0_URL: http://127.0.0.1:8100/index.html
+        run: node tools/devicetest/debug.mjs
+
       - name: 撞針可讀性（僅記錄）
         if: always()
         env:

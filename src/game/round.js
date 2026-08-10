@@ -15,6 +15,7 @@ import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { beep } from './audio.js';
 
 const ROUND_PAUSE = 'round';
+let restartTimer = null;
 
 /** 開始一扇門自己的威脅回合；跨門環境衰變由呼叫端保留。 */
 export function beginDoorRound(door, limit, frontPool, hold = CFG.stations.hold) {
@@ -48,6 +49,7 @@ export function beginDoorRound(door, limit, frontPool, hold = CFG.stations.hold)
 
 /* ── 新回合 ─────────────────────────────────────────── */
 export function newRound() {
+  if (restartTimer !== null) { clearTimeout(restartTimer); restartTimer = null; }
   hooks.resetTransit?.();                      // 過場動過的東西先歸位
   R.lock = new LockState({ ...CFG.lock });
   const falsePin = [...R.lock.falsePins][0];
@@ -87,6 +89,21 @@ export function newRound() {
   pickTool.userData.insert = wrench.userData.insert = 0.12;
   pickTool.position.z = wrench.position.z = 0.12;
   $fade.classList.remove('on');
+}
+
+/** 正式開場的結束狀態；自動化與 Debug checkpoint 共用，避免各自竄改 DOM。 */
+export function skipIntro() {
+  intro.active = false;
+  intro.phase = 'tool';
+  intro.t = 0; intro.z = 0; intro.bobY = 0; intro.roll = 0; intro.press = 0;
+  intro.arriveF = 1;
+  intro.beeped = intro.th1 = intro.th2 = intro.thTool = true;
+  look.yaw = 0; look.target = 0;
+  anim.timeScale = 1;
+  doorLever.rotation.z = 0; door.position.x = 0;
+  wrench.visible = pickTool.visible = true;
+  wrench.position.z = pickTool.position.z = 0;
+  R.timer.start();
 }
 
 function freezeDoor(won) {
@@ -149,5 +166,5 @@ export function endRound(msg) {
   recordAttempt(msg);
   $fade.querySelector('div').textContent = msg;
   $fade.classList.add('on');
-  setTimeout(newRound, 1500);
+  restartTimer = setTimeout(newRound, 1500);
 }

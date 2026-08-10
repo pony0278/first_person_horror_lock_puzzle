@@ -5,9 +5,9 @@
    cold-resets the switches and forces one final pickup; the second fault kills. */
 
 import {
-  canToggleSwitch, coldResetCircuit, emptyFuseSlot, fuseFaultDisposition,
+  applyCircuitSolution, canToggleSwitch, coldResetCircuit, emptyFuseSlot, fuseFaultDisposition,
   insertFuse, newCircuit, pickCircuitSpec,
-  solveCircuit, toggleSwitch, traceCircuit,
+  isCircuitSolved, solveCircuit, toggleSwitch, traceCircuit,
 } from '../logic/circuit.js';
 import { $panel, $trip } from '../dom.js';
 import {
@@ -45,7 +45,7 @@ function clearTrip() {
 }
 
 hooks.startDoor2 = () => {
-  D2.board = newCircuit(pickCircuitSpec());
+  D2.board = hooks.makeDoor2Board?.() ?? newCircuit(pickCircuitSpec());
   D2.active = true; D2.doneT = -1;
   D2.phase = 'repair'; D2.power = 'off'; D2.testT = 0; D2.testEnd = 0;
   D2.lastTrace = null; D2.lastOutcome = null; D2.lastAutomatic = false;
@@ -153,6 +153,16 @@ function burnFinalFuse() {
 /** Pull the right-hand breaker. The first diagnostic after fuse insertion is automatic. */
 export function testDoor2() {
   return beginDiagnostic(false);
+}
+
+/** Debug-only shortcut that still leaves submission to the real breaker flow. */
+export function setDoor2Answer(solved) {
+  if (!D2.active || !D2.board || D2.doneT >= 0 || R.over || D2.power !== 'off') return false;
+  if (solved) applyCircuitSolution(D2.board);
+  else if (isCircuitSolved(D2.board)) toggleSwitch(D2.board, 0);
+  D2.lastTrace = null;
+  D2.lastOutcome = null;
+  return solved ? isCircuitSolved(D2.board) : !isCircuitSolved(D2.board);
 }
 
 circuitCanvas.addEventListener('pointerdown', e => {

@@ -37,7 +37,7 @@ export const look = { yaw: 0, target: 0, holding: false };
 
 export const ui = { sel: 0, devOn: false };
 
-export const anim = { handShake: 0, timeScale: 1,
+export const anim = { handShake: 0, timeScale: 1, debugScale: 1,
   /* 過場對手部姿態的覆寫（'reach' 等 JPOSE 名；null = 交回一般規則）。
      hands 屬 render 層不能 import game/transit，所以經由這裡傳。 */
   handsOverride: null };

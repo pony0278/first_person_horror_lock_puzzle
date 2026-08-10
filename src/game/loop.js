@@ -15,8 +15,8 @@ import { interrupted } from './halt.js';
 import { die } from './round.js';
 import { T, cinematic, updateTransit } from './transit.js';
 import { D2, updateDoor2 } from './door2-circuit.js';
-
 import { updateDoor3 } from './door3.js';
+import { debugThreatFrozen, updateDebug } from './debug.js';
 /* ═══════════════════════════════════════════════════════════
    主迴圈
    ═══════════════════════════════════════════════════════════ */
@@ -26,7 +26,7 @@ export const clock = new THREE.Clock();
 /* anim.timeScale 已併入 anim（見上方 ui/anim 的說明） */
 export function tick() {
   let dt = Math.min(clock.getDelta(), 0.05);
-  dt *= anim.timeScale;
+  dt *= anim.timeScale * anim.debugScale;
 
   // 中斷期間不推進任何演出。clock.getDelta() 仍要照呼叫，
   // 否則恢復那一刻會累積出一個超大的 dt。
@@ -170,7 +170,7 @@ export function tick() {
     // Door 2's replacement pickup is mandatory. Its fixed one-station advance
     // is already paid at burnout, so no lethal face/lurk progression may run
     // while the player is forced to look away from the board.
-    const threatFrozen = R.door === 2 && D2.awaitingFuse;
+    const threatFrozen = (R.door === 2 && D2.awaitingFuse) || debugThreatFrozen();
 
     // 該到下一站了嗎
     let want = 0;
@@ -241,16 +241,16 @@ export function tick() {
 
     // ── 正面事件：潛伏期間，威脅也會出現在門這一側 ──────
     // 絕不致命、絕不擋操作 —— 純粹告訴你「正面也不安全」。
-    if (ST.frontCool > 0) ST.frontCool -= dt;
+    if (ST.frontCool > 0 && !threatFrozen) ST.frontCool -= dt;
     if (!ST.front && ST.frontLeft > 0 && ST.frontCool <= 0 &&
-        (ST.phase === 'lurk' || ST.phase === 'armed') && !blind() && !R.over) {
+        (ST.phase === 'lurk' || ST.phase === 'armed') && !blind() && !R.over && !threatFrozen) {
       ST.front = ST.frontPool[(S.frontMax - ST.frontLeft) % ST.frontPool.length];
       ST.frontT = 0; ST.frontLeft--;
       if (ST.front === 'lever' || ST.front === 'glitch') beep('thunk');
       if (ST.front === 'badge') beep('error');      // 讀卡機拒絕的短促電子雜音
     }
 
-    if (ST.front) {
+    if (ST.front && !threatFrozen) {
       ST.frontT += dt;
       const dur = ST.front === 'eye'    ? S.frontDurEye
                 : ST.front === 'refl'   ? S.frontDurRefl
@@ -411,7 +411,7 @@ export function tick() {
   // 死亡條件：
   //  · 臉已經出現 → 給 faceGraceSec 的極限窗口，那一秒還能解鎖活下來
   //  · 潛伏中但玩家一直不回頭 → 超時後強制兌現貼臉，再走同一條窗口
-  if (!R.over && !(R.door === 2 && D2.awaitingFuse)) {
+  if (!R.over && !(R.door === 2 && D2.awaitingFuse) && !debugThreatFrozen()) {
     const S2 = CFG.stations;
     const overtime = R.elapsed > R.limit + CFG.round.grabMs / 1000;
     if (ST.phase === 'face') {
@@ -451,5 +451,6 @@ export function tick() {
       `attempts ${R.attempts.length}   won ${R.attempts.filter(a=>a.won).length}` +
       (R.timer.paused ? `\npaused: ${R.timer.pauseReasons.join(', ')}` : '');
   }
+  updateDebug(dt);
   requestAnimationFrame(tick);
 }

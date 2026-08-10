@@ -69,6 +69,16 @@ describe('隱藏計時器', () => {
       c.advance(1000);
       expect(timer.elapsed).toBeCloseTo(2);
     });
+
+    it('運行中解除不存在的原因不會重設時鐘', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      c.advance(1000);
+      timer.resume('never-paused');
+      c.advance(1000);
+      expect(timer.elapsed).toBeCloseTo(2);
+    });
   });
 
   describe('具名暫停（H2 與 H3 可能同時發生）', () => {
@@ -147,6 +157,39 @@ describe('隱藏計時器', () => {
       timer.resume('hidden');
       c.advance(1000);
       expect(timer.elapsed).toBeCloseTo(1);
+    });
+  });
+
+  describe('Debug 播放控制', () => {
+    it('切換倍率不會回頭縮放已經過的時間', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      c.advance(2000);
+      timer.setRate(0.25);
+      c.advance(4000);
+      expect(timer.elapsed).toBeCloseTo(3);
+      expect(timer.rate).toBe(0.25);
+    });
+
+    it('暫停中可精確跳到指定時間檢查點', () => {
+      const c = fakeClock();
+      const timer = new HiddenTimer(c.now);
+      timer.start();
+      c.advance(1200);
+      timer.pause('debug');
+      timer.setElapsed(17);
+      c.advance(5000);
+      expect(timer.elapsed).toBeCloseTo(17);
+      timer.resume('debug');
+      c.advance(1000);
+      expect(timer.elapsed).toBeCloseTo(18);
+    });
+
+    it('拒絕負數與非數字倍率', () => {
+      const timer = new HiddenTimer(() => 0);
+      expect(() => timer.setRate(-1)).toThrow(RangeError);
+      expect(() => timer.setRate(Number.NaN)).toThrow(RangeError);
     });
   });
 });

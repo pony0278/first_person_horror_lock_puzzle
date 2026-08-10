@@ -137,6 +137,55 @@
     font:11px ui-monospace, Menlo, monospace; }
   #hdbg textarea { display:none; width:calc(100% - 24px); margin:6px 12px; height:120px;
     background:#0b0b0d; color:#8fa08f; border:1px solid #262629; font:10px/1.4 ui-monospace, Menlo, monospace; }
+
+  /* Developer Debug & Transition Lab. It is opt-in via ?debug=1 and remains
+     absent from the player's layout and input path otherwise. */
+  #debugLab[hidden] { display:none; }
+  #debugLab {
+    position:fixed; top:max(8px, var(--sa-t)); right:max(8px, var(--sa-r)); z-index:40;
+    width:min(326px, calc(100vw - 16px - var(--sa-l) - var(--sa-r)));
+    max-height:calc(100vh - 16px - var(--sa-t) - var(--sa-b)); overflow:auto;
+    background:rgba(6,9,11,.96); border:1px solid #6e4427; border-radius:5px;
+    box-shadow:0 10px 32px #000b; color:#b7b5ad;
+    font:11px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+    touch-action:pan-y; user-select:none;
+  }
+  #debugLab.collapsed { width:auto; overflow:hidden; }
+  #debugLab.collapsed #dbgBody { display:none; }
+  #debugLab header { position:sticky; top:0; z-index:1; display:flex; align-items:center;
+    justify-content:space-between; gap:10px; padding:7px 8px;
+    background:#120e0b; border-bottom:1px solid #3b291d; }
+  #debugLab header strong { color:#e3a568; font-size:10px; letter-spacing:.18em; }
+  #debugLab header small { flex:1; color:#725a48; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #debugLab button, #debugLab select, #debugLab input {
+    min-height:34px; border:1px solid #38342f; border-radius:3px;
+    background:#171716; color:#c3c0b7; font:11px ui-monospace, Menlo, monospace;
+  }
+  #debugLab button { padding:5px 8px; cursor:pointer; }
+  #debugLab button:hover, #debugLab button.on { border-color:#aa6c3d; color:#efb77d; }
+  #debugLab header button { min-height:28px; min-width:30px; padding:2px 7px; }
+  #dbgBody { padding:8px; }
+  #debugLab section { padding:7px 0; border-top:1px solid #24211e; }
+  #debugLab section:first-child { border-top:0; padding-top:0; }
+  #debugLab h4 { margin:0 0 5px; color:#756e65; font-size:9px; letter-spacing:.12em;
+    font-weight:500; text-transform:uppercase; }
+  #debugLab label { display:grid; grid-template-columns:86px 1fr; gap:7px;
+    align-items:center; margin:4px 0; color:#88827a; }
+  #debugLab select, #debugLab input[type=number] { width:100%; padding:4px 6px; min-width:0; }
+  #debugLab input[type=checkbox] { min-height:auto; width:16px; height:16px; accent-color:#b66f3e; }
+  #debugLab .dbgButtons { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:5px; margin-top:6px; }
+  #debugLab .dbgButtons.four { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+  #debugLab .dbgButtons button { min-width:0; padding-left:3px; padding-right:3px; }
+  #dbgStatus { display:block; min-height:66px; white-space:pre-wrap; color:#889890;
+    background:#080a0a; border:1px solid #222827; border-radius:3px; padding:6px;
+    user-select:text; }
+  #dbgLink { margin-top:5px; color:#645f58; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; user-select:text; }
+  @media (max-height:520px) {
+    #debugLab { width:min(310px, calc(100vw - 16px)); font-size:10px; }
+    #debugLab section { padding:5px 0; }
+    #debugLab button, #debugLab select, #debugLab input { min-height:30px; }
+  }
 </style>
 </head>
 <body>
@@ -174,6 +223,63 @@
   <button id="hdExport">匯出調整結果</button>
   <textarea id="hdOut" readonly></textarea>
 </div>
+
+<aside id="debugLab" hidden aria-label="Developer Debug and Transition Lab">
+  <header>
+    <strong>DEBUG</strong><small id="dbgHeaderState">Transition Lab</small>
+    <button id="dbgToggle" type="button" title="收合 Debug UI">−</button>
+  </header>
+  <div id="dbgBody">
+    <section>
+      <h4>Checkpoint / Transition</h4>
+      <label>流程<select id="dbgSequence"></select></label>
+      <label>起點<select id="dbgStage"></select></label>
+      <label>Seed<input id="dbgSeed" type="number" min="0" max="2147483647" step="1"></label>
+      <div class="dbgButtons">
+        <button id="dbgLoad" type="button">載入起點</button>
+        <button id="dbgReplay" type="button">↻ 重播</button>
+      </div>
+    </section>
+    <section>
+      <h4>Playback</h4>
+      <div class="dbgButtons four">
+        <button id="dbgPlay" type="button">⏸</button>
+        <button class="dbgSpeed" data-speed="0.25" type="button">.25×</button>
+        <button class="dbgSpeed" data-speed="0.5" type="button">.5×</button>
+        <button class="dbgSpeed" data-speed="1" type="button">1×</button>
+      </div>
+      <div class="dbgButtons">
+        <button class="dbgSpeed" data-speed="2" type="button">2×</button>
+        <button id="dbgLoop" type="button">循環：關</button>
+      </div>
+    </section>
+    <section>
+      <h4>Threat Clock / Monster</h4>
+      <label>凍結威脅<input id="dbgThreat" type="checkbox" checked></label>
+      <label>怪物站位<select id="dbgStation">
+        <option value="0">0 · 深處</option><option value="1">1 · 燈下</option>
+        <option value="2">2 · 中距</option><option value="3">3 · 門前</option>
+      </select></label>
+      <div class="dbgButtons">
+        <button id="dbgAdd10" type="button">+10 秒</button>
+        <button id="dbgLast3" type="button">剩 3 秒</button>
+      </div>
+    </section>
+    <section>
+      <h4>Door 2 Shortcuts</h4>
+      <div class="dbgButtons">
+        <button id="dbgAnswer" type="button">套用正解</button>
+        <button id="dbgWrong" type="button">保證錯誤</button>
+        <button id="dbgBurnout" type="button">觸發熔斷</button>
+        <button id="dbgSpare" type="button">取得備用件</button>
+        <button id="dbgFatal" type="button">最終失敗</button>
+        <button id="dbgCopy" type="button">複製測試網址</button>
+      </div>
+      <div id="dbgLink"></div>
+    </section>
+    <output id="dbgStatus"></output>
+  </div>
+</aside>
 
 <script type="module" src="/src/main.js"></script>
 </body>

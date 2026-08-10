@@ -39,11 +39,11 @@ import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { $pins } from './dom.js';
-import { R, ST, anim, hooks, intro, look } from './state.js';
-import { camera, door, doorLever, pickTool, renderer, scene, wrench } from './render/scene.js';
+import { R, ST, hooks, intro, look } from './state.js';
+import { camera, renderer, scene } from './render/scene.js';
 import { renderPins } from './render/cutaway.js';
 import { audioState } from './game/audio.js';
-import { newRound } from './game/round.js';
+import { newRound, skipIntro } from './game/round.js';
 import { T, grabPoint } from './game/transit.js';
 import { D2, testDoor2 } from './game/door2-circuit.js';
 import { D3 } from './game/door3.js';
@@ -56,6 +56,7 @@ import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
 import { resize } from './render/viewport.js';
 import { tick } from './game/loop.js';
+import { initDebug } from './game/debug.js';
 
 /* ═══════════════════════════════════════════════════════════
    測試接點
@@ -124,6 +125,7 @@ window.__circuit = () => {
   const visibleTrace = D2.lastTrace ?? trace;
   const switches = D2.board.switches.map((state, i) => ({ i, state, rot: state }));
   return {
+    id: D2.board.id,
     active: D2.active, phase: D2.phase,
     fuseInstalled: D2.board.fuseInstalled, slot: emptyFuseSlot(D2.board),
     solved: isCircuitSolved(D2.board), outcome: trace.outcome, fault: visibleTrace.fault,
@@ -205,19 +207,7 @@ window.__newRound = () => newRound();
    演出是 dt 驅動的，低幀率下會等比拉長（見報告 M1）—— CI 的軟體渲染上
    本來 4.45 秒的演出可能跑掉快一分鐘，測試若用固定或有上限的等待，
    會在演出還沒結束時就開始量測，量到的全是垃圾。 */
-window.__skipIntro = () => {
-  intro.active = false;
-  intro.phase = 'tool';
-  intro.t = 0; intro.z = 0; intro.bobY = 0; intro.roll = 0; intro.press = 0;
-  intro.arriveF = 1;
-  intro.beeped = intro.th1 = intro.th2 = intro.thTool = true;
-  look.yaw = 0; look.target = 0;
-  anim.timeScale = 1;
-  doorLever.rotation.z = 0; door.position.x = 0;
-  wrench.visible = pickTool.visible = true;
-  wrench.position.z = pickTool.position.z = 0;
-  R.timer.start();
-};
+window.__skipIntro = () => skipIntro();
 window.__pinCentres = () => {
   const w = $pins.clientWidth, h = $pins.clientHeight, n = CFG.lock.pinCount;
   const left = h * 0.16 * 2.1, cell = (w - left) / n;
@@ -225,5 +215,6 @@ window.__pinCentres = () => {
 };
 
 newRound();
+initDebug();
 resize();
 tick();
