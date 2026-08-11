@@ -316,9 +316,13 @@ for (const profile of profiles) {
     state.console.effects.streamPressure >= 0.85 &&
     state.console.effects.impactSplashVisible,
     JSON.stringify(state.console));
-  check('wet vision uses deterministic refraction and no legacy DOM bubbles',
+  check('wet vision uses the deterministic v3.2 faithful Layer baseline',
     state.console.wetGlass.active && state.console.wetGlass.amount > 0 &&
-    state.console.wetGlass.blurSamples === 8 && state.console.wetGlass.layerCount === 3 &&
+    state.console.wetGlass.blurSamples === 16 && state.console.wetGlass.layerCount === 4 &&
+    state.console.wetGlass.referenceProfile === 'threejs-wet-glass-v3.2-faithful' &&
+    state.console.wetGlass.distortionStrength === 5 &&
+    state.console.wetGlass.blurRadius === 0.0155 &&
+    state.console.wetGlass.fullPane && state.console.wetGlass.continuousTrailMask &&
     state.console.wetGlass.seed === 1842 && state.console.wetGlass.toneMapped &&
     state.console.wetGlass.targetColorSpace === 'srgb-linear' &&
     await page.evaluate(() => !document.getElementById('door3WaterLens')),
@@ -343,8 +347,9 @@ for (const profile of profiles) {
       path: `${OUT}/door3-wet-glass-splash.png`,
     });
     const splashMetrics = compareFrames(dryFrame, splashFrame);
-    check('initial splash sheet is visually present across the upper view',
-      splashMetrics.changedRatio >= 0.12 && splashMetrics.upperMeanDelta >= 5.5,
+    check('initial impact visibly engages the faithful wet pane',
+      splashMetrics.changedRatio >= 0.07 && splashMetrics.upperMeanDelta >= 1.4 &&
+      splashMetrics.consoleMeanDelta >= 8,
       JSON.stringify(splashMetrics));
 
     await page.evaluate(() => window.__debugDoor3Fx('seek-wet', 0.60));
@@ -356,9 +361,9 @@ for (const profile of profiles) {
     check('wet pass preserves the dry flashlight brightness within ten percent',
       wetMetrics.brightnessRatio >= 0.90 && wetMetrics.brightnessRatio <= 1.10,
       JSON.stringify(wetMetrics));
-    check('three-layer droplets create visible refraction without covering the console',
-      wetMetrics.changedRatio >= 0.10 &&
-      wetMetrics.consoleMeanDelta <= wetMetrics.upperMeanDelta * 0.82,
+    check('four-layer full-pane refraction stays visible while the console remains readable',
+      wetMetrics.changedRatio >= 0.07 && wetMetrics.upperMeanDelta >= 1.6 &&
+      wetMetrics.consoleMeanDelta >= 7 && wetMetrics.consoleMeanDelta <= 15,
       JSON.stringify(wetMetrics));
 
     await page.evaluate(() => window.__debugDoor3Fx('seek-wet', 4));

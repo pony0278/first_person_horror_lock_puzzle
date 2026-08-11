@@ -1,17 +1,21 @@
 /* One-shot wet-vision pass for Door 3's pipe rupture.
  *
- * The droplet/trail field keeps the reference Layer() construction, but the
- * effect is deliberately short-lived and edge-weighted. It reads the actual
- * rendered pump room, so lamps, pipes, and controls refract inside the water
- * instead of looking like DOM bubbles pasted over the game.
+ * This pass intentionally follows the user's Three.js Wet Glass v3.2
+ * "Faithful Layer Baseline": four unmasked Layer() fields refract and defocus
+ * the live pump room as one wet pane. The effect remains short-lived and keeps
+ * the lower operator console legible, but no longer turns the reference field
+ * into a few isolated, highlighted droplets.
  */
 import * as THREE from 'three';
 import { renderer } from './scene.js';
 
 const WET_DURATION = 4;
-const BLUR_SAMPLES = 8;
+const BLUR_SAMPLES = 16;
 const FIXED_SEED = 1842;
-const LAYER_COUNT = 3;
+const LAYER_COUNT = 4;
+const REFERENCE_PROFILE = 'threejs-wet-glass-v3.2-faithful';
+const REFERENCE_DISTORTION = 5;
+const REFERENCE_BLUR_RADIUS = 0.0155;
 
 const target = new THREE.WebGLRenderTarget(1, 1, {
   minFilter: THREE.LinearFilter,
@@ -61,124 +65,100 @@ const fragmentShader = `
     return fract(p.x * p.y);
   }
 
-  vec3 Layer(vec2 uv0, float t, float scale, float fallSpeed, float seedOffset) {
-    vec2 asp = vec2(max(1.0, uResolution.x / uResolution.y), 1.0);
-    vec2 uv1 = uv0 * scale * asp;
-    uv1.y += t * fallSpeed;
+  float noise21(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = N12(i);
+    float b = N12(i + vec2(1.0, 0.0));
+    float c = N12(i + vec2(0.0, 1.0));
+    float d = N12(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  // Original Alain-Barrios-style field used by the v3.2 faithful reference:
+  // xy is the refraction offset and z is the continuous wet trail mask.
+  vec3 Layer(vec2 uv0, float t) {
+    vec2 asp = vec2(2.0, 1.0);
+    vec2 uv1 = uv0 * 3.0 * asp;
+    uv1.y += t * 0.25;
     vec2 gv = fract(uv1) - 0.5;
     vec2 id = floor(uv1);
 
-    float n = N12(id + seedOffset);
+    float n = N12(id);
     t += n * PI2;
     float w = uv0.y * 10.0;
     float x = (n - 0.5) * 0.8;
-    x += (0.4 - abs(x)) * sin(3.0 * w) * pow(sin(w), 6.0) * 0.45;
+    x += (0.4 - abs(x)) * sin(3.0 * w) *
+      pow(max(0.0, sin(w)), 6.0) * 0.45;
     float y = -sin(t + sin(t + sin(t) * 0.5)) * 0.44;
     y -= (gv.x - x) * (gv.x - x);
 
     vec2 dropPos = (gv - vec2(x, y)) / asp;
-    float drop = S(0.035, 0.018, length(dropPos));
-    vec2 trailPos = (gv - vec2(x, t * fallSpeed)) / asp;
+    float drop = S(0.03, 0.02, length(dropPos));
+    vec2 trailPos = (gv - vec2(x, t * 0.25)) / asp;
     trailPos.y = (fract(trailPos.y * 8.0) - 0.5) / 8.0;
-    float trail = S(0.022, 0.012, length(trailPos));
+    float trail = S(0.02, 0.015, length(trailPos));
     float fogTrail = S(-0.05, 0.05, dropPos.y);
     fogTrail *= S(0.5, y, gv.y);
     trail *= fogTrail;
-    fogTrail *= S(0.032, 0.014, abs(dropPos.x));
+    fogTrail *= S(0.03, 0.015, abs(dropPos.x));
 
-    // Trails still bend the scene slightly, but only the actual droplet body
-    // receives the blue rim. Highlighting the repeated trail samples creates
-    // an artificial dotted-string pattern on dark backgrounds.
-    return vec3(drop * dropPos + trail * trailPos, drop);
+    return vec3(drop * dropPos + trail * trailPos, fogTrail);
   }
 
-  vec3 HeroDrop(vec2 uv, vec2 centre, float radius, float tailLength) {
-    vec2 aspect = vec2(max(1.0, uResolution.x / uResolution.y), 1.0);
-    vec2 p = (uv - centre) * aspect;
-    p.y += min(0.22, uTime * 0.035);
-    p.x += sin(p.y * 47.0 + centre.x * 31.0) * radius * 0.07;
-    float bodyDistance = length(vec2(p.x * 1.08, p.y * 0.88));
-    float body = S(radius, radius * 0.72, bodyDistance);
-    float tailWidth = radius * 0.30;
-    float tail = S(tailWidth, tailWidth * 0.42, abs(p.x));
-    tail *= S(tailLength, 0.0, max(0.0, p.y));
-    tail *= S(-radius * 0.12, radius * 0.56, p.y);
-    float mask = max(body, tail * 0.78);
-    // Hero drops guarantee a readable silhouette but must not magnify a lamp
-    // into a large black lens. Their normal is intentionally proportional to
-    // the small local offset rather than normalized to unit length.
-    vec2 normal = p * 0.12;
-    normal.y -= tail * radius * 0.08;
-    return vec3(normal * mask, mask);
+  vec2 burstField(vec2 uv, float t) {
+    float sheet = S(0.26, 0.96,
+      uv.y + sin(uv.x * 9.0 + t * 4.2) * 0.055);
+    float bands = sin(uv.y * 48.0 - t * 9.0 +
+      noise21(vec2(uv.x * 8.0, t * 0.3)) * 5.0);
+    float n = noise21(vec2(uv.x * 12.0, uv.y * 9.0 - t * 1.6));
+    float mask = sheet * uFilmAmount * (0.25 + 0.75 * n);
+    return vec2((n - 0.5) * 0.010 + bands * 0.0025,
+      -(0.006 + n * 0.012)) * mask;
   }
 
   void main() {
     vec2 uv = vUv;
     float t = uTime * 1.80;
-    vec3 largeDrops = Layer(uv + vec2(0.015, 0.0), t * 0.72, 2.15, 0.18, 13.0);
-    vec3 mediumDrops = Layer(uv + vec2(-0.021, 0.013), t, 3.40, 0.25, 41.0);
-    vec3 smallDrops = Layer(uv + vec2(0.008, -0.018), t * 1.18, 5.10, 0.31, 73.0);
-    vec3 heroes = HeroDrop(uv, vec2(0.37, 0.82), 0.047, 0.12);
-    heroes += HeroDrop(uv, vec2(0.53, 0.89), 0.035, 0.09);
-    heroes += HeroDrop(uv, vec2(0.66, 0.76), 0.042, 0.11);
-    vec3 drops;
-    drops.xy = largeDrops.xy * 0.86 + mediumDrops.xy * 0.72 +
-      smallDrops.xy * 0.42 + heroes.xy * 0.54;
-    drops.z = clamp(max(max(largeDrops.z, mediumDrops.z * 0.92),
-      max(smallDrops.z * 0.72, heroes.z)), 0.0, 1.0);
+    vec3 drops = Layer(uv, t);
+    drops += Layer(uv * 1.25 + 7.54, t);
+    drops += Layer(uv * 1.35 + 1.54, t);
+    drops += Layer(uv * 1.57 - 7.54, t);
 
-    // Keep the lower operator controls readable, but allow water across the
-    // upper centre so the effect reads immediately instead of hiding entirely
-    // in the dark periphery.
-    float topMask = S(0.40, 0.90, uv.y);
-    float sideMask = S(0.27, 0.49, abs(uv.x - 0.5));
-    float upperField = clamp(max(topMask * 0.92, sideMask * 0.66), 0.0, 1.0);
-    float consoleClear = S(0.14, 0.34,
+    float wetness = clamp(uWetAmount, 0.0, 1.0);
+    float trailMask = clamp(drops.z, 0.0, 1.0);
+    float consoleProtection = 1.0 - S(0.14, 0.34,
       length(vec2((uv.x - 0.5) * 0.95, (uv.y - 0.23) * 1.72)));
-    float coverage = max(upperField, heroes.z * 0.92) * consoleClear;
+    float readability = mix(1.0, 0.42, consoleProtection);
 
-    drops.xy *= coverage;
-    drops.z *= coverage;
-    float splashWave = 0.76 + 0.24 * sin(uv.x * 17.0 + uv.y * 8.0 + uTime * 4.0);
-    float splashSheet = uFilmAmount * S(0.34, 0.94, uv.y +
-      sin(uv.x * 11.0 + uTime * 7.0) * 0.055) * splashWave * consoleClear;
-    float edgeFilm = uFilmAmount * max(topMask, sideMask * 0.58) * 0.46;
-    float film = clamp(splashSheet + edgeFilm, 0.0, 1.0);
-    float dropMask = clamp(drops.z * 1.18 + length(drops.xy) * 24.0 + film, 0.0, 1.0);
+    vec2 distort = drops.xy * (${REFERENCE_DISTORTION.toFixed(1)} * wetness * readability);
+    distort += burstField(uv, t) * readability;
+    vec2 refractUv = clamp(uv + distort, vec2(0.002), vec2(0.998));
 
-    vec2 filmNormal = vec2(
-      N12(floor(uv * vec2(19.0, 11.0))) - 0.5,
-      N12(floor(uv.yx * vec2(13.0, 17.0)) + 4.0) - 0.5
-    ) * film * 0.006;
-    vec2 refractUv = clamp(
-      uv + (drops.xy * 0.035 + filmNormal * 0.25) * uWetAmount,
-      vec2(0.002), vec2(0.998)
-    );
+    // Faithful reference behaviour: the pane is softly defocused everywhere,
+    // while the continuous Layer() trails locally pull the background sharp.
+    float blur = ${REFERENCE_BLUR_RADIUS.toFixed(4)} * wetness *
+      (1.0 - trailMask * 0.88);
+    blur += uFilmAmount * 0.0014 * S(0.24, 0.92, uv.y);
+    blur *= readability;
+    vec2 aspect = vec2(uResolution.y / max(uResolution.x, 1.0), 1.0);
 
-    vec4 base = texture2D(uScene, uv);
     vec4 wet = vec4(0.0);
-    float blur = 0.00105 * dropMask * uWetAmount;
-    float angle = N12(uv + uSeed) * PI2;
+    float angle = N12(gl_FragCoord.xy) * PI2;
     for (int i = 0; i < ${BLUR_SAMPLES}; i++) {
-      float fi = float(i);
-      float radius = sqrt((fi + 0.5) / ${BLUR_SAMPLES.toFixed(1)});
-      vec2 offset = vec2(sin(angle), cos(angle)) * blur * radius;
-      wet += texture2D(uScene, clamp(refractUv + offset, vec2(0.002), vec2(0.998)));
-      angle += 2.39996323;
+      float fi = float(i) + 1.0;
+      float radius = sqrt(fract(sin(fi * 546.0) * 5424.0));
+      vec2 offset = vec2(sin(angle), cos(angle)) * blur * radius * aspect;
+      wet += texture2D(uScene,
+        clamp(refractUv + offset, vec2(0.002), vec2(0.998)));
+      angle += 1.0;
     }
     wet /= ${BLUR_SAMPLES.toFixed(1)};
 
-    float effectCoverage = max(coverage, film * 0.86);
-    float effect = clamp(uWetAmount * effectCoverage * (0.12 + dropMask * 0.34), 0.0, 0.38);
-    vec3 colour = mix(base.rgb, wet.rgb, effect);
-    float dropRim = S(0.08, 0.40, drops.z) * (1.0 - S(0.58, 0.94, drops.z));
-    float filmRim = S(0.10, 0.46, film) * (1.0 - S(0.70, 0.98, film));
-    float waterBody = clamp(drops.z * 0.42 + film * 0.18, 0.0, 1.0) *
-      uWetAmount * consoleClear;
-    float waterHighlight = (dropRim + filmRim * 0.38) * uWetAmount *
-      max(coverage, film * 0.72);
-    colour += vec3(0.045, 0.082, 0.098) * waterBody;
-    colour += vec3(0.16, 0.245, 0.275) * waterHighlight;
+    vec3 base = texture2D(uScene, uv).rgb;
+    float paneMix = wetness * mix(0.96, 0.58, consoleProtection);
+    vec3 colour = mix(base, wet.rgb, paneMix);
     gl_FragColor = vec4(colour, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -313,6 +293,11 @@ export function wetGlassSnapshot() {
     film: +state.film.toFixed(3),
     blurSamples: BLUR_SAMPLES,
     layerCount: LAYER_COUNT,
+    referenceProfile: REFERENCE_PROFILE,
+    distortionStrength: REFERENCE_DISTORTION,
+    blurRadius: REFERENCE_BLUR_RADIUS,
+    fullPane: true,
+    continuousTrailMask: true,
     seed: FIXED_SEED,
     targetColorSpace: target.texture.colorSpace,
     toneMapped: material.toneMapped,
