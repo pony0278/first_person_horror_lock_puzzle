@@ -10,7 +10,8 @@ import { PUMP_CONSOLE, pumpPressureBar } from '../logic/pump-console.js';
 import { DOOR3_OPERATOR } from '../logic/door3-transition.js';
 import { matCeil, matDark, matDoor, matFloor, matMetal, matWall } from './materials.js';
 import {
-  attachPumpConsole, setPumpConsoleReadout, updatePumpConsole,
+  attachPumpConsole, setPumpConsoleReadout, setPumpConsoleState,
+  updatePumpConsole,
 } from './pumpconsole.js';
 
 const H = 3.45;
@@ -247,8 +248,9 @@ floodDoor.position.z = FRONT_END;
 pumpHub.add(floodDoor);
 
 addBox(floodDoor, matBulkhead, HUB_HALF * 2, H, 0.28, 0, H / 2, 0);
-const doorLeaf = addBox(floodDoor, matDoor, 2.10, 2.38, 0.24, 0, 1.19, 0.18);
+export const doorLeaf = addBox(floodDoor, matDoor, 2.10, 2.38, 0.24, 0, 1.19, 0.18);
 doorLeaf.name = 'door3-leaf';
+doorLeaf.userData.closedY = 1.19;
 for (const [sx, sy, x, y] of [
   [0.18, 2.72, -1.14, 1.36], [0.18, 2.72, 1.14, 1.36],
   [2.46, 0.18, 0, 2.62], [2.46, 0.18, 0, 0.10],
@@ -261,7 +263,7 @@ for (const x of [-0.82, 0.82]) {
   }
 }
 
-const wheel = new THREE.Group();
+export const wheel = new THREE.Group();
 wheel.position.set(0, 1.25, 0.36);
 floodDoor.add(wheel);
 const rim = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.038, 8, 20), matRust);
@@ -293,7 +295,14 @@ for (let i = 0; i < 3; i++) {
   fluid.position.y = h / 2;
   tank.add(fluid);
   for (const y of [0, 1.32]) addPipe(tank, 0.07, 0.18, 0, y, 0, 'y', matMetal);
-  addBox(tank, matHazard, 0.26, 0.025, 0.025, 0, 0.66, 0.16);
+  const targetLevel = PUMP_CONSOLE.targetLevels[i];
+  const markY = targetLevel === null ? 0.66 : 1.32 * targetLevel;
+  const markMat = targetLevel === null ? matHazard : matFrontTube;
+  const band = addBox(tank, markMat, 0.26, targetLevel === null ? 0.025 : 0.038,
+    0.025, 0, markY, 0.16);
+  band.name = targetLevel === null
+    ? 'door3-return-tank-mark'
+    : `door3-latch-${i === 0 ? 'left' : 'right'}-target-band`;
   tank.userData = { fluid, displayLevel: h, targetLevel: h };
   pressureTanks.push(tank);
 }
@@ -306,7 +315,7 @@ for (const x of [1.46, 2.06]) {
   floodDoor.add(piston);
   addPipe(piston, 1.34, 0.10, 0, 0.67, 0, 'y', matPipe);
   const collar = addBox(piston, matHazard, 0.28, 0.055, 0.09, 0, 0.67, 0.09);
-  piston.userData = { collar };
+  piston.userData = { collar, targetLocked: false, displayLock: 0 };
   pressurePistons.push(piston);
 }
 
@@ -315,7 +324,10 @@ for (const x of [-2.18, -1.75, -1.32]) {
   addPipe(floodDoor, 0.44, 0.035, x + 0.20, 2.23, 0.12, 'x', matPipe);
 }
 
-export function setPumpHubLevels(levels, pressureBar = pumpPressureBar(levels)) {
+export function setPumpHubLevels(
+  levels,
+  pressureBar = pumpPressureBar(PUMP_CONSOLE.initialVolumes),
+) {
   pressureTanks.forEach((tank, index) => {
     const level = Number(levels[index]);
     tank.userData.targetLevel = Math.max(
@@ -327,8 +339,23 @@ export function setPumpHubLevels(levels, pressureBar = pumpPressureBar(levels)) 
   setPumpConsoleReadout(levels, pressureBar);
 }
 
+let floodDoorOpenRatio = 0;
+export function setPumpHubPuzzleState({
+  latchStates = [false, false],
+  selectedSource = null,
+  leverUnlocked = false,
+  leverPulled = false,
+  doorOpenRatio = floodDoorOpenRatio,
+} = {}) {
+  pressurePistons.forEach((piston, index) => {
+    piston.userData.targetLocked = Boolean(latchStates[index]);
+  });
+  floodDoorOpenRatio = Math.max(0, Math.min(1, Number(doorOpenRatio) || 0));
+  setPumpConsoleState({ selectedSource, leverUnlocked, leverPulled });
+}
+
 attachPumpConsole(pumpHub);
-setPumpHubLevels(tankLevels);
+setPumpHubLevels(tankLevels, pumpPressureBar(PUMP_CONSOLE.initialVolumes));
 
 /* Left branch: heavy pumps, deeper water, and damaged amber lighting. */
 addPipe(pumpHub, 7.7, 0.18, -6.75, 2.72, -0.62, 'x', matPipe);
@@ -385,6 +412,109 @@ chainLinks.userData.sourceDrawCalls = chainDefinitions.length;
 pumpHub.add(chainLinks);
 const matRearTube = new THREE.MeshBasicMaterial({ color: 0x612721, toneMapped: false });
 addBox(pumpHub, matRearTube, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
+
+/* First legal pump action ruptures this return pipe behind the operator. */
+const burstImpact = new THREE.Vector3(-1.12, 0.03, 1.48);
+export const burstPipeRig = new THREE.Group();
+burstPipeRig.name = 'door3-burst-pipe-rig';
+burstPipeRig.position.set(-1.12, 2.72, 1.48);
+pumpHub.add(burstPipeRig);
+addPipe(burstPipeRig, 1.25, 0.12, -0.48, 0, 0, 'x', matPipe);
+const burstLoosePipe = addPipe(burstPipeRig, 0.58, 0.12, 0.36, 0, 0, 'x', matRust);
+burstLoosePipe.name = 'door3-burst-loose-pipe';
+const burstRim = new THREE.Mesh(new THREE.TorusGeometry(0.125, 0.025, 8, 16), matRust);
+burstRim.rotation.y = Math.PI / 2;
+burstRim.position.x = 0.02;
+burstPipeRig.add(burstRim);
+
+const matJet = new THREE.MeshBasicMaterial({
+  color: 0x769ba0, transparent: true, opacity: 0,
+  depthWrite: false, side: THREE.DoubleSide,
+});
+matJet.forceSinglePass = true;
+export const burstWaterJet = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.055, 0.18, 2.62, 10, 1, true), matJet,
+);
+burstWaterJet.name = 'door3-burst-water-jet';
+burstWaterJet.position.set(0.12, -1.31, -0.03);
+burstWaterJet.rotation.z = -0.08;
+burstWaterJet.rotation.x = 0.05;
+burstWaterJet.visible = false;
+burstPipeRig.add(burstWaterJet);
+
+const burstRipples = [0, 0.18, 0.36].map((delay, index) => {
+  const material = matRipple.clone();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.23, 0.285, 24), material);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(burstImpact.x, burstImpact.y + index * 0.0005, burstImpact.z);
+  ring.visible = false;
+  ring.userData.delay = delay;
+  pumpHub.add(ring);
+  return ring;
+});
+
+const burstDebris = [
+  [-1.38, 1.66, -1.47, 0.18, 0.08],
+  [-0.94, 1.78, -1.14, 0.03, -0.11],
+  [-1.17, 1.34, -1.32, -0.18, 0.15],
+].map(([startX, startZ, endX, endZ, turn], index) => {
+  const debris = addBox(pumpHub, index === 1 ? matHazard : matRust,
+    0.14 + index * 0.025, 0.035, 0.08 + index * 0.02,
+    startX, 0.052 + index * 0.002, startZ);
+  debris.name = `door3-burst-debris-${index + 1}`;
+  debris.userData = { startX, startZ, endX, endZ, turn };
+  return debris;
+});
+
+const pipeBurstState = { triggered: false, t: 0, debrisProgress: 0 };
+
+export function triggerPumpPipeBurst() {
+  if (pipeBurstState.triggered) return false;
+  pipeBurstState.triggered = true;
+  pipeBurstState.t = 0;
+  pipeBurstState.debrisProgress = 0;
+  burstWaterJet.visible = true;
+  burstRipples.forEach(ring => { ring.visible = true; });
+  return true;
+}
+
+export function resetPumpHubEffects() {
+  pipeBurstState.triggered = false;
+  pipeBurstState.t = 0;
+  pipeBurstState.debrisProgress = 0;
+  burstWaterJet.visible = false;
+  burstWaterJet.material.opacity = 0;
+  burstLoosePipe.rotation.z = 0;
+  burstRipples.forEach(ring => {
+    ring.visible = false;
+    ring.material.opacity = 0;
+    ring.scale.setScalar(1);
+  });
+  burstDebris.forEach(debris => {
+    const data = debris.userData;
+    debris.position.set(data.startX, debris.position.y, data.startZ);
+    debris.rotation.y = 0;
+  });
+  floodDoorOpenRatio = 0;
+  doorLeaf.position.y = doorLeaf.userData.closedY;
+  wheel.rotation.z = 0;
+  pressurePistons.forEach(piston => {
+    piston.userData.targetLocked = false;
+    piston.userData.displayLock = 0;
+  });
+}
+
+export function pumpHubEffectSnapshot() {
+  return {
+    pipeBurst: pipeBurstState.triggered,
+    burstT: +pipeBurstState.t.toFixed(2),
+    jetVisible: burstWaterJet.visible,
+    debrisProgress: +pipeBurstState.debrisProgress.toFixed(2),
+    latchRetraction: pressurePistons.map(piston =>
+      +piston.userData.displayLock.toFixed(2)),
+    doorOpenRatio: +floodDoorOpenRatio.toFixed(2),
+  };
+}
 
 /* Flooding and ripple rigs reserve an honest visual language for future threats. */
 for (const [sx, sz, x, z] of [
@@ -470,6 +600,39 @@ export function updatePumpHub(dt) {
     ring.material.opacity = Math.sin(cycle * Math.PI) * 0.22;
   });
 
+  if (pipeBurstState.triggered) {
+    pipeBurstState.t += dt;
+    const burstT = pipeBurstState.t;
+    const impact = Math.max(0, 1 - burstT / 0.52);
+    burstLoosePipe.rotation.z = Math.sin(burstT * 52) * 0.09 * impact - 0.035;
+    burstWaterJet.material.opacity = Math.min(0.72, 0.18 + burstT * 2.6) *
+      (0.92 + Math.sin(hubTime * 24) * 0.08);
+    burstWaterJet.scale.x = 0.94 + Math.sin(hubTime * 17) * 0.06;
+    burstWaterJet.scale.z = 0.94 + Math.cos(hubTime * 19) * 0.06;
+
+    burstRipples.forEach(ring => {
+      const localT = burstT - ring.userData.delay;
+      if (localT < 0 || localT > 1.25) {
+        ring.material.opacity = 0;
+        return;
+      }
+      const p = localT / 1.25;
+      ring.scale.setScalar(0.7 + p * 7.5);
+      ring.material.opacity = Math.sin(p * Math.PI) * 0.42;
+    });
+
+    const driftP = Math.max(0, Math.min(1, (burstT - 0.28) / 0.92));
+    const driftEase = driftP * driftP * (3 - 2 * driftP);
+    pipeBurstState.debrisProgress = driftP;
+    burstDebris.forEach((debris, index) => {
+      const data = debris.userData;
+      debris.position.x = THREE.MathUtils.lerp(data.startX, data.endX, driftEase);
+      debris.position.z = THREE.MathUtils.lerp(data.startZ, data.endZ, driftEase);
+      debris.position.y = 0.052 + index * 0.002 + Math.sin(hubTime * 3 + index) * 0.006;
+      debris.rotation.y = data.turn * driftEase + Math.sin(hubTime + index) * 0.04;
+    });
+  }
+
   const levelBlend = 1 - Math.exp(-Math.max(0, dt) * 5.5);
   pressureTanks.forEach((tank, i) => {
     tank.userData.displayLevel +=
@@ -479,9 +642,15 @@ export function updatePumpHub(dt) {
       tank.userData.displayLevel / 2 + Math.sin(hubTime * 0.65 + i) * 0.006;
   });
   pressurePistons.forEach((piston, i) => {
-    piston.userData.collar.position.y =
-      0.67 + Math.sin(hubTime * 0.55 + i * 1.7) * 0.025;
+    piston.userData.displayLock +=
+      ((piston.userData.targetLocked ? 1 : 0) - piston.userData.displayLock) * levelBlend;
+    piston.userData.collar.position.y = 0.67 - piston.userData.displayLock * 0.34 +
+      Math.sin(hubTime * 0.55 + i * 1.7) * 0.025 * (1 - piston.userData.displayLock);
   });
+  const doorEase = floodDoorOpenRatio * floodDoorOpenRatio *
+    (3 - 2 * floodDoorOpenRatio);
+  doorLeaf.position.y = doorLeaf.userData.closedY + doorEase * 2.52;
+  wheel.rotation.z = -doorEase * Math.PI * 1.35;
   updatePumpConsole(dt);
   pumpHub.userData.dust.rotation.y += dt * 0.008;
 }

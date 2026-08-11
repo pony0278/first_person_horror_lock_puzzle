@@ -16,7 +16,7 @@ import { interrupted } from './halt.js';
 import { die } from './round.js';
 import { T, cinematic, updateTransit } from './transit.js';
 import { D2, updateDoor2 } from './door2-circuit.js';
-import { D3, updateDoor3 } from './door3.js';
+import { D3, door3CameraShake, updateDoor3 } from './door3.js';
 import { debugThreatFrozen, updateDebug } from './debug.js';
 /* ═══════════════════════════════════════════════════════════
    主迴圈
@@ -146,6 +146,12 @@ export function tick(frameAt) {
     : intro.active && intro.phase === 'run' ? intro.z : 0;
   camera.position.set(camX,
     1.60 + intro.bobY + Math.sin(performance.now() / 900) * 0.006, camZ);
+  if (D3.active) {
+    const shake = door3CameraShake();
+    camera.position.x += shake.x;
+    camera.position.y += shake.y;
+    camera.rotation.z += THREE.MathUtils.degToRad(shake.roll);
+  }
   // Door 2 找件前沿用上一回合的 R.over 凍結計時，但盤面要看得見；仍由 pointer handler
   // 擋操作。回頭、運鏡、中斷，以及其餘真正結束狀態才壓暗面板。
   const door2Preview = D2.active && D2.doneT < 0 && R.over && R.won && T.phase === 'door2';
