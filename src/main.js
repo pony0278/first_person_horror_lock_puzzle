@@ -40,6 +40,7 @@ import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { DOOR3_PERFORMANCE, drawingBufferPixelBudget } from './logic/door3-performance.js';
+import { DOOR3_THREAT_LIMIT_SEC } from './logic/door3-threat.js';
 import { $pins } from './dom.js';
 import { R, ST, hooks, intro, look } from './state.js';
 import { DOOR_Z, camera, renderer, scene, vestibule } from './render/scene.js';
@@ -260,6 +261,17 @@ function door3EscapePassageProbe() {
   };
 }
 
+function door3ThreatActorProbe() {
+  const local = monster.getWorldPosition(new THREE.Vector3());
+  pumpHub.worldToLocal(local);
+  return {
+    visible: monster.visible,
+    localX: +local.x.toFixed(2),
+    localZ: +local.z.toFixed(2),
+    yawDeg: +(THREE.MathUtils.radToDeg(monster.rotation.y)).toFixed(1),
+  };
+}
+
 function door3PerformanceProbe() {
   let pointLights = 0;
   let transparentSurfaces = 0;
@@ -373,6 +385,7 @@ window.__door3 = () => ({
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
   sightline: door3SightlineProbe(),
   escapePassage: door3EscapePassageProbe(),
+  threatActor: door3ThreatActorProbe(),
   performance: door3PerformanceProbe(),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
@@ -383,6 +396,14 @@ window.__door3Look = yaw => {
   if (!D3.active || intro.active) return false;
   look.yaw = Math.max(-180, Math.min(180, Number(yaw) || 0));
   look.target = look.yaw;
+  return true;
+};
+window.__setDoor3ThreatElapsed = seconds => {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  R.timer.setElapsed(Math.max(0, Math.min(
+    DOOR3_THREAT_LIMIT_SEC + 1,
+    Number(seconds) || 0,
+  )));
   return true;
 };
 

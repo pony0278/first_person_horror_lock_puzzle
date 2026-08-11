@@ -112,6 +112,13 @@ function freezeDoor(won) {
   R.over = true; R.won = won;
 }
 
+/** Freeze a resolved round while its physical exit animation finishes. */
+export function freezeRoundForEnding(won) {
+  if (R.over) return false;
+  freezeDoor(Boolean(won));
+  return true;
+}
+
 function recordAttempt(msg) {
   if (R.jamStart) { R.jamTime += performance.now() - R.jamStart; R.jamStart = 0; }
   R.attempts.push({
@@ -156,10 +163,15 @@ export function primaryCause() {
 }
 
 export function die() {
-  if (R.over) return;
-  freezeDoor(false);
+  failRound(primaryCause());
+}
+
+/** A scene-specific failure may supply one honest decisive cause. */
+export function failRound(msg) {
+  if (!freezeRoundForEnding(false)) return false;
   beep('death');
-  endRound(primaryCause());
+  endRound(msg);
+  return true;
 }
 
 export function endRound(msg) {
