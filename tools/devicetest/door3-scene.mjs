@@ -281,6 +281,11 @@ for (const profile of profiles) {
     consoleBefore.visual.lowerButtonBottom > consoleBefore.visual.frontLipTop &&
     consoleBefore.visual.lowerGlyphClearance >= 0.01,
     JSON.stringify(consoleBefore.visual));
+  check('master lever bay stays clear of the gauge through vertical travel',
+    consoleBefore.visual.leverPullAxis === 'vertical' &&
+    consoleBefore.visual.gaugeLeverClearance >= 0.04 &&
+    consoleBefore.visual.leverPulledY < consoleBefore.visual.leverRestY,
+    JSON.stringify(consoleBefore.visual));
   await page.screenshot({
     path: `${OUT}/door3-${profile.name}-console.png`,
   });
@@ -444,6 +449,10 @@ for (const profile of profiles) {
     state.console.pressureBar === 10 && state.console.leverUnlocked,
     JSON.stringify(state.console));
 
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-master-lever-ready.png` });
+  }
+
   const leverCentre = await page.evaluate(() => window.__door3LeverCentre());
   await page.mouse.click(leverCentre.x, leverCentre.y);
   await page.waitForFunction(() => window.__door3?.().phase === 'complete',
@@ -453,6 +462,9 @@ for (const profile of profiles) {
     state.console.leverPulled && state.console.complete &&
     state.console.effects.doorOpenRatio === 1,
     JSON.stringify({ phase: state.phase, console: state.console }));
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-master-lever-pulled.png` });
+  }
 
   await page.evaluate(() => window.__door3Look(0));
   state = await page.evaluate(() => window.__door3());

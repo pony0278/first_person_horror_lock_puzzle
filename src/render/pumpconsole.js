@@ -16,11 +16,28 @@ export const PUMP_CONSOLE_LAYOUT = Object.freeze({
 const FRONT_LIP_TOP = 0.75;
 const LOWER_CONTROL_Y = 0.82;
 const CONTROL_HALF_HEIGHT = 0.115 / 2;
+const GAUGE_X = 0.34;
+const GAUGE_FACE_RADIUS = 0.215;
+const GAUGE_RIM_RADIUS = 0.223;
+const GAUGE_RIM_TUBE = 0.014;
+const GAUGE_OUTER_RADIUS = GAUGE_RIM_RADIUS + GAUGE_RIM_TUBE;
+const LEVER_BAY_X = 0.71;
+const LEVER_BAY_WIDTH = 0.18;
+const LEVER_REST_Y = 1.00;
+const LEVER_PULL_TRAVEL = 0.14;
 export const PUMP_CONSOLE_VISUAL = Object.freeze({
   frontLipTop: FRONT_LIP_TOP,
   lowerControlY: LOWER_CONTROL_Y,
   lowerButtonBottom: LOWER_CONTROL_Y - CONTROL_HALF_HEIGHT,
   lowerGlyphClearance: LOWER_CONTROL_Y - CONTROL_HALF_HEIGHT - FRONT_LIP_TOP,
+  gaugeRight: GAUGE_X + GAUGE_OUTER_RADIUS,
+  leverBayLeft: LEVER_BAY_X - LEVER_BAY_WIDTH / 2,
+  gaugeLeverClearance:
+    LEVER_BAY_X - LEVER_BAY_WIDTH / 2 - (GAUGE_X + GAUGE_OUTER_RADIUS),
+  leverPullAxis: 'vertical',
+  leverX: LEVER_BAY_X,
+  leverRestY: LEVER_REST_Y,
+  leverPulledY: LEVER_REST_Y - LEVER_PULL_TRAVEL,
 });
 
 const matFrame = new THREE.MeshStandardMaterial({
@@ -192,17 +209,20 @@ tankColumns.forEach((x, index) => {
 });
 
 const gaugeFace = new THREE.Mesh(
-  new THREE.CircleGeometry(0.255, 32),
+  new THREE.CircleGeometry(GAUGE_FACE_RADIUS, 32),
   new THREE.MeshBasicMaterial({ map: gaugeTexture(), toneMapped: false }),
 );
-gaugeFace.position.set(0.46, 0.91, -0.205);
+gaugeFace.position.set(GAUGE_X, 0.91, -0.205);
 pumpConsole.add(gaugeFace);
-const gaugeRim = new THREE.Mesh(new THREE.TorusGeometry(0.263, 0.018, 8, 32), matMetal);
-gaugeRim.position.set(0.46, 0.91, -0.18);
+const gaugeRim = new THREE.Mesh(
+  new THREE.TorusGeometry(GAUGE_RIM_RADIUS, GAUGE_RIM_TUBE, 8, 32),
+  matMetal,
+);
+gaugeRim.position.set(GAUGE_X, 0.91, -0.18);
 pumpConsole.add(gaugeRim);
 
 const gaugeNeedle = new THREE.Group();
-gaugeNeedle.position.set(0.46, 0.91, -0.155);
+gaugeNeedle.position.set(GAUGE_X, 0.91, -0.155);
 pumpConsole.add(gaugeNeedle);
 addBox(gaugeNeedle, matNeedle, 0.018, 0.19, 0.012, 0, 0.085, 0);
 const needleHub = new THREE.Mesh(new THREE.CircleGeometry(0.038, 16), matNeedle);
@@ -214,24 +234,40 @@ let targetPressureRatio = pumpPressureBar(PUMP_CONSOLE.initialVolumes) /
   PUMP_CONSOLE.pressureMaxBar;
 gaugeNeedle.rotation.z = pressureAngle(targetPressureRatio);
 
-/* The physical master lever remains locked until both latch pistons retract. */
+/*
+ * The master lever lives in its own narrow vertical bay. The previous long
+ * pivoting arm shared the gauge's right edge and covered the right quarter of
+ * the dial. A down-sliding handle keeps the interaction readable
+ * in every state without sweeping across the gauge or the centre walkway.
+ */
+addBox(pumpConsole, matPanel, LEVER_BAY_WIDTH, 0.44, 0.035,
+  LEVER_BAY_X, 0.91, -0.225);
+addBox(pumpConsole, matMetal, 0.024, 0.44, 0.050,
+  LEVER_BAY_X - LEVER_BAY_WIDTH / 2, 0.91, -0.195);
+addBox(pumpConsole, matMetal, 0.024, 0.44, 0.050,
+  LEVER_BAY_X + LEVER_BAY_WIDTH / 2, 0.91, -0.195);
+addBox(pumpConsole, matMetal, LEVER_BAY_WIDTH, 0.024, 0.050,
+  LEVER_BAY_X, 0.70, -0.195);
+addBox(pumpConsole, matMetal, LEVER_BAY_WIDTH, 0.024, 0.050,
+  LEVER_BAY_X, 1.12, -0.195);
+addBox(pumpConsole, matLeverLocked, 0.050, 0.28, 0.030,
+  LEVER_BAY_X, 0.84, -0.170);
+
 const masterLever = new THREE.Group();
 masterLever.name = 'door3-master-lever';
-masterLever.position.set(0.74, 0.78, -0.16);
+masterLever.position.set(LEVER_BAY_X, LEVER_REST_Y, -0.145);
 masterLever.userData = { unlocked: false, pulled: false, displayPull: 0 };
 pumpConsole.add(masterLever);
-const leverSocket = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.09, 12), matMetal);
-leverSocket.rotation.x = Math.PI / 2;
-masterLever.add(leverSocket);
-const leverHandle = addBox(masterLever, matLeverLocked, 0.11, 0.48, 0.10,
-  0, 0.20, 0.02);
+const leverStem = addBox(masterLever, matLeverLocked, 0.055, 0.14, 0.075,
+  0, -0.09, 0.02);
+const leverHandle = addBox(masterLever, matLeverLocked, 0.13, 0.095, 0.12,
+  0, 0, 0.02);
 leverHandle.name = 'door3-master-lever-handle';
 leverHandle.userData = { controlKind: 'lever' };
-addBox(masterLever, matLower, 0.19, 0.12, 0.14, 0, 0.46, 0.02);
 controlTargets.push(leverHandle);
 
-const leverLamp = addBox(pumpConsole, matSourceLampOff.clone(), 0.09, 0.045, 0.025,
-  0.74, 1.115, -0.17);
+const leverLamp = addBox(pumpConsole, matSourceLampOff.clone(), 0.07, 0.045, 0.025,
+  LEVER_BAY_X, 1.075, -0.16);
 leverLamp.name = 'door3-master-lever-lamp';
 
 export function attachPumpConsole(parent) {
@@ -265,6 +301,7 @@ export function setPumpConsoleState({
   masterLever.userData.unlocked = Boolean(leverUnlocked);
   masterLever.userData.pulled = Boolean(leverPulled);
   leverHandle.material = leverUnlocked ? matLeverReady : matLeverLocked;
+  leverStem.material = leverUnlocked ? matLeverReady : matLeverLocked;
   leverLamp.material.color.setHex(leverUnlocked ? 0xb5954c : 0x392b20);
 }
 
@@ -303,7 +340,8 @@ export function updatePumpConsole(dt) {
   const leverTarget = masterLever.userData.pulled ? 1 : 0;
   masterLever.userData.displayPull +=
     (leverTarget - masterLever.userData.displayPull) * blend;
-  masterLever.rotation.z = -masterLever.userData.displayPull * 1.08;
+  masterLever.position.y = LEVER_REST_Y -
+    masterLever.userData.displayPull * LEVER_PULL_TRAVEL;
   if (masterLever.userData.unlocked && !masterLever.userData.pulled) {
     const pulse = 0.72 + Math.abs(Math.sin(performance.now() / 380)) * 0.28;
     leverLamp.material.color.setRGB(0.70 * pulse, 0.57 * pulse, 0.28 * pulse);
