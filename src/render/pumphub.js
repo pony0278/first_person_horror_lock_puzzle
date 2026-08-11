@@ -18,6 +18,8 @@ const H = 3.45;
 const HUB_HALF = 2.70;
 const BRANCH_HALF = 1.28;
 const FRONT_END = -7.55;
+const ESCAPE_END = -14.60;
+const ESCAPE_WIDTH = 2.46;
 // Door 2 opens onto a full 16 m connector before the pump-room intersection.
 // REAR_END includes the 2.7 m half-width of the hub itself.
 const REAR_END = 18.7;
@@ -28,6 +30,7 @@ export const PUMP_HUB = Object.freeze({
   height: H,
   hubHalf: HUB_HALF,
   frontDoorZ: FRONT_END,
+  escapeEndZ: ESCAPE_END,
   rearEndZ: REAR_END,
   /** Door 2 and the rear pump corridor share this exact world-space seam. */
   rearOpeningWorldZ: DOOR_Z,
@@ -40,6 +43,7 @@ export const PUMP_HUB = Object.freeze({
   operatorWorldX: DOOR3_OPERATOR.x,
   operatorWorldZ: CENTER_WORLD_Z + DOOR3_OPERATOR.z,
   operatorYaw: DOOR3_OPERATOR.yawDeg,
+  escapeEndWorldZ: CENTER_WORLD_Z + ESCAPE_END,
   leftEndX: -SIDE_END,
   rightEndX: SIDE_END,
 });
@@ -153,6 +157,7 @@ const addInstancedBoxes = (parent, mat, definitions, name) => {
 
 /* Cross-shaped footprint: centre and four branches remain visually distinct. */
 const frontLen = Math.abs(FRONT_END) - HUB_HALF;
+const escapeLen = Math.abs(ESCAPE_END - FRONT_END);
 const rearLen = REAR_END - HUB_HALF;
 const sideLen = SIDE_END - HUB_HALF;
 
@@ -162,6 +167,7 @@ const surfaceFootprint = [
   [BRANCH_HALF * 2, rearLen, 0, HUB_HALF + rearLen / 2],
   [sideLen, BRANCH_HALF * 2, -(HUB_HALF + sideLen / 2), 0],
   [sideLen, BRANCH_HALF * 2, HUB_HALF + sideLen / 2, 0],
+  [ESCAPE_WIDTH, escapeLen, 0, FRONT_END - escapeLen / 2],
 ];
 addMergedBoxes(pumpHub, matFloor,
   surfaceFootprint.map(([sx, sz, x, z]) => [sx, 0.08, sz, x, -0.04, z]),
@@ -207,6 +213,10 @@ for (const z of [-BRANCH_HALF, BRANCH_HALF]) {
   wallDefinitions.push([sideLen, H, 0.12,
     HUB_HALF + sideLen / 2, H / 2, z]);
 }
+for (const x of [-ESCAPE_WIDTH / 2, ESCAPE_WIDTH / 2]) {
+  wallDefinitions.push([0.14, H, escapeLen,
+    x, H / 2, FRONT_END - escapeLen / 2]);
+}
 addMergedBoxes(pumpHub, matWall, wallDefinitions, 'door3-wall-batch');
 
 /* Repeated bulkhead ribs make forward motion readable across the long incoming
@@ -247,8 +257,25 @@ floodDoor.name = 'door3-flood-door';
 floodDoor.position.z = FRONT_END;
 pumpHub.add(floodDoor);
 
-addBox(floodDoor, matBulkhead, HUB_HALF * 2, H, 0.28, 0, H / 2, 0);
-export const doorLeaf = addBox(floodDoor, matDoor, 2.10, 2.38, 0.24, 0, 1.19, 0.18);
+/* A real opening replaces the old full-width backing slab. The raised leaf now
+ * reveals traversable corridor geometry instead of a wall-coloured dead end. */
+const doorwayHalf = ESCAPE_WIDTH / 2;
+const sideBulkheadWidth = HUB_HALF - doorwayHalf;
+addMergedBoxes(floodDoor, matBulkhead, [
+  [sideBulkheadWidth, H, 0.28,
+    -(doorwayHalf + sideBulkheadWidth / 2), H / 2, 0],
+  [sideBulkheadWidth, H, 0.28,
+    doorwayHalf + sideBulkheadWidth / 2, H / 2, 0],
+  [ESCAPE_WIDTH, H - 2.72, 0.28,
+    0, 2.72 + (H - 2.72) / 2, 0],
+], 'door3-flood-bulkhead-frame');
+
+const doorLeafAssembly = new THREE.Group();
+doorLeafAssembly.name = 'door3-moving-leaf-assembly';
+floodDoor.add(doorLeafAssembly);
+export const doorLeaf = addBox(
+  doorLeafAssembly, matDoor, 2.10, 2.38, 0.24, 0, 1.19, 0.18,
+);
 doorLeaf.name = 'door3-leaf';
 doorLeaf.userData.closedY = 1.19;
 for (const [sx, sy, x, y] of [
@@ -258,14 +285,14 @@ for (const [sx, sy, x, y] of [
 
 for (const x of [-0.82, 0.82]) {
   for (const y of [0.33, 0.78, 1.23, 1.68, 2.13]) {
-    const bolt = addPipe(floodDoor, 0.035, 0.045, x, y, 0.34, 'z', matMetal);
+    const bolt = addPipe(doorLeafAssembly, 0.035, 0.045, x, y, 0.34, 'z', matMetal);
     bolt.name = 'door3-rivet';
   }
 }
 
 export const wheel = new THREE.Group();
 wheel.position.set(0, 1.25, 0.36);
-floodDoor.add(wheel);
+doorLeafAssembly.add(wheel);
 const rim = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.038, 8, 20), matRust);
 wheel.add(rim);
 for (let i = 0; i < 4; i++) {
@@ -276,6 +303,17 @@ addPipe(wheel, 0.08, 0.07, 0, 0, 0.03, 'z', matMetal);
 
 const matFrontTube = new THREE.MeshBasicMaterial({ color: 0x668487, toneMapped: false });
 addBox(pumpHub, matFrontTube, 0.58, 0.045, 0.13, 0, 2.86, -6.28);
+
+/* Safe-side drainage corridor. It is deliberately short and dim: enough for
+ * the camera to cross the physical threshold and breathe, not a fourth room. */
+const escapeVoid = addBox(pumpHub, matDark, ESCAPE_WIDTH, H, 0.04,
+  0, H / 2, ESCAPE_END);
+escapeVoid.name = 'door3-escape-void';
+const matEscapeTube = new THREE.MeshBasicMaterial({
+  color: 0x6d765f, toneMapped: false,
+});
+addInstancedBoxes(pumpHub, matEscapeTube, [-9.15, -12.15].map(z =>
+  [0.52, 0.045, 0.12, 0, H - 0.24, z]), 'door3-escape-lamps');
 
 
 /* Three sight glasses share the left bank, keeping the door as the primary goal. */
@@ -755,7 +793,7 @@ export function resetPumpHubEffects() {
     debris.rotation.y = 0;
   });
   floodDoorOpenRatio = 0;
-  doorLeaf.position.y = doorLeaf.userData.closedY;
+  doorLeafAssembly.position.y = 0;
   wheel.rotation.z = 0;
   pressurePistons.forEach(piston => {
     piston.userData.targetLocked = false;
@@ -786,6 +824,7 @@ for (const [sx, sz, x, z] of [
   [BRANCH_HALF * 2, rearLen, 0, HUB_HALF + rearLen / 2],
   [sideLen, BRANCH_HALF * 2, -(HUB_HALF + sideLen / 2), 0],
   [sideLen, BRANCH_HALF * 2, HUB_HALF + sideLen / 2, 0],
+  [ESCAPE_WIDTH, escapeLen, 0, FRONT_END - escapeLen / 2],
 ]) addPlane(pumpHub, matWater, sx, sz, x, 0.016, z);
 
 const rippleDefs = [
@@ -831,11 +870,13 @@ export const pumpRipples = rippleDefs.map(([x, z, phase], i) => {
 /* Spatial anchors are shared by tests and the future chase system. */
 export const door3Anchors = {
   front: new THREE.Object3D(),
+  escape: new THREE.Object3D(),
   left: new THREE.Object3D(),
   right: new THREE.Object3D(),
   rear: new THREE.Object3D(),
 };
 door3Anchors.front.position.set(0, 1.35, FRONT_END + 0.25);
+door3Anchors.escape.position.set(0, 1.35, ESCAPE_END + 0.45);
 door3Anchors.left.position.set(-8.4, 1.45, 0);
 door3Anchors.right.position.set(8.4, 1.45, 0);
 door3Anchors.rear.position.set(0, 1.45, 8.4);
@@ -932,7 +973,7 @@ export function updatePumpHub(dt) {
   });
   const doorEase = floodDoorOpenRatio * floodDoorOpenRatio *
     (3 - 2 * floodDoorOpenRatio);
-  doorLeaf.position.y = doorLeaf.userData.closedY + doorEase * 2.52;
+  doorLeafAssembly.position.y = doorEase * 2.52;
   wheel.rotation.z = -doorEase * Math.PI * 1.35;
   updatePumpConsole(dt);
   pumpHub.userData.dust.rotation.y += dt * 0.008;

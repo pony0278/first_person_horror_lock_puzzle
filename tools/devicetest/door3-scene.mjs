@@ -453,19 +453,8 @@ for (const profile of profiles) {
     await page.screenshot({ path: `${OUT}/door3-master-lever-ready.png` });
   }
 
-  const leverCentre = await page.evaluate(() => window.__door3LeverCentre());
-  await page.mouse.click(leverCentre.x, leverCentre.y);
-  await page.waitForFunction(() => window.__door3?.().phase === 'complete',
-    null, { timeout: 10000 });
-  state = await page.evaluate(() => window.__door3());
-  check('manual master lever opens the flood door only after latch lock',
-    state.console.leverPulled && state.console.complete &&
-    state.console.effects.doorOpenRatio === 1,
-    JSON.stringify({ phase: state.phase, console: state.console }));
-  if (profile.name === 'landscape') {
-    await page.screenshot({ path: `${OUT}/door3-master-lever-pulled.png` });
-  }
-
+  // Verify free exploration before pulling the lever. Once the door opens the
+  // camera commits to the physical escape run and no longer stands in the hub.
   await page.evaluate(() => window.__door3Look(0));
   state = await page.evaluate(() => window.__door3());
   check('returning to the flood door restores the clear centre route',
@@ -504,6 +493,51 @@ for (const profile of profiles) {
   const heldYaw = (await page.evaluate(() => window.__door3())).yaw;
   check('drag look persists', afterDrag.yaw > 45 && Math.abs(afterDrag.yaw - heldYaw) < 3,
     `after=${afterDrag.yaw} held=${heldYaw}`);
+  await page.evaluate(() => window.__door3Look(0));
+  // The 0.25x lab speed is useful for inspecting the rupture, but would turn
+  // the authored 7.25-second open/run/breathe sequence into a 29-second wait.
+  // Pure timing is covered by Vitest; the browser run can use real-time scale.
+  await page.evaluate(async () => {
+    const { anim } = await import('/src/state.js');
+    anim.debugScale = 1;
+  });
+
+  const leverCentre = await page.evaluate(() => window.__door3LeverCentre());
+  await page.mouse.click(leverCentre.x, leverCentre.y);
+  await page.waitForFunction(() => window.__door3?.().phase === 'escape',
+    null, { timeout: 10000 });
+  state = await page.evaluate(() => window.__door3());
+  check('manual master lever opens a real passage only after latch lock',
+    state.console.leverPulled && state.console.complete &&
+    state.console.effects.doorOpenRatio === 1 && state.escapePassage.clear,
+    JSON.stringify({ phase: state.phase, passage: state.escapePassage, console: state.console }));
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-master-lever-pulled.png` });
+  }
+
+  await page.waitForFunction(() => window.__door3?.().console.escape.crossed,
+    null, { timeout: 10000 });
+  state = await page.evaluate(() => window.__door3());
+  const floodDoorWorldZ = state.hubCenterZ + state.console.escape.gateZ;
+  check('camera physically crosses the flood-gate threshold',
+    state.console.escape.crossed && state.z < floodDoorWorldZ - 0.15 &&
+    Math.abs(state.x) <= 0.08 && state.walking,
+    JSON.stringify({ x: state.x, z: state.z, floodDoorWorldZ,
+      escape: state.console.escape }));
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-escape-crossed.png` });
+  }
+
+  await page.waitForFunction(() => window.__door3?.().phase === 'complete',
+    null, { timeout: 10000 });
+  await page.waitForFunction(() => window.__door3?.().fadeOpacity >= 0.5,
+    null, { timeout: 1000 });
+  state = await page.evaluate(() => window.__door3());
+  check('success is recorded only after the safe-side breathing beat',
+    state.console.escape.complete && state.console.escape.progress === 1 &&
+    !state.walking && state.fadeOpacity > 0,
+    JSON.stringify({ phase: state.phase, walking: state.walking,
+      fade: state.fadeOpacity, escape: state.console.escape }));
 
   check('no page errors', errors.length === 0, errors.length ? errors.join(' | ') : 'none');
   await context.close();
