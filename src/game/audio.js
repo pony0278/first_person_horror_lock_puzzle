@@ -143,6 +143,68 @@ export function pipeBurstSound() {
   beep('thunk');
 }
 
+/**
+ * Door 3 directional warnings. Every sound has a matching visible event, so
+ * muted players keep the same information and stereo never becomes required.
+ */
+export function door3ThreatSound(direction, stage = 0) {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
+  const panValue = direction === 'left' ? -0.72 : direction === 'right' ? 0.72 : 0;
+  const pan = actx.createStereoPanner?.();
+  const output = node => {
+    if (pan) {
+      pan.pan.value = panValue;
+      node.connect(pan);
+      pan.connect(actx.destination);
+    } else node.connect(actx.destination);
+  };
+
+  if (direction === 'left') {
+    const source = actx.createBufferSource();
+    const filter = actx.createBiquadFilter();
+    const gain = actx.createGain();
+    source.buffer = getBurstNoiseBuffer();
+    source.playbackRate.value = 0.62 + Math.min(0.20, stage * 0.025);
+    filter.type = 'lowpass';
+    filter.frequency.value = 430 + stage * 45;
+    gain.gain.setValueAtTime(0.075 + stage * 0.008, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+    source.connect(filter); filter.connect(gain); output(gain);
+    source.start(t); source.stop(t + 0.78);
+    return;
+  }
+
+  if (direction === 'right') {
+    const oscillator = actx.createOscillator();
+    const filter = actx.createBiquadFilter();
+    const gain = actx.createGain();
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(190 + stage * 18, t);
+    oscillator.frequency.exponentialRampToValueAtTime(720 + stage * 55, t + 0.28);
+    filter.type = 'bandpass'; filter.frequency.value = 1250;
+    gain.gain.setValueAtTime(0.060 + stage * 0.007, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+    oscillator.connect(filter); filter.connect(gain); output(gain);
+    oscillator.start(t); oscillator.stop(t + 0.38);
+    return;
+  }
+
+  const gain = actx.createGain();
+  gain.gain.setValueAtTime(0.050 + stage * 0.006, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.52);
+  output(gain);
+  for (const [index, frequency] of [620, 870, 1130].entries()) {
+    const oscillator = actx.createOscillator();
+    oscillator.type = 'square';
+    oscillator.frequency.value = frequency + stage * 17;
+    oscillator.connect(gain);
+    oscillator.start(t + index * 0.065);
+    oscillator.stop(t + 0.18 + index * 0.065);
+  }
+}
+
 /** 給測試接點讀的音訊狀態。不直接輸出 actx，避免其他模組拿去亂改。 */
 export const audioState = () => (actx ? actx.state : 'not-created');
 export const audioPerformanceState = () => ({ wetStepBufferBuilds });

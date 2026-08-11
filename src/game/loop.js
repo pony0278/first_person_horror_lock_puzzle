@@ -28,6 +28,7 @@ const door3FrameTimes = new RollingFrameTime();
 let door3LastFrameAt = null;
 
 const isThreatFrozen = () =>
+  D3.active ||
   (R.door === 2 && D2.awaitingFuse) ||
   R.timer.pauseReasons.includes('probe') ||
   debugThreatFrozen();
@@ -341,7 +342,8 @@ export function tick(frameAt) {
     //   運鏡中   = cinematic() —— 只有 transit 拉著鏡頭跑的那幾個階段，
     //              計時器凍結時牠不該出現（怪物是計時器的唯一顯示，§6，
     //              不動的怪物是謊言）。門 2 的互動階段不算運鏡，牠照站位規則走。
-    monster.visible = ((!R.over && vis && ST.blink <= 0) || (R.over && !R.won)) && !cinematic();
+    monster.visible = !D3.active &&
+      (((!R.over && vis && ST.blink <= 0) || (R.over && !R.won)) && !cinematic());
 
     // 貼臉：位置、升起演出、微微逼近
     if (ST.phase === 'face') {

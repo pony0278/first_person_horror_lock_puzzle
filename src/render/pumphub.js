@@ -221,7 +221,6 @@ addMergedBoxes(pumpHub, matWall, wallDefinitions, 'door3-wall-batch');
 
 /* Repeated bulkhead ribs make forward motion readable across the long incoming
  * connector. They frame the centre sightline but never enter it. */
-const matApproachLamp = new THREE.MeshBasicMaterial({ color: 0x6d3328 });
 const approachRibDefinitions = [];
 const approachLampDefinitions = [];
 for (const z of [15.2, 11.2, 7.2, 3.2]) {
@@ -235,7 +234,45 @@ for (const z of [15.2, 11.2, 7.2, 3.2]) {
     0, H - 0.19, z - 0.08]);
 }
 addInstancedBoxes(pumpHub, matBulkhead, approachRibDefinitions, 'door3-approach-ribs');
-addInstancedBoxes(pumpHub, matApproachLamp, approachLampDefinitions, 'door3-approach-lamps');
+
+/* All small hub signal lamps share one colour-addressable batch. Besides
+ * preserving the draw-call budget, this lets the right-side warning go dark
+ * deep-to-near without creating three permanent fixture draws. */
+const rightThreatLampPositions = [8.65, 6.55, 4.45];
+const signalLampDefinitions = [...approachLampDefinitions];
+const signalLampColors = approachLampDefinitions.map(() => 0x6d3328);
+const frontSignalLampIndex = signalLampDefinitions.push(
+  [0.58, 0.045, 0.13, 0, 2.86, -6.28],
+) - 1;
+signalLampColors.push(0x668487);
+for (const z of [-9.15, -12.15]) {
+  signalLampDefinitions.push([0.52, 0.045, 0.12, 0, H - 0.24, z]);
+  signalLampColors.push(0x6d765f);
+}
+const rightThreatLampIndices = rightThreatLampPositions.map(x => {
+  const index = signalLampDefinitions.push(
+    [0.46, 0.045, 0.14, x, 2.72, -0.02],
+  ) - 1;
+  signalLampColors.push(0x7199b5);
+  return index;
+});
+const rearSignalLampIndex = signalLampDefinitions.push(
+  [0.42, 0.07, 0.15, 0, 2.72, 6.8],
+) - 1;
+signalLampColors.push(0x612721);
+const signalLampColor = new THREE.Color();
+const signalLamps = addInstancedBoxes(
+  pumpHub,
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff, toneMapped: false, vertexColors: true,
+  }),
+  signalLampDefinitions,
+  'door3-signal-lamps',
+);
+signalLampColors.forEach((hex, index) =>
+  signalLamps.setColorAt(index, signalLampColor.setHex(hex)));
+signalLamps.instanceColor.setUsage(THREE.DynamicDrawUsage);
+signalLamps.instanceColor.needsUpdate = true;
 
 /* Deep exits reveal only darkness and a restrained directional colour. */
 const rearVoid = addBox(pumpHub, matDark, BRANCH_HALF * 2, H, 0.04,
@@ -283,12 +320,22 @@ for (const [sx, sy, x, y] of [
   [2.46, 0.18, 0, 2.62], [2.46, 0.18, 0, 0.10],
 ]) addBox(floodDoor, matMetal, sx, sy, 0.32, x, y, 0.22);
 
+const rivetDefinitions = [];
 for (const x of [-0.82, 0.82]) {
-  for (const y of [0.33, 0.78, 1.23, 1.68, 2.13]) {
-    const bolt = addPipe(doorLeafAssembly, 0.035, 0.045, x, y, 0.34, 'z', matMetal);
-    bolt.name = 'door3-rivet';
-  }
+  for (const y of [0.33, 0.78, 1.23, 1.68, 2.13])
+    rivetDefinitions.push([0.045, 0.035, 0.045, x, y, 0.34, Math.PI / 2, 0, 0]);
 }
+const rivets = new THREE.InstancedMesh(cylGeo, matMetal, rivetDefinitions.length);
+rivetDefinitions.forEach((definition, index) =>
+  rivets.setMatrixAt(index, transformMatrix(definition)));
+rivets.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+rivets.instanceMatrix.needsUpdate = true;
+rivets.computeBoundingBox();
+rivets.computeBoundingSphere();
+rivets.name = 'door3-rivets';
+rivets.userData.performanceBatch = 'instances';
+rivets.userData.sourceDrawCalls = rivetDefinitions.length;
+doorLeafAssembly.add(rivets);
 
 export const wheel = new THREE.Group();
 wheel.position.set(0, 1.25, 0.36);
@@ -302,18 +349,12 @@ for (let i = 0; i < 4; i++) {
 addPipe(wheel, 0.08, 0.07, 0, 0, 0.03, 'z', matMetal);
 
 const matFrontTube = new THREE.MeshBasicMaterial({ color: 0x668487, toneMapped: false });
-addBox(pumpHub, matFrontTube, 0.58, 0.045, 0.13, 0, 2.86, -6.28);
 
 /* Safe-side drainage corridor. It is deliberately short and dim: enough for
  * the camera to cross the physical threshold and breathe, not a fourth room. */
 const escapeVoid = addBox(pumpHub, matDark, ESCAPE_WIDTH, H, 0.04,
   0, H / 2, ESCAPE_END);
 escapeVoid.name = 'door3-escape-void';
-const matEscapeTube = new THREE.MeshBasicMaterial({
-  color: 0x6d765f, toneMapped: false,
-});
-addInstancedBoxes(pumpHub, matEscapeTube, [-9.15, -12.15].map(z =>
-  [0.52, 0.045, 0.12, 0, H - 0.24, z]), 'door3-escape-lamps');
 
 
 /* Three sight glasses share the left bank, keeping the door as the primary goal. */
@@ -412,15 +453,34 @@ leftLight.position.set(-5.4, 2.48, 0);
 pumpHub.add(leftLight);
 addBox(pumpHub, matHazard, 0.46, 0.07, 0.16, -5.4, 2.72, 0);
 
+/* Threat-only ripples. Ambient rings stay disabled so water movement never
+ * lies about which corridor currently contains the monster. */
+const threatLeftRipples = [-8.70, -6.45, -4.20].map((x, index) => {
+  const material = matRipple.clone();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.30, 28), material);
+  ring.name = `door3-threat-left-ripple-${index + 1}`;
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.031 + index * 0.0004, 0.12);
+  ring.visible = false;
+  pumpHub.add(ring);
+  return ring;
+});
+
 /* Right branch: cable trays, electrical cabinets, and cold residual light. */
 for (const z of [-0.72, -0.45, -0.18]) {
   addPipe(pumpHub, 7.8, 0.025, 6.75, 2.86, z, 'x', matCable);
 }
+const rightCabinetSlotDefinitions = [];
 for (const x of [4.5, 6.2, 7.9]) {
   addBox(pumpHub, matBulkhead, 0.72, 1.65, 0.20, x, 0.83, BRANCH_HALF - 0.12);
   for (let k = 0; k < 3; k++)
-    addBox(pumpHub, matDark, 0.46, 0.025, 0.025, x, 1.18 - k * 0.13, BRANCH_HALF - 0.24);
+    rightCabinetSlotDefinitions.push(
+      [0.46, 0.025, 0.025, x, 1.18 - k * 0.13, BRANCH_HALF - 0.24],
+    );
 }
+addInstancedBoxes(
+  pumpHub, matDark, rightCabinetSlotDefinitions, 'door3-right-cabinet-slots',
+);
 const rightLight = new THREE.PointLight(0x6f9fc2, 1.10, 6.5, 1.8);
 rightLight.name = 'door3-key-light-right';
 rightLight.position.set(5.7, 2.55, 0);
@@ -440,7 +500,7 @@ const chainLinks = new THREE.InstancedMesh(chainGeometry, matMetal, chainDefinit
 chainDefinitions.forEach((definition, index) => {
   chainLinks.setMatrixAt(index, transformMatrix(definition));
 });
-chainLinks.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+chainLinks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 chainLinks.instanceMatrix.needsUpdate = true;
 chainLinks.computeBoundingBox();
 chainLinks.computeBoundingSphere();
@@ -448,8 +508,68 @@ chainLinks.name = 'door3-chain-links';
 chainLinks.userData.performanceBatch = 'instances';
 chainLinks.userData.sourceDrawCalls = chainDefinitions.length;
 pumpHub.add(chainLinks);
-const matRearTube = new THREE.MeshBasicMaterial({ color: 0x612721, toneMapped: false });
-addBox(pumpHub, matRearTube, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
+
+const pumpThreatState = {
+  active: false,
+  direction: null,
+  stage: -1,
+  cueProgress: 0,
+  presence: 0,
+  monsterVisible: false,
+  leftRippleStrength: 0,
+  rightDarkLamps: 0,
+  rearChainSway: 0,
+};
+
+export function setPumpHubThreatState({
+  active = false,
+  direction = null,
+  stage = -1,
+  cueProgress = 0,
+  presence = 0,
+  monsterVisible = false,
+} = {}) {
+  pumpThreatState.active = Boolean(active);
+  pumpThreatState.direction = ['left', 'right', 'rear'].includes(direction)
+    ? direction : null;
+  pumpThreatState.stage = Number.isInteger(stage) ? stage : -1;
+  pumpThreatState.cueProgress = clamp01(Number(cueProgress) || 0);
+  pumpThreatState.presence = clamp01(Number(presence) || 0);
+  pumpThreatState.monsterVisible = Boolean(monsterVisible);
+}
+
+function writeThreatChains(amplitude) {
+  chainDefinitions.forEach((definition, index) => {
+    const next = [...definition];
+    next[8] = (definition[8] || 0) +
+      Math.sin(hubTime * 8.6 + index * 0.83) * amplitude *
+      (0.72 + (index % 7) * 0.055);
+    chainLinks.setMatrixAt(index, transformMatrix(next));
+  });
+  chainLinks.instanceMatrix.needsUpdate = true;
+}
+
+export function resetPumpHubThreat() {
+  Object.assign(pumpThreatState, {
+    active: false,
+    direction: null,
+    stage: -1,
+    cueProgress: 0,
+    presence: 0,
+    monsterVisible: false,
+    leftRippleStrength: 0,
+    rightDarkLamps: 0,
+    rearChainSway: 0,
+  });
+  threatLeftRipples.forEach(ring => {
+    ring.visible = false;
+    ring.material.opacity = 0;
+  });
+  rightThreatLampIndices.forEach(index =>
+    signalLamps.setColorAt(index, signalLampColor.setHex(0x7199b5)));
+  signalLamps.instanceColor.needsUpdate = true;
+  writeThreatChains(0);
+}
 
 /* First legal pump action ruptures this return pipe behind the operator. */
 const burstImpact = new THREE.Vector3(-0.28, 0.03, 0.98);
@@ -814,6 +934,17 @@ export function pumpHubEffectSnapshot() {
     latchRetraction: pressurePistons.map(piston =>
       +piston.userData.displayLock.toFixed(2)),
     doorOpenRatio: +floodDoorOpenRatio.toFixed(2),
+    threat: {
+      active: pumpThreatState.active,
+      direction: pumpThreatState.direction,
+      stage: pumpThreatState.stage,
+      cueProgress: +pumpThreatState.cueProgress.toFixed(2),
+      presence: +pumpThreatState.presence.toFixed(2),
+      monsterVisible: pumpThreatState.monsterVisible,
+      leftRippleStrength: +pumpThreatState.leftRippleStrength.toFixed(2),
+      rightDarkLamps: pumpThreatState.rightDarkLamps,
+      rearChainSway: +pumpThreatState.rearChainSway.toFixed(2),
+    },
   };
 }
 
@@ -837,6 +968,7 @@ export const pumpRipples = rippleDefs.map(([x, z, phase], i) => {
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(x, 0.026 + i * 0.0004, z);
   ring.userData.phase = phase;
+  ring.visible = false;
   pumpHub.add(ring);
   return ring;
 });
@@ -887,21 +1019,59 @@ export function updatePumpHub(dt) {
   if (!pumpHub.visible) return;
   hubTime += dt;
 
+  const leftThreat = pumpThreatState.active && pumpThreatState.direction === 'left'
+    ? pumpThreatState.presence : 0;
+  const rightThreat = pumpThreatState.active && pumpThreatState.direction === 'right'
+    ? pumpThreatState.presence : 0;
+  const rearThreat = pumpThreatState.active && pumpThreatState.direction === 'rear'
+    ? pumpThreatState.presence : 0;
+
   leftLight.intensity = 1.05 +
-    0.24 * Math.abs(Math.sin(hubTime * 7.1) * Math.sin(hubTime * 2.3));
-  rightLight.intensity = 0.88 +
-    0.20 * Math.abs(Math.sin(hubTime * 11.7));
+    0.24 * Math.abs(Math.sin(hubTime * 7.1) * Math.sin(hubTime * 2.3)) +
+    leftThreat * 0.18;
+
+  const rightDarkLamps = Math.min(rightThreatLampPositions.length,
+    Math.floor(rightThreat * rightThreatLampPositions.length + 0.0001));
+  pumpThreatState.rightDarkLamps = rightDarkLamps;
+  rightThreatLampPositions.forEach((_, index) => {
+    const dark = index < rightDarkLamps;
+    const flicker = 0.78 + 0.22 * Math.abs(Math.sin(hubTime * (10.7 + index * 2.1)));
+    signalLamps.setColorAt(rightThreatLampIndices[index], signalLampColor.setRGB(
+      (dark ? 0.012 : 0.44 * flicker),
+      (dark ? 0.018 : 0.60 * flicker),
+      (dark ? 0.024 : 0.72 * flicker),
+    ));
+  });
+  rightLight.intensity = (0.88 +
+    0.20 * Math.abs(Math.sin(hubTime * 11.7))) *
+    (1 - rightDarkLamps / rightThreatLampPositions.length * 0.84);
+
   const rearPulse = 0.76 + 0.10 * Math.sin(hubTime * 1.7);
-  matRearTube.color.setRGB(0.38 * rearPulse, 0.15 * rearPulse, 0.12 * rearPulse);
+  const rearAlarm = 1 + rearThreat *
+    (0.34 + 0.28 * Math.abs(Math.sin(hubTime * 9.2)));
+  signalLamps.setColorAt(rearSignalLampIndex, signalLampColor.setRGB(
+    0.38 * rearPulse * rearAlarm,
+    0.15 * rearPulse * rearAlarm,
+    0.12 * rearPulse * rearAlarm,
+  ));
+  const rearChainSway = rearThreat *
+    (0.10 + Math.max(0, pumpThreatState.stage) * 0.018);
+  pumpThreatState.rearChainSway = rearChainSway;
+  writeThreatChains(rearChainSway);
+
   const frontPulse = 0.82 +
     0.16 * Math.abs(Math.sin(hubTime * 8.9) * Math.sin(hubTime * 2.0));
   matFrontTube.color.setRGB(0.40 * frontPulse, 0.52 * frontPulse, 0.53 * frontPulse);
+  signalLamps.setColorAt(frontSignalLampIndex, signalLampColor.copy(matFrontTube.color));
+  signalLamps.instanceColor.needsUpdate = true;
 
-  pumpRipples.forEach((ring, i) => {
-    const cycle = (hubTime * (0.18 + i * 0.012) + ring.userData.phase) % 1;
-    const scale = 0.55 + cycle * 3.2;
-    ring.scale.setScalar(scale);
-    ring.material.opacity = Math.sin(cycle * Math.PI) * 0.22;
+  pumpThreatState.leftRippleStrength = leftThreat;
+  threatLeftRipples.forEach((ring, index) => {
+    const activation = clamp01(leftThreat * 3.2 - index * 0.48);
+    const cycle = (hubTime * (0.78 + index * 0.035) + index * 0.22) % 1;
+    ring.visible = activation > 0.01;
+    ring.scale.setScalar(0.72 + cycle * (3.9 + Math.max(0, pumpThreatState.stage) * 0.16));
+    ring.material.opacity = activation * Math.sin(cycle * Math.PI) * 0.46;
   });
 
   if (pipeBurstState.triggered) {

@@ -211,6 +211,10 @@ for (const profile of profiles) {
     JSON.stringify(consoleWalk));
 
   await page.waitForFunction(() => window.__door3?.().phase === 'explore', null, { timeout: 90000 });
+  // The phase flips during the Door 3 update; allow the renderer to publish a
+  // complete steady-state frame before sampling its draw-call counter.
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   state = await page.evaluate(() => window.__door3());
   check('formal arrival is centred directly in front of the console',
     state.active && state.visible &&
@@ -230,6 +234,12 @@ for (const profile of profiles) {
   check('Door 3 stays within the draw-call budget',
     state.performance.drawCalls <= state.performance.budget.maxDrawCalls,
     `calls=${state.performance.drawCalls}/${state.performance.budget.maxDrawCalls}`);
+  const timerUiCue = await page.evaluate(() =>
+    document.getElementById('turnCue')?.textContent ?? '');
+  check('normal UI keeps the Door 3 wall clock hidden',
+    state.console.threat.timerVisible === false &&
+    !/\d+(?:\.\d+)?\s*s/i.test(timerUiCue),
+    JSON.stringify({ threat: state.console.threat, cue: timerUiCue }));
   check('rolling frame-time probe has live finite samples',
     state.performance.frameTime.samples >= 30 &&
     Number.isFinite(state.performance.frameTime.averageMs) &&
@@ -502,6 +512,8 @@ for (const profile of profiles) {
     anim.debugScale = 1;
   });
 
+  const threatElapsedBeforeLever = (await page.evaluate(() =>
+    window.__door3().console.threat.elapsed));
   const leverCentre = await page.evaluate(() => window.__door3LeverCentre());
   await page.mouse.click(leverCentre.x, leverCentre.y);
   await page.waitForFunction(() => window.__door3?.().phase === 'escape',
@@ -511,12 +523,23 @@ for (const profile of profiles) {
     state.console.leverPulled && state.console.complete &&
     state.console.effects.doorOpenRatio === 1 && state.escapePassage.clear,
     JSON.stringify({ phase: state.phase, passage: state.escapePassage, console: state.console }));
+  check('F2.3 freezes and clears its threat as soon as the valid lever is pulled',
+    state.console.threat.escaped && !state.console.effects.threat.active &&
+    !state.threatActor.visible &&
+    Math.abs(state.console.threat.elapsed - threatElapsedBeforeLever) <= 0.02,
+    JSON.stringify({ before: threatElapsedBeforeLever,
+      threat: state.console.threat, visual: state.console.effects.threat,
+      actor: state.threatActor }));
   if (profile.name === 'landscape') {
     await page.screenshot({ path: `${OUT}/door3-master-lever-pulled.png` });
   }
 
-  await page.waitForFunction(() => window.__door3?.().console.escape.crossed,
-    null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const snapshot = window.__door3?.();
+    if (!snapshot?.console.escape.crossed) return false;
+    const threshold = snapshot.hubCenterZ + snapshot.console.escape.gateZ;
+    return snapshot.z < threshold - 0.15;
+  }, null, { timeout: 10000 });
   state = await page.evaluate(() => window.__door3());
   const floodDoorWorldZ = state.hubCenterZ + state.console.escape.gateZ;
   check('camera physically crosses the flood-gate threshold',
@@ -540,6 +563,172 @@ for (const profile of profiles) {
       fade: state.fadeOpacity, escape: state.console.escape }));
 
   check('no page errors', errors.length === 0, errors.length ? errors.join(' | ') : 'none');
+  await context.close();
+}
+
+/* Directional threat contract: use the exact hidden clock checkpoints while
+ * the Debug Lab holds wall time. This verifies rendered cues before visibility,
+ * one shared actor changing corridors, the final cause, and full-round restart. */
+for (const profile of profiles) {
+  console.log(`\n[${profile.name} threat]`);
+  const context = await browser.newContext({
+    viewport: { width: profile.width, height: profile.height },
+    deviceScaleFactor: profile.dpr,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: profile.userAgent,
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error).slice(0, 240)));
+  await page.goto(scenarioUrl(), { waitUntil: 'load' });
+  await page.waitForFunction(() => typeof window.__debugLoad === 'function');
+  await page.evaluate(() => window.__debugLoad('door3', 'explore'));
+  await page.waitForFunction(() => window.__door3?.().phase === 'explore');
+
+  let state = await page.evaluate(() => window.__door3());
+  check('three-way threat starts with a quiet, non-lying room',
+    state.console.threat.phase === 'dormant' &&
+    !state.console.effects.threat.active &&
+    state.console.effects.threat.leftRippleStrength === 0 &&
+    state.console.effects.threat.rightDarkLamps === 0 &&
+    state.console.effects.threat.rearChainSway === 0 &&
+    !state.threatActor.visible,
+    JSON.stringify({ threat: state.console.threat,
+      visual: state.console.effects.threat, actor: state.threatActor }));
+
+  await page.evaluate(() => {
+    window.__door3Look(180);
+    window.__setDoor3ThreatElapsed(4.00);
+  });
+  await page.waitForFunction(() => window.__door3?.().console.threat.stage === 0);
+  state = await page.evaluate(() => window.__door3());
+  check('rear chain moves before the rear monster is revealed',
+    state.console.threat.direction === 'rear' &&
+    state.console.threat.phase === 'cue' &&
+    state.console.effects.threat.rearChainSway > 0 &&
+    state.console.effects.threat.leftRippleStrength === 0 &&
+    state.console.effects.threat.rightDarkLamps === 0 &&
+    !state.threatActor.visible,
+    JSON.stringify({ threat: state.console.threat,
+      visual: state.console.effects.threat, actor: state.threatActor }));
+  await page.screenshot({ path: `${OUT}/door3-threat-${profile.name}-rear-cue.png` });
+
+  await page.evaluate(() => window.__setDoor3ThreatElapsed(4.70));
+  await page.waitForFunction(() => window.__door3?.().console.threat.phase === 'visible');
+  state = await page.evaluate(() => window.__door3());
+  check('the shared actor appears at the warned rear distance',
+    state.threatActor.visible &&
+    Math.abs(state.threatActor.localX) <= 0.05 &&
+    Math.abs(state.threatActor.localZ - 9.30) <= 0.05 &&
+    Math.abs(state.threatActor.yawDeg) <= 0.5,
+    JSON.stringify(state.threatActor));
+
+  await page.evaluate(() => {
+    window.__door3Look(90);
+    window.__setDoor3ThreatElapsed(10.45);
+  });
+  await page.waitForFunction(() => window.__door3?.().console.threat.stage === 1);
+  state = await page.evaluate(() => window.__door3());
+  check('left water advances without false right or rear warnings',
+    state.console.threat.direction === 'left' &&
+    state.console.threat.phase === 'cue' &&
+    state.console.effects.threat.leftRippleStrength > 0 &&
+    state.console.effects.threat.rightDarkLamps === 0 &&
+    state.console.effects.threat.rearChainSway === 0 &&
+    !state.threatActor.visible,
+    JSON.stringify({ threat: state.console.threat,
+      visual: state.console.effects.threat, actor: state.threatActor }));
+  await page.screenshot({ path: `${OUT}/door3-threat-${profile.name}-left-cue.png` });
+
+  await page.evaluate(() => window.__setDoor3ThreatElapsed(11.20));
+  await page.waitForFunction(() => window.__door3?.().console.threat.phase === 'visible');
+  state = await page.evaluate(() => window.__door3());
+  check('the same actor reappears farther in the warned left branch',
+    state.threatActor.visible &&
+    Math.abs(state.threatActor.localX + 8.40) <= 0.05 &&
+    Math.abs(state.threatActor.localZ) <= 0.05 &&
+    Math.abs(state.threatActor.yawDeg + 90) <= 0.5,
+    JSON.stringify(state.threatActor));
+
+  await page.evaluate(() => {
+    window.__door3Look(-90);
+    window.__setDoor3ThreatElapsed(16.95);
+  });
+  await page.waitForFunction(() => window.__door3?.().console.threat.stage === 2);
+  state = await page.evaluate(() => window.__door3());
+  check('right lamps black out from deep to near before the actor appears',
+    state.console.threat.direction === 'right' &&
+    state.console.threat.phase === 'cue' &&
+    state.console.effects.threat.rightDarkLamps >= 1 &&
+    state.console.effects.threat.leftRippleStrength === 0 &&
+    state.console.effects.threat.rearChainSway === 0 &&
+    !state.threatActor.visible,
+    JSON.stringify({ threat: state.console.threat,
+      visual: state.console.effects.threat, actor: state.threatActor }));
+  await page.screenshot({ path: `${OUT}/door3-threat-${profile.name}-right-cue.png` });
+
+  await page.evaluate(() => window.__setDoor3ThreatElapsed(17.70));
+  await page.waitForFunction(() => window.__door3?.().console.threat.phase === 'visible');
+  state = await page.evaluate(() => window.__door3());
+  check('the same actor reappears at the warned right distance',
+    state.threatActor.visible &&
+    Math.abs(state.threatActor.localX - 7.20) <= 0.05 &&
+    Math.abs(state.threatActor.localZ) <= 0.05 &&
+    Math.abs(state.threatActor.yawDeg - 90) <= 0.5,
+    JSON.stringify(state.threatActor));
+
+  state = await page.evaluate(async () => {
+    const door3 = await import('/src/game/door3.js');
+    const transfer = (source, target) => {
+      door3.adjustDoor3Pump(source, -1);
+      door3.adjustDoor3Pump(target, 1);
+      for (let i = 0; i < 60; i++) door3.updateDoor3(1 / 60);
+    };
+    // Reach [5,2,0], where the left latch is honestly locked, then move that
+    // tank back out of its target band to trigger the real rollback path.
+    transfer(1, 2);
+    transfer(0, 1);
+    transfer(1, 2);
+    transfer(2, 0);
+    transfer(0, 1);
+    return window.__door3();
+  });
+  check('a real latch rollback advances exactly one stage and restarts its cue',
+    state.console.severeErrors === 1 && state.console.threatAdvances === 1 &&
+    state.console.threat.advances === 1 && state.console.threat.stage === 3 &&
+    state.console.threat.direction === 'rear' && state.console.threat.phase === 'cue' &&
+    !state.threatActor.visible,
+    JSON.stringify({ volumes: state.console.volumes,
+      severeErrors: state.console.severeErrors,
+      threatAdvances: state.console.threatAdvances,
+      threat: state.console.threat, actor: state.threatActor }));
+
+  await page.evaluate(() => window.__setDoor3ThreatElapsed(39));
+  await page.waitForFunction(() => {
+    const probe = window.__probe?.();
+    return window.__door3?.().phase === 'dead' && probe?.over && !probe?.won;
+  });
+  state = await page.evaluate(() => ({
+    door3: window.__door3(),
+    result: document.querySelector('#fade > div')?.textContent ?? '',
+  }));
+  check('terminal blackout gives one precise failure and keeps the actor visible',
+    state.door3.console.threat.dead && state.door3.threatActor.visible &&
+    state.result === '右側照明全滅 —— 牠已經抵達',
+    JSON.stringify({ threat: state.door3.console.threat,
+      actor: state.door3.threatActor, result: state.result }));
+
+  await page.waitForFunction(() => {
+    const probe = window.__probe?.();
+    return probe?.door === 1 && !window.__door3?.().active;
+  }, null, { timeout: 5000 });
+  const restarted = await page.evaluate(() => window.__probe());
+  check('Door 3 death restarts the whole run at Door 1',
+    restarted.door === 1 && restarted.intro,
+    JSON.stringify(restarted));
+  check('three-way threat path has no page errors',
+    errors.length === 0, errors.length ? errors.join(' | ') : 'none');
   await context.close();
 }
 

@@ -382,7 +382,9 @@ function syncPanel(force = false) {
   const fxText = door3Fx
     ? `\nFX ${door3Fx.effects.phase} @ ${door3Fx.effects.burstT.toFixed(2)}s` +
       ` · pressure ${door3Fx.effects.streamPressure.toFixed(2)}` +
-      ` · wet ${door3Fx.wetGlass.amount.toFixed(2)} @ ${door3Fx.wetGlass.time.toFixed(2)}s`
+      ` · wet ${door3Fx.wetGlass.amount.toFixed(2)} @ ${door3Fx.wetGlass.time.toFixed(2)}s` +
+      `\nD3 threat ${door3Fx.threat.stage}:${door3Fx.threat.direction ?? 'quiet'}` +
+      ` · ${door3Fx.threat.phase} · advances ${door3Fx.threat.advances}`
     : '';
   $status.textContent =
     `door ${R.door} · ${phase}\n` +
