@@ -98,34 +98,6 @@
   body.door3 #turnCue {
     bottom:10px; color:#6f8587; text-shadow:0 1px 5px #000; letter-spacing:.13em;
   }
-  #door3WaterLens {
-    --water-slide:0;
-    position:absolute; inset:0; z-index:4; pointer-events:none; opacity:0;
-    overflow:hidden; mix-blend-mode:screen;
-  }
-  #door3WaterLens i { position:absolute; display:block; }
-  #door3WaterLens .drop {
-    width:clamp(16px,3vw,38px); aspect-ratio:1; border-radius:50%;
-    border:1px solid rgba(190,226,231,.38);
-    background:radial-gradient(circle at 38% 33%,#e6fbff55 0 8%,#7eaeb72d 25%,#183e4708 64%);
-    box-shadow:inset -3px -5px 8px #082b3345,0 0 7px #b8e6ec20;
-    filter:blur(.15px);
-    transform:translateY(calc(var(--water-slide) * 34vh));
-  }
-  #door3WaterLens .d1 { left:7%; top:-1%; transform:translateY(calc(var(--water-slide) * 27vh)) scale(.72); }
-  #door3WaterLens .d2 { left:28%; top:2%; transform:translateY(calc(var(--water-slide) * 42vh)) scale(1.08); }
-  #door3WaterLens .d3 { right:18%; top:-2%; transform:translateY(calc(var(--water-slide) * 31vh)) scale(.86); }
-  #door3WaterLens .d4 { right:3%; top:8%; transform:translateY(calc(var(--water-slide) * 22vh)) scale(.55); }
-  #door3WaterLens .streak {
-    top:-8%; width:7px; height:34%; border-radius:60% 60% 45% 45%;
-    background:linear-gradient(180deg,#d9f7fb38 0%,#8bc2cb1f 42%,#3b6e7700 100%);
-    filter:blur(1.4px);
-    transform:translateY(calc(var(--water-slide) * 58vh)) scaleY(calc(.65 + var(--water-slide) * .9));
-  }
-  #door3WaterLens .s1 { left:18%; }
-  #door3WaterLens .s2 { left:69%; width:5px; height:27%; transform:translateY(calc(var(--water-slide) * 48vh)) scaleY(calc(.55 + var(--water-slide))); }
-  #door3WaterLens .s3 { right:7%; width:4px; height:22%; transform:translateY(calc(var(--water-slide) * 36vh)) scaleY(calc(.55 + var(--water-slide))); }
-
   /* ── 黑幕 ───────────────────────────────────────── */
   /* 門 2 短路跳電：獨立於過場／死亡黑幕，避免兩套狀態互相解除。 */
   #trip { position:fixed; inset:0; background:rgba(0,5,10,.88); opacity:0; pointer-events:none;
@@ -218,11 +190,6 @@
 <body>
 
 <div id="view">
-  <div id="door3WaterLens" aria-hidden="true">
-    <i class="drop d1"></i><i class="drop d2"></i>
-    <i class="drop d3"></i><i class="drop d4"></i>
-    <i class="streak s1"></i><i class="streak s2"></i><i class="streak s3"></i>
-  </div>
   <div id="turnCue">按住畫面 = 回頭　·　放開 = 轉回門鎖</div>
   <div id="dev"></div>
 </div>

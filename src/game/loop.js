@@ -9,7 +9,8 @@ import { decay, decayStages, envLevel, lamp, lampFixture, reflection, seepUni } 
 import { hd, updateHands } from '../render/hands.js';
 import { flash3d, markerLight, markerMat, vig, vigMat } from '../render/hintwall.js';
 import { FACE_DROP, MP, monster, monsterHead, monsterTorso } from '../render/monster.js';
-import { camera, cylinder, door, doorLever, dust, keyEye, pickTool, renderer, scene, wrench } from '../render/scene.js';
+import { camera, cylinder, door, doorLever, dust, keyEye, pickTool, scene, wrench } from '../render/scene.js';
+import { renderWithWetGlass } from '../render/wetglass.js';
 import { R, ST, anim, blind, hooks, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { interrupted } from './halt.js';
@@ -479,7 +480,7 @@ export function tick(frameAt) {
 
   updateHands(dt);
 
-  renderer.render(scene, camera);
+  renderWithWetGlass(scene, camera);
 
   if (ui.devOn) {
     $dev.textContent =

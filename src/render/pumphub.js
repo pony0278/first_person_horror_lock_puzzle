@@ -414,10 +414,10 @@ const matRearTube = new THREE.MeshBasicMaterial({ color: 0x612721, toneMapped: f
 addBox(pumpHub, matRearTube, 0.42, 0.07, 0.15, 0, 2.72, 6.8);
 
 /* First legal pump action ruptures this return pipe behind the operator. */
-const burstImpact = new THREE.Vector3(-1.12, 0.03, 1.48);
+const burstImpact = new THREE.Vector3(-0.28, 0.03, 0.98);
 export const burstPipeRig = new THREE.Group();
 burstPipeRig.name = 'door3-burst-pipe-rig';
-burstPipeRig.position.set(-1.12, 2.72, 1.48);
+burstPipeRig.position.set(-1.12, 2.18, 1.62);
 pumpHub.add(burstPipeRig);
 addPipe(burstPipeRig, 1.25, 0.12, -0.48, 0, 0, 'x', matPipe);
 const burstLoosePipe = addPipe(burstPipeRig, 0.58, 0.12, 0.36, 0, 0, 'x', matRust);
@@ -427,20 +427,200 @@ burstRim.rotation.y = Math.PI / 2;
 burstRim.position.x = 0.02;
 burstPipeRig.add(burstRim);
 
-const matJet = new THREE.MeshBasicMaterial({
-  color: 0x769ba0, transparent: true, opacity: 0,
-  depthWrite: false, side: THREE.DoubleSide,
-});
-matJet.forceSinglePass = true;
-export const burstWaterJet = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.055, 0.18, 2.62, 10, 1, true), matJet,
+const burstCurve = new THREE.CubicBezierCurve3(
+  new THREE.Vector3(0.03, -0.01, 0),
+  new THREE.Vector3(0.38, -0.10, -0.10),
+  new THREE.Vector3(0.78, -0.96, -0.38),
+  new THREE.Vector3(0.84, -2.14, -0.64),
 );
-burstWaterJet.name = 'door3-burst-water-jet';
-burstWaterJet.position.set(0.12, -1.31, -0.03);
-burstWaterJet.rotation.z = -0.08;
-burstWaterJet.rotation.x = 0.05;
+
+function makeBurstRibbonGeometry(referenceAxis) {
+  const segments = 18;
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const tangent = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const centre = burstCurve.getPoint(t);
+    burstCurve.getTangent(t, tangent).normalize();
+    side.crossVectors(tangent, referenceAxis).normalize();
+    const brokenEdge = 0.92 + Math.sin(i * 2.71 + referenceAxis.x * 3.1) * 0.08;
+    const width = THREE.MathUtils.lerp(0.030, 0.070, Math.sin(t * Math.PI)) * brokenEdge;
+    for (const sign of [-1, 1]) {
+      positions.push(
+        centre.x + side.x * width * sign,
+        centre.y + side.y * width * sign,
+        centre.z + side.z * width * sign,
+      );
+      uvs.push((sign + 1) / 2, t);
+    }
+    if (i < segments) {
+      const a = i * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+const burstStreamUniforms = {
+  uTime: { value: 0 },
+  uPressure: { value: 0 },
+  uBurst: { value: 0 },
+};
+const burstStreamMaterial = new THREE.ShaderMaterial({
+  uniforms: burstStreamUniforms,
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending,
+  toneMapped: false,
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform float uPressure;
+    uniform float uBurst;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                 mix(hash(i + vec2(0.0, 1.0)), hash(i + 1.0), f.x), f.y);
+    }
+    void main() {
+      float edge = smoothstep(0.0, 0.16, min(vUv.x, 1.0 - vUv.x));
+      vec2 flowUv = vec2(vUv.x * 3.7, vUv.y * 10.0 - uTime * 5.2);
+      float coarse = noise(flowUv);
+      float fine = noise(flowUv * 2.3 + 4.7);
+      float gaps = smoothstep(0.34 - uPressure * 0.05, 0.66, coarse * 0.72 + fine * 0.38);
+      float pulse = 0.80 + 0.20 * sin(vUv.y * 27.0 - uTime * 13.0 + fine * 4.0);
+      float foam = smoothstep(0.70, 0.96, fine + uBurst * 0.16);
+      float alpha = edge * gaps * pulse * (0.06 + uPressure * 0.21);
+      if (alpha < 0.025) discard;
+      vec3 deepWater = vec3(0.50, 0.70, 0.72);
+      vec3 whiteWater = vec3(0.87, 0.97, 0.98);
+      vec3 colour = mix(deepWater, whiteWater, foam * 0.74 + edge * 0.10);
+      gl_FragColor = vec4(colour, alpha);
+    }
+  `,
+});
+burstStreamMaterial.name = 'door3-broken-water-stream-material';
+
+export const burstWaterJet = new THREE.Group();
+burstWaterJet.name = 'door3-burst-water-flow';
 burstWaterJet.visible = false;
 burstPipeRig.add(burstWaterJet);
+for (const [name, axis] of [
+  ['front-ribbon', new THREE.Vector3(0, 0, 1)],
+  ['cross-ribbon', new THREE.Vector3(1, 0, 0)],
+]) {
+  const ribbon = new THREE.Mesh(makeBurstRibbonGeometry(axis), burstStreamMaterial);
+  ribbon.name = `door3-burst-${name}`;
+  ribbon.frustumCulled = false;
+  burstWaterJet.add(ribbon);
+}
+
+function radialDropTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext('2d');
+  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 31);
+  gradient.addColorStop(0, 'rgba(235,252,255,.95)');
+  gradient.addColorStop(0.28, 'rgba(173,224,232,.72)');
+  gradient.addColorStop(1, 'rgba(91,151,161,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
+const dropTexture = radialDropTexture();
+const makeBurstPoints = (count, name, size) => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(count * 3, 3));
+  const material = new THREE.PointsMaterial({
+    color: 0xc7edf0,
+    map: dropTexture,
+    size,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0,
+    alphaTest: 0.025,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const points = new THREE.Points(geometry, material);
+  points.name = name;
+  points.frustumCulled = false;
+  return points;
+};
+
+const deterministic = (index, salt) => {
+  const value = Math.sin((index + 1) * 91.17 + salt * 37.31) * 43758.5453;
+  return value - Math.floor(value);
+};
+const mouthParticleData = Array.from({ length: 34 }, (_, i) => ({
+  delay: deterministic(i, 1) * 0.16,
+  life: 0.30 + deterministic(i, 2) * 0.34,
+  vx: 1.15 + deterministic(i, 3) * 1.65,
+  vy: (deterministic(i, 4) - 0.40) * 1.55,
+  vz: (deterministic(i, 5) - 0.5) * 1.35,
+}));
+const burstMouthSpray = makeBurstPoints(mouthParticleData.length,
+  'door3-burst-mouth-spray', 0.075);
+burstMouthSpray.position.set(0.04, 0, 0);
+burstWaterJet.add(burstMouthSpray);
+
+const impactParticleData = Array.from({ length: 38 }, (_, i) => ({
+  offset: deterministic(i, 6) * 0.72,
+  life: 0.48 + deterministic(i, 7) * 0.32,
+  vx: (deterministic(i, 8) - 0.5) * 1.45,
+  vy: 0.55 + deterministic(i, 9) * 1.05,
+  vz: (deterministic(i, 10) - 0.5) * 1.35,
+}));
+const burstImpactSplash = makeBurstPoints(impactParticleData.length,
+  'door3-burst-impact-splash', 0.065);
+burstImpactSplash.visible = false;
+pumpHub.add(burstImpactSplash);
+
+const mouthMist = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: dropTexture, color: 0xc9edf0, transparent: true, opacity: 0,
+  depthWrite: false, toneMapped: false,
+}));
+mouthMist.name = 'door3-burst-mouth-mist';
+mouthMist.position.set(0.08, -0.01, 0);
+mouthMist.scale.set(0.45, 0.33, 1);
+mouthMist.raycast = () => {};
+burstWaterJet.add(mouthMist);
+const impactMist = new THREE.Sprite(mouthMist.material.clone());
+impactMist.name = 'door3-burst-impact-mist';
+impactMist.position.copy(burstImpact).add(new THREE.Vector3(0, 0.08, 0));
+impactMist.scale.set(0.72, 0.24, 1);
+impactMist.visible = false;
+impactMist.raycast = () => {};
+pumpHub.add(impactMist);
 
 const burstRipples = [0, 0.18, 0.36].map((delay, index) => {
   const material = matRipple.clone();
@@ -466,14 +646,72 @@ const burstDebris = [
   return debris;
 });
 
-const pipeBurstState = { triggered: false, t: 0, debrisProgress: 0 };
+const pipeBurstState = {
+  triggered: false,
+  t: 0,
+  debrisProgress: 0,
+  pressure: 0,
+  phase: 'idle',
+};
+
+const clamp01 = value => Math.max(0, Math.min(1, value));
+const smooth01 = value => {
+  const p = clamp01(value);
+  return p * p * (3 - 2 * p);
+};
+
+function burstPressureAt(time) {
+  const surge = smooth01(time / 0.12);
+  if (time <= 1.20) return surge;
+  return 0.24 + 0.76 * Math.exp(-(time - 1.20) * 2.45);
+}
+
+function writeMouthParticles(time) {
+  const positions = burstMouthSpray.geometry.attributes.position.array;
+  mouthParticleData.forEach((particle, index) => {
+    const age = time - particle.delay;
+    const visible = age >= 0 && age <= particle.life;
+    const offset = index * 3;
+    if (!visible) {
+      positions[offset] = positions[offset + 1] = positions[offset + 2] = 0;
+      return;
+    }
+    positions[offset] = particle.vx * age;
+    positions[offset + 1] = particle.vy * age - 2.2 * age * age;
+    positions[offset + 2] = particle.vz * age;
+  });
+  burstMouthSpray.geometry.attributes.position.needsUpdate = true;
+}
+
+function writeImpactParticles(time) {
+  const positions = burstImpactSplash.geometry.attributes.position.array;
+  impactParticleData.forEach((particle, index) => {
+    const start = time - 0.24 + particle.offset;
+    const age = start < 0 ? -1 : start % particle.life;
+    const offset = index * 3;
+    if (age < 0) {
+      positions[offset] = burstImpact.x;
+      positions[offset + 1] = burstImpact.y;
+      positions[offset + 2] = burstImpact.z;
+      return;
+    }
+    positions[offset] = burstImpact.x + particle.vx * age;
+    positions[offset + 1] = burstImpact.y + particle.vy * age - 2.45 * age * age;
+    positions[offset + 2] = burstImpact.z + particle.vz * age;
+  });
+  burstImpactSplash.geometry.attributes.position.needsUpdate = true;
+}
 
 export function triggerPumpPipeBurst() {
   if (pipeBurstState.triggered) return false;
   pipeBurstState.triggered = true;
   pipeBurstState.t = 0;
   pipeBurstState.debrisProgress = 0;
+  pipeBurstState.pressure = 0;
+  pipeBurstState.phase = 'rupture';
   burstWaterJet.visible = true;
+  burstImpactSplash.visible = true;
+  impactMist.visible = true;
   burstRipples.forEach(ring => { ring.visible = true; });
   return true;
 }
@@ -482,8 +720,20 @@ export function resetPumpHubEffects() {
   pipeBurstState.triggered = false;
   pipeBurstState.t = 0;
   pipeBurstState.debrisProgress = 0;
+  pipeBurstState.pressure = 0;
+  pipeBurstState.phase = 'idle';
   burstWaterJet.visible = false;
-  burstWaterJet.material.opacity = 0;
+  burstImpactSplash.visible = false;
+  impactMist.visible = false;
+  burstStreamUniforms.uTime.value = 0;
+  burstStreamUniforms.uPressure.value = 0;
+  burstStreamUniforms.uBurst.value = 0;
+  burstMouthSpray.material.opacity = 0;
+  burstImpactSplash.material.opacity = 0;
+  mouthMist.material.opacity = 0;
+  impactMist.material.opacity = 0;
+  writeMouthParticles(-1);
+  writeImpactParticles(-1);
   burstLoosePipe.rotation.z = 0;
   burstRipples.forEach(ring => {
     ring.visible = false;
@@ -509,6 +759,10 @@ export function pumpHubEffectSnapshot() {
     pipeBurst: pipeBurstState.triggered,
     burstT: +pipeBurstState.t.toFixed(2),
     jetVisible: burstWaterJet.visible,
+    phase: pipeBurstState.phase,
+    streamPressure: +pipeBurstState.pressure.toFixed(2),
+    mouthMistOpacity: +mouthMist.material.opacity.toFixed(2),
+    impactSplashVisible: burstImpactSplash.visible,
     debrisProgress: +pipeBurstState.debrisProgress.toFixed(2),
     latchRetraction: pressurePistons.map(piston =>
       +piston.userData.displayLock.toFixed(2)),
@@ -605,10 +859,30 @@ export function updatePumpHub(dt) {
     const burstT = pipeBurstState.t;
     const impact = Math.max(0, 1 - burstT / 0.52);
     burstLoosePipe.rotation.z = Math.sin(burstT * 52) * 0.09 * impact - 0.035;
-    burstWaterJet.material.opacity = Math.min(0.72, 0.18 + burstT * 2.6) *
-      (0.92 + Math.sin(hubTime * 24) * 0.08);
-    burstWaterJet.scale.x = 0.94 + Math.sin(hubTime * 17) * 0.06;
-    burstWaterJet.scale.z = 0.94 + Math.cos(hubTime * 19) * 0.06;
+    const pressure = burstPressureAt(burstT);
+    const burstPulse = 1 - smooth01((burstT - 0.05) / 0.34);
+    pipeBurstState.pressure = pressure;
+    pipeBurstState.phase = burstT < 0.25
+      ? 'rupture'
+      : burstT < 1.20 ? 'surge' : 'leak';
+    burstStreamUniforms.uTime.value = hubTime;
+    burstStreamUniforms.uPressure.value = pressure *
+      (0.94 + Math.sin(hubTime * 19) * 0.06);
+    burstStreamUniforms.uBurst.value = burstPulse;
+    // Pressure changes the stream width without turning it into a rigid solid.
+    const streamScale = 0.44 + pressure * 0.56;
+    burstWaterJet.scale.x = 0.52 + streamScale * 0.48;
+    burstWaterJet.scale.z = 0.52 + streamScale * 0.48;
+
+    writeMouthParticles(burstT);
+    writeImpactParticles(burstT);
+    burstMouthSpray.material.opacity = burstPulse * 0.88;
+    burstImpactSplash.material.opacity = Math.min(0.78, pressure * 0.72);
+    mouthMist.material.opacity = burstPulse * 0.62;
+    const mouthMistScale = 0.36 + smooth01(burstT / 0.22) * 0.50;
+    mouthMist.scale.set(mouthMistScale, mouthMistScale * 0.72, 1);
+    impactMist.material.opacity = 0.10 + pressure * 0.26;
+    impactMist.scale.set(0.62 + pressure * 0.26, 0.19 + pressure * 0.10, 1);
 
     burstRipples.forEach(ring => {
       const localT = burstT - ring.userData.delay;
