@@ -288,6 +288,11 @@ function pauseDoor3Frame() {
   applyPlayback();
 }
 
+function setLabCollapsed(collapsed) {
+  $debugLab.classList.toggle('collapsed', collapsed);
+  el('dbgToggle').textContent = collapsed ? '+' : '−';
+}
+
 function replayDoor3Fx(wetOnly = false) {
   if (!ensureDoor3Operator()) return false;
   DBG.paused = false;
@@ -296,6 +301,7 @@ function replayDoor3Fx(wetOnly = false) {
   setNotice(started
     ? wetOnly ? 'Door 3 濕視野單獨播放中' : 'Door 3 爆管與濕視野重播中'
     : 'Door 3 操作位尚未就緒');
+  if (started) setLabCollapsed(true);
   return started;
 }
 
@@ -306,15 +312,18 @@ function resetDoor3Fx() {
   return reset;
 }
 
-function seekDoor3Fx(value) {
+function seekDoor3Fx(value, wetOnly = false) {
   if (!ensureDoor3Operator()) return false;
   const time = Math.max(0, Math.min(4, Number(value) || 0));
   $door3Time.value = time.toFixed(2);
   pauseDoor3Frame();
-  const snapshot = seekDoor3DebugEffects(time);
+  const snapshot = seekDoor3DebugEffects(time, { wetOnly });
   setNotice(snapshot
-    ? `Door 3 FX 已定格 ${time.toFixed(2)}s（${snapshot.effects.phase}）`
+    ? wetOnly
+      ? `Door 3 濕視野已單獨定格 ${time.toFixed(2)}s`
+      : `Door 3 FX 已定格 ${time.toFixed(2)}s（${snapshot.effects.phase}）`
     : 'Door 3 操作位尚未就緒');
+  if (snapshot) setLabCollapsed(true);
   return Boolean(snapshot);
 }
 
@@ -323,6 +332,14 @@ function lookDoor3(yaw) {
   look.yaw = yaw;
   look.target = yaw;
   setNotice(yaw === 0 ? '視角返回工作檯' : '視角轉向後方破管');
+  return true;
+}
+
+function resumeDoor3Fx() {
+  if (!ensureDoor3Operator()) return false;
+  DBG.paused = false;
+  applyPlayback();
+  setNotice('Door 3 FX 從定格處繼續播放');
   return true;
 }
 
@@ -390,8 +407,7 @@ function bindUi() {
   $threat.checked = DBG.threatFrozen;
 
   el('dbgToggle').addEventListener('click', () => {
-    $debugLab.classList.toggle('collapsed');
-    el('dbgToggle').textContent = $debugLab.classList.contains('collapsed') ? '+' : '−';
+    setLabCollapsed(!$debugLab.classList.contains('collapsed'));
   });
   $sequence.addEventListener('change', () => populateStages(null));
   el('dbgLoad').addEventListener('click', () => { readForm(); loadScenario(); });
@@ -426,12 +442,7 @@ function bindUi() {
   el('dbgDoor3Seek').addEventListener('click', () => seekDoor3Fx($door3Time.value));
   el('dbgDoor3Rear').addEventListener('click', () => lookDoor3(180));
   el('dbgDoor3Front').addEventListener('click', () => lookDoor3(0));
-  el('dbgDoor3Resume').addEventListener('click', () => {
-    if (!ensureDoor3Operator()) return;
-    DBG.paused = false;
-    applyPlayback();
-    setNotice('Door 3 FX 從定格處繼續播放');
-  });
+  el('dbgDoor3Resume').addEventListener('click', resumeDoor3Fx);
   el('dbgCopy').addEventListener('click', async () => {
     updateUrl();
     try {
@@ -471,8 +482,10 @@ export function initDebug() {
     if (action === 'wet') return replayDoor3Fx(true);
     if (action === 'reset') return resetDoor3Fx();
     if (action === 'seek') return seekDoor3Fx(value);
+    if (action === 'seek-wet') return seekDoor3Fx(value, true);
     if (action === 'rear') return lookDoor3(180);
     if (action === 'front') return lookDoor3(0);
+    if (action === 'resume') return resumeDoor3Fx();
     return false;
   };
   return true;

@@ -276,13 +276,14 @@ export function replayDoor3DebugEffects({ wetOnly = false } = {}) {
   return true;
 }
 
-export function seekDoor3DebugEffects(time) {
+export function seekDoor3DebugEffects(time, { wetOnly = false } = {}) {
   if (!D3.active || D3.phase !== 'explore') return false;
   const nextTime = Math.max(0, Math.min(4, Number(time) || 0));
   D3.fx.burstDelay = -1;
   D3.fx.shake = 0;
-  D3.pump.burstTriggered = true;
-  seekPumpPipeBurst(nextTime);
+  D3.pump.burstTriggered = !wetOnly;
+  if (wetOnly) resetPumpHubEffects();
+  else seekPumpPipeBurst(nextTime);
   seekWetGlass(nextTime);
   syncDoor3PumpVisuals();
   return door3PumpSnapshot();

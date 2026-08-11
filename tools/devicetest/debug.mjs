@@ -134,6 +134,10 @@ check('Door 3 surge preset seeks and freezes both world water and wet vision',
   Math.abs(door3Fx.door3.console.wetGlass.time - 0.6) <= 0.02 &&
   door3Fx.door3.console.wetGlass.amount > 0,
   JSON.stringify({ lab: door3Fx.lab, console: door3Fx.door3.console }));
+check('FX playback collapses the Debug panel for an unobstructed visual check',
+  await page.locator('#debugLab').evaluate(element => element.classList.contains('collapsed')),
+  'collapsed after seek');
+await page.locator('#dbgToggle').click();
 await page.locator('#dbgDoor3Fx').scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/debug-door3-fx-lab.png` });
 
