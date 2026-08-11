@@ -214,6 +214,19 @@ export function updateWetGlass(dt) {
   }
 }
 
+/** Set an exact frame for the opt-in Door 3 FX lab. */
+export function seekWetGlass(time) {
+  const nextTime = Math.max(0, Math.min(WET_DURATION, Number(time) || 0));
+  state.active = nextTime < WET_DURATION;
+  state.time = nextTime;
+  state.amount = amountAt(nextTime);
+  state.film = filmAt(nextTime);
+  uniforms.uTime.value = nextTime;
+  uniforms.uWetAmount.value = state.amount;
+  uniforms.uFilmAmount.value = state.film;
+  return wetGlassSnapshot();
+}
+
 function syncTargetSize() {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const width = Math.max(1, Math.floor(size.x));

@@ -23,11 +23,12 @@ import { decayGroup, lamp } from '../render/decay.js';
 import { fill, flash3d, markerLight } from '../render/hintwall.js';
 import {
   PUMP_HUB, pumpHub, pumpHubEffectSnapshot, resetPumpHubEffects,
-  setPumpHubLevels, setPumpHubPuzzleState, triggerPumpPipeBurst, updatePumpHub,
+  seekPumpPipeBurst, setPumpHubLevels, setPumpHubPuzzleState,
+  triggerPumpPipeBurst, updatePumpHub,
 } from '../render/pumphub.js';
 import { pulsePumpControl } from '../render/pumpconsole.js';
 import {
-  resetWetGlass, triggerWetGlass, updateWetGlass, wetGlassSnapshot,
+  resetWetGlass, seekWetGlass, triggerWetGlass, updateWetGlass, wetGlassSnapshot,
 } from '../render/wetglass.js';
 import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
 import { beep, pipeBurstSound, pumpTransferSound, wetStep } from './audio.js';
@@ -248,6 +249,43 @@ export function door3PumpSnapshot() {
     wetGlass,
     effects: pumpHubEffectSnapshot(),
   };
+}
+
+/** Debug-only callers use these through the opt-in lab; normal gameplay never calls them. */
+export function resetDoor3DebugEffects() {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  D3.fx.shake = 0;
+  D3.fx.burstDelay = -1;
+  D3.pump.burstTriggered = false;
+  resetWetGlass();
+  resetPumpHubEffects();
+  syncDoor3PumpVisuals();
+  return true;
+}
+
+export function replayDoor3DebugEffects({ wetOnly = false } = {}) {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  resetDoor3DebugEffects();
+  if (!wetOnly) {
+    D3.pump.burstTriggered = true;
+    triggerPumpPipeBurst();
+    pipeBurstSound();
+    D3.fx.shake = 1;
+  }
+  triggerWetGlass();
+  return true;
+}
+
+export function seekDoor3DebugEffects(time) {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  const nextTime = Math.max(0, Math.min(4, Number(time) || 0));
+  D3.fx.burstDelay = -1;
+  D3.fx.shake = 0;
+  D3.pump.burstTriggered = true;
+  seekPumpPipeBurst(nextTime);
+  seekWetGlass(nextTime);
+  syncDoor3PumpVisuals();
+  return door3PumpSnapshot();
 }
 
 function updateLatchSequence(dt) {

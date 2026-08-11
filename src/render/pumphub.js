@@ -716,6 +716,15 @@ export function triggerPumpPipeBurst() {
   return true;
 }
 
+/** Set an exact burst frame for the opt-in Door 3 FX lab. */
+export function seekPumpPipeBurst(time) {
+  const nextTime = Math.max(0, Math.min(8, Number(time) || 0));
+  resetPumpHubEffects();
+  triggerPumpPipeBurst();
+  updatePumpHub(nextTime);
+  return pumpHubEffectSnapshot();
+}
+
 export function resetPumpHubEffects() {
   pipeBurstState.triggered = false;
   pipeBurstState.t = 0;
