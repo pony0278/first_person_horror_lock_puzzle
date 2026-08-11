@@ -1,30 +1,33 @@
 /* Door 2 → Door 3 場景交接。
  *
- * This pass activates the low pump console and live tank/pressure controls.
- * The final water-balance goal and monster timer remain deliberately inactive.
+ * This pass activates conserved-fluid routing, dual latch bands, the master
+ * lever, and the first-operation pipe rupture. The full monster chase remains
+ * deliberately inactive.
  */
 
 import { CFG } from '../logic/config.js';
 import { DOOR3_PERFORMANCE } from '../logic/door3-performance.js';
 import {
-  PUMP_CONSOLE, adjustPumpLevel, pumpPressureBar,
+  PUMP_CONSOLE, pumpLatchStates, pumpLevelsFromVolumes, pumpPressureBar,
+  pumpPuzzleSolved, pumpVolumeTotal, transferPumpVolume,
 } from '../logic/pump-console.js';
 import {
   DOOR3_APPROACH, door3ApproachX, door3ApproachYaw, door3ApproachZ,
   door3OperatorProgress,
 } from '../logic/door3-transition.js';
-import { $fade, $panel, $turnCue } from '../dom.js';
+import { $door3WaterLens, $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
 import { camera, doorHinge, scene, vestibule } from '../render/scene.js';
 import { monster } from '../render/monster.js';
 import { decayGroup, lamp } from '../render/decay.js';
 import { fill, flash3d, markerLight } from '../render/hintwall.js';
 import {
-  PUMP_HUB, pumpHub, setPumpHubLevels, updatePumpHub,
+  PUMP_HUB, pumpHub, pumpHubEffectSnapshot, resetPumpHubEffects,
+  setPumpHubLevels, setPumpHubPuzzleState, triggerPumpPipeBurst, updatePumpHub,
 } from '../render/pumphub.js';
 import { pulsePumpControl } from '../render/pumpconsole.js';
 import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
-import { beep, wetStep } from './audio.js';
+import { beep, pipeBurstSound, pumpTransferSound, wetStep } from './audio.js';
 import { T } from './transit.js';
 
 const OPEN_RAD = 1.92;
@@ -35,7 +38,7 @@ const APPROACH_FOG = 0.041;
 const STEP_SEC = 0.38;
 const CONSOLE_STEP_SEC = 0.48;
 const ease = x => x * x * (3 - 2 * x);
-const DOOR3_CUE = '工作檯 ± 調液面　·　拖曳環視　·　W / A / S / D';
+const DOOR3_CUE = '先按來源缸 －　再按目標缸 ＋　·　拖曳環視';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
 const exploreFov = () => camera.aspect < 0.75 ? 80 : BASE_FOV;
 
@@ -46,20 +49,77 @@ export const D3 = {
   travelT: 0,
   stepT: 0,
   previousLightVisibility: null,
+  fx: { clock: 0, shake: 0, burstDelay: -1, waterT: -1 },
   pump: {
+    volumes: [...PUMP_CONSOLE.initialVolumes],
     levels: [...PUMP_CONSOLE.initialLevels],
-    pressureBar: pumpPressureBar(PUMP_CONSOLE.initialLevels),
+    pressureBar: pumpPressureBar(PUMP_CONSOLE.initialVolumes),
     interactions: 0,
+    inputs: 0,
+    selectedSource: null,
     lastControl: null,
+    lastTransfer: null,
+    lastResult: 'idle',
+    transferT: 0,
+    solveHoldT: 0,
+    latchStates: [false, false],
+    latchSequenceT: -1,
+    latchBeats: [false, false],
+    puzzleSolved: false,
+    leverUnlocked: false,
+    leverPulled: false,
+    doorOpenRatio: 0,
+    complete: false,
+    severeErrors: 0,
+    threatAdvances: 0,
+    burstTriggered: false,
   },
 };
 
-function resetDoor3Pump() {
-  D3.pump.levels = [...PUMP_CONSOLE.initialLevels];
-  D3.pump.pressureBar = pumpPressureBar(D3.pump.levels);
-  D3.pump.interactions = 0;
-  D3.pump.lastControl = null;
+function syncDoor3PumpVisuals() {
+  D3.pump.levels = pumpLevelsFromVolumes(D3.pump.volumes);
+  D3.pump.pressureBar = pumpPressureBar(D3.pump.volumes);
   setPumpHubLevels(D3.pump.levels, D3.pump.pressureBar);
+  setPumpHubPuzzleState({
+    latchStates: D3.pump.latchStates,
+    selectedSource: D3.pump.selectedSource,
+    leverUnlocked: D3.pump.leverUnlocked,
+    leverPulled: D3.pump.leverPulled,
+    doorOpenRatio: D3.pump.doorOpenRatio,
+  });
+}
+
+function resetDoor3Pump() {
+  D3.pump.volumes = [...PUMP_CONSOLE.initialVolumes];
+  D3.pump.levels = pumpLevelsFromVolumes(D3.pump.volumes);
+  D3.pump.pressureBar = pumpPressureBar(D3.pump.volumes);
+  D3.pump.interactions = 0;
+  D3.pump.inputs = 0;
+  D3.pump.selectedSource = null;
+  D3.pump.lastControl = null;
+  D3.pump.lastTransfer = null;
+  D3.pump.lastResult = 'idle';
+  D3.pump.transferT = 0;
+  D3.pump.solveHoldT = 0;
+  D3.pump.latchStates = pumpLatchStates(D3.pump.volumes);
+  D3.pump.latchSequenceT = -1;
+  D3.pump.latchBeats = [false, false];
+  D3.pump.puzzleSolved = false;
+  D3.pump.leverUnlocked = false;
+  D3.pump.leverPulled = false;
+  D3.pump.doorOpenRatio = 0;
+  D3.pump.complete = false;
+  D3.pump.severeErrors = 0;
+  D3.pump.threatAdvances = 0;
+  D3.pump.burstTriggered = false;
+  D3.fx.clock = 0;
+  D3.fx.shake = 0;
+  D3.fx.burstDelay = -1;
+  D3.fx.waterT = -1;
+  $door3WaterLens.style.opacity = '0';
+  $door3WaterLens.style.setProperty('--water-slide', '0');
+  resetPumpHubEffects();
+  syncDoor3PumpVisuals();
 }
 
 export function adjustDoor3Pump(index, direction) {
@@ -67,27 +127,195 @@ export function adjustDoor3Pump(index, direction) {
   const signedDirection = Math.sign(Number(direction));
   if (!Number.isInteger(index) || index < 0 ||
       index >= PUMP_CONSOLE.tankCount || !signedDirection) return false;
+  if (D3.pump.transferT > 0 || D3.pump.puzzleSolved) {
+    beep('release');
+    return true;
+  }
 
-  const next = adjustPumpLevel(D3.pump.levels, index, signedDirection);
-  const changed = next.some((level, i) => level !== D3.pump.levels[i]);
+  D3.pump.inputs++;
   D3.pump.lastControl = { index, direction: signedDirection };
   pulsePumpControl(index, signedDirection);
-  if (changed) {
-    D3.pump.levels = next;
-    D3.pump.pressureBar = pumpPressureBar(next);
+
+  if (signedDirection < 0) {
+    if (D3.pump.volumes[index] <= 0) {
+      D3.pump.selectedSource = null;
+      D3.pump.lastResult = 'empty-source';
+      beep('release');
+    } else {
+      D3.pump.selectedSource = D3.pump.selectedSource === index ? null : index;
+      D3.pump.lastResult = D3.pump.selectedSource === null
+        ? 'source-cancelled' : 'source-selected';
+      beep(D3.pump.selectedSource === null ? 'release' : 'tap');
+    }
+    syncDoor3PumpVisuals();
+    $turnCue.textContent = D3.pump.selectedSource === null
+      ? DOOR3_CUE
+      : `TANK ${D3.pump.selectedSource + 1} 出口已開　·　選另一缸 ＋`;
+    return true;
+  }
+
+  if (D3.pump.selectedSource === null) {
+    D3.pump.lastResult = 'no-source';
+    beep('release');
+    return true;
+  }
+
+  const source = D3.pump.selectedSource;
+  const beforeLatch = pumpLatchStates(D3.pump.volumes);
+  const transfer = transferPumpVolume(D3.pump.volumes, source, index);
+  D3.pump.selectedSource = null;
+  D3.pump.lastResult = transfer.reason;
+  D3.pump.lastTransfer = {
+    source, target: index, moved: transfer.moved, reason: transfer.reason,
+  };
+  $turnCue.textContent = DOOR3_CUE;
+
+  if (transfer.moved > 0) {
+    D3.pump.volumes = transfer.volumes;
     D3.pump.interactions++;
-    setPumpHubLevels(D3.pump.levels, D3.pump.pressureBar);
-    beep('tap');
-  } else beep('release');
+    D3.pump.transferT = PUMP_CONSOLE.transferSec;
+    D3.pump.solveHoldT = 0;
+    D3.pump.latchStates = pumpLatchStates(D3.pump.volumes);
+    const lostLatch = beforeLatch.some((latched, i) =>
+      latched && !D3.pump.latchStates[i]);
+    if (lostLatch) {
+      D3.pump.severeErrors++;
+      D3.pump.threatAdvances++;
+      D3.fx.shake = Math.max(D3.fx.shake, 1.25);
+      beep('severe');
+    } else beep('tap');
+    pumpTransferSound();
+    if (!D3.pump.burstTriggered) {
+      D3.pump.burstTriggered = true;
+      D3.fx.burstDelay = 0.30;
+    }
+    syncDoor3PumpVisuals();
+  } else {
+    syncDoor3PumpVisuals();
+    beep('release');
+  }
   return true;
+}
+
+export function pullDoor3MasterLever() {
+  if (!D3.active || D3.phase !== 'explore') return false;
+  if (!D3.pump.leverUnlocked || D3.pump.leverPulled) {
+    beep('release');
+    return true;
+  }
+  D3.pump.leverPulled = true;
+  D3.phase = 'opening';
+  D3.t = 0;
+  $turnCue.textContent = '防洪門升起中　·　回頭確認後方';
+  beep('release');
+  syncDoor3PumpVisuals();
+  return true;
+}
+
+export function operateDoor3Control(control) {
+  if (!control || typeof control !== 'object') return false;
+  if (control.kind === 'lever') return pullDoor3MasterLever();
+  return adjustDoor3Pump(control.index, control.direction);
 }
 
 export function door3PumpSnapshot() {
   return {
+    capacities: [...PUMP_CONSOLE.capacities],
+    volumes: [...D3.pump.volumes],
     levels: [...D3.pump.levels],
+    totalVolume: pumpVolumeTotal(D3.pump.volumes),
     pressureBar: D3.pump.pressureBar,
     interactions: D3.pump.interactions,
+    inputs: D3.pump.inputs,
+    selectedSource: D3.pump.selectedSource,
     lastControl: D3.pump.lastControl ? { ...D3.pump.lastControl } : null,
+    lastTransfer: D3.pump.lastTransfer ? { ...D3.pump.lastTransfer } : null,
+    lastResult: D3.pump.lastResult,
+    transferActive: D3.pump.transferT > 0,
+    latchStates: [...D3.pump.latchStates],
+    solveHoldT: +D3.pump.solveHoldT.toFixed(2),
+    puzzleSolved: D3.pump.puzzleSolved,
+    leverUnlocked: D3.pump.leverUnlocked,
+    leverPulled: D3.pump.leverPulled,
+    complete: D3.pump.complete,
+    severeErrors: D3.pump.severeErrors,
+    threatAdvances: D3.pump.threatAdvances,
+    burstTriggered: D3.pump.burstTriggered,
+    waterLensOpacity: +($door3WaterLens.style.opacity || 0),
+    effects: pumpHubEffectSnapshot(),
+  };
+}
+
+function updateWaterLens(dt) {
+  if (D3.fx.waterT < 0) return;
+  D3.fx.waterT += dt;
+  const t = D3.fx.waterT;
+  const fadeIn = Math.min(1, t / 0.18);
+  const fadeOut = 1 - Math.max(0, Math.min(1, (t - 1.75) / 2.25));
+  const opacity = Math.max(0, Math.min(0.82, fadeIn * fadeOut * 0.82));
+  const slide = Math.max(0, Math.min(1, (t - 0.18) / 2.85));
+  $door3WaterLens.style.opacity = opacity.toFixed(3);
+  $door3WaterLens.style.setProperty('--water-slide', slide.toFixed(3));
+}
+
+function updateLatchSequence(dt) {
+  if (D3.pump.latchSequenceT < 0 || D3.pump.leverUnlocked) return;
+  D3.pump.latchSequenceT += dt;
+  if (!D3.pump.latchBeats[0] && D3.pump.latchSequenceT >= 0.06) {
+    D3.pump.latchBeats[0] = true;
+    beep('thunk');
+  }
+  if (!D3.pump.latchBeats[1] && D3.pump.latchSequenceT >= 0.34) {
+    D3.pump.latchBeats[1] = true;
+    beep('thunk');
+  }
+  if (D3.pump.latchSequenceT >= 0.62) {
+    D3.pump.leverUnlocked = true;
+    $turnCue.textContent = '雙門閂已退回　·　拉下右側總閘桿';
+    beep('solved');
+    syncDoor3PumpVisuals();
+  }
+}
+
+function updateDoor3Puzzle(dt) {
+  D3.fx.clock += dt;
+  D3.fx.shake = Math.max(0, D3.fx.shake - dt * 2.35);
+  if (D3.fx.burstDelay >= 0) {
+    D3.fx.burstDelay -= dt;
+    if (D3.fx.burstDelay <= 0) {
+      D3.fx.burstDelay = -1;
+      triggerPumpPipeBurst();
+      pipeBurstSound();
+      D3.fx.waterT = 0;
+      D3.fx.shake = Math.max(D3.fx.shake, 1);
+    }
+  }
+  updateWaterLens(dt);
+  updateLatchSequence(dt);
+
+  if (D3.pump.transferT > 0) {
+    D3.pump.transferT = Math.max(0, D3.pump.transferT - dt);
+    return;
+  }
+  if (D3.phase !== 'explore' || D3.pump.puzzleSolved) return;
+
+  if (pumpPuzzleSolved(D3.pump.volumes)) {
+    D3.pump.solveHoldT += dt;
+    if (D3.pump.solveHoldT >= PUMP_CONSOLE.solveHoldSec) {
+      D3.pump.puzzleSolved = true;
+      D3.pump.latchSequenceT = 0;
+      D3.pump.selectedSource = null;
+      syncDoor3PumpVisuals();
+    }
+  } else D3.pump.solveHoldT = 0;
+}
+
+export function door3CameraShake() {
+  const amount = D3.active ? D3.fx.shake : 0;
+  return {
+    x: Math.sin(D3.fx.clock * 57) * 0.026 * amount,
+    y: Math.cos(D3.fx.clock * 43) * 0.017 * amount,
+    roll: Math.sin(D3.fx.clock * 49) * 0.9 * amount,
   };
 }
 
@@ -343,7 +571,21 @@ export function updateDoor3(dt) {
     if (D3.t >= DOOR3_APPROACH.settleSec) finishPumpWalk();
   } else if (D3.phase === 'explore') {
     setCameraFov(exploreFov());
+  } else if (D3.phase === 'opening') {
+    setCameraFov(exploreFov());
+    D3.pump.doorOpenRatio = Math.min(1, D3.t / 2.70);
+    syncDoor3PumpVisuals();
+    if (D3.pump.doorOpenRatio >= 1) {
+      D3.phase = 'complete';
+      D3.t = 0;
+      D3.pump.complete = true;
+      $turnCue.textContent = '防洪門已開　·　立即通過';
+      beep('solved');
+    }
+  } else if (D3.phase === 'complete') {
+    setCameraFov(exploreFov());
   }
 
+  updateDoor3Puzzle(dt);
   if (pumpHub.visible) updatePumpHub(dt);
 }

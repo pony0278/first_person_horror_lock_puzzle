@@ -203,43 +203,93 @@ for (const profile of profiles) {
 
   const consoleYaw = state.operator.yaw;
   const consoleBefore = state.console;
-  check('automatic console-facing arrival shows all six controls and the gauge',
+  check('automatic console-facing arrival shows all six valves, gauge, and master lever',
     consoleBefore.controls.length === 6 &&
     consoleBefore.controls.every(control => control.inView &&
       control.x >= 0 && control.x <= layout.viewport[0] &&
       control.y >= 0 && control.y <= layout.viewport[1]) &&
     consoleBefore.gauge.inView &&
     consoleBefore.gauge.x >= 0 && consoleBefore.gauge.x <= layout.viewport[0] &&
-    consoleBefore.gauge.y >= 0 && consoleBefore.gauge.y <= layout.viewport[1],
+    consoleBefore.gauge.y >= 0 && consoleBefore.gauge.y <= layout.viewport[1] &&
+    consoleBefore.lever.inView &&
+    consoleBefore.lever.x >= 0 && consoleBefore.lever.x <= layout.viewport[0] &&
+    consoleBefore.lever.y >= 0 && consoleBefore.lever.y <= layout.viewport[1],
     JSON.stringify({
-      yaw: state.yaw, controls: consoleBefore.controls, gauge: consoleBefore.gauge,
+      yaw: state.yaw, controls: consoleBefore.controls,
+      gauge: consoleBefore.gauge, lever: consoleBefore.lever,
     }));
   await page.screenshot({
     path: `${OUT}/door3-${profile.name}-console.png`,
   });
+  const clickValve = async (index, direction) => {
+    const centre = await page.evaluate(([i, d]) =>
+      window.__door3ControlCentre(i, d), [index, direction]);
+    await page.mouse.click(centre.x, centre.y);
+  };
+  const transfer = async (source, target, expectedInteraction) => {
+    await clickValve(source, -1);
+    const selected = await page.evaluate(() => window.__door3());
+    check(`source tank ${source + 1} outlet visibly arms before transfer`,
+      selected.console.selectedSource === source &&
+      selected.console.interactions === expectedInteraction - 1,
+      JSON.stringify(selected.console));
+    await clickValve(target, 1);
+    await page.waitForFunction(expected => {
+      const pump = window.__door3?.().console;
+      return pump?.interactions === expected && !pump.transferActive;
+    }, expectedInteraction, { timeout: 10000 });
+  };
 
-  const raiseCentre = await page.evaluate(() => window.__door3ControlCentre(1, 1));
-  await page.mouse.click(raiseCentre.x, raiseCentre.y);
-  await page.waitForTimeout(220);
-  const raised = await page.evaluate(() => window.__door3());
-  check('tank control raises one level and the shared pressure gauge',
-    raised.console.levels[1] > consoleBefore.levels[1] &&
-    raised.console.levels[0] === consoleBefore.levels[0] &&
-    raised.console.levels[2] === consoleBefore.levels[2] &&
-    raised.console.pressureBar > consoleBefore.pressureBar &&
-    raised.console.interactions === consoleBefore.interactions + 1,
-    JSON.stringify({ before: consoleBefore, after: raised.console }));
-
-  const lowerCentre = await page.evaluate(() => window.__door3ControlCentre(1, -1));
-  await page.mouse.click(lowerCentre.x, lowerCentre.y);
-  await page.waitForTimeout(220);
+  const initialTotal = consoleBefore.totalVolume;
+  await transfer(1, 2, 1);
+  await page.waitForFunction(() => {
+    const pump = window.__door3?.().console;
+    return pump?.effects.pipeBurst && pump.waterLensOpacity > 0 &&
+      pump.effects.debrisProgress > 0;
+  }, null, { timeout: 10000 });
   state = await page.evaluate(() => window.__door3());
-  check('opposite control restores the tank and pressure without moving the view',
-    state.console.levels[1] === consoleBefore.levels[1] &&
-    state.console.pressureBar === consoleBefore.pressureBar &&
-    state.console.interactions === consoleBefore.interactions + 2 &&
-    Math.abs(state.yaw - consoleYaw) <= 1,
-    JSON.stringify({ before: consoleBefore, after: state.console, yaw: state.yaw }));
+  check('first legal transfer conserves water and triggers the rear-upper rupture',
+    JSON.stringify(state.console.volumes) === JSON.stringify([6, 0, 1]) &&
+    state.console.totalVolume === initialTotal &&
+    state.console.burstTriggered && state.console.effects.pipeBurst &&
+    state.console.effects.jetVisible && state.console.waterLensOpacity > 0,
+    JSON.stringify(state.console));
+  check('rupture pushes physical debris toward the operator without moving the view',
+    state.console.effects.debrisProgress > 0 && Math.abs(state.yaw - consoleYaw) <= 1,
+    JSON.stringify({ effects: state.console.effects, yaw: state.yaw }));
+
+  await page.evaluate(() => window.__door3Look(180));
+  await page.waitForTimeout(180);
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-pipe-burst.png` });
+  }
+  await page.evaluate(() => window.__door3Look(0));
+
+  // Authored shortest route: C→R, L→C, C→R, R→L, C→R.
+  await transfer(0, 1, 2);
+  await transfer(1, 2, 3);
+  await transfer(2, 0, 4);
+  await transfer(1, 2, 5);
+  await page.waitForFunction(() => window.__door3?.().console.leverUnlocked,
+    null, { timeout: 10000 });
+  state = await page.evaluate(() => window.__door3());
+  check('five transfers lock both latch bands without changing total water',
+    JSON.stringify(state.console.volumes) === JSON.stringify([5, 0, 2]) &&
+    state.console.totalVolume === initialTotal &&
+    state.console.interactions === 5 && state.console.puzzleSolved &&
+    state.console.latchStates.every(Boolean) &&
+    state.console.pressureBar === 10 && state.console.leverUnlocked,
+    JSON.stringify(state.console));
+
+  const leverCentre = await page.evaluate(() => window.__door3LeverCentre());
+  await page.mouse.click(leverCentre.x, leverCentre.y);
+  await page.waitForFunction(() => window.__door3?.().phase === 'complete',
+    null, { timeout: 10000 });
+  state = await page.evaluate(() => window.__door3());
+  check('manual master lever opens the flood door only after latch lock',
+    state.console.leverPulled && state.console.complete &&
+    state.console.effects.doorOpenRatio === 1,
+    JSON.stringify({ phase: state.phase, console: state.console }));
 
   await page.evaluate(() => window.__door3Look(0));
   state = await page.evaluate(() => window.__door3());

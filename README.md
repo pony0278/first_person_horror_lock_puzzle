@@ -18,7 +18,7 @@ CI 只執行快速且穩定的驗證與發布流程：
 
 | Job | 內容 | 擋發布嗎 |
 | --- | --- | --- |
-| **建置與發布** | `npm run check`（型別、相依分層、89 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
+| **建置與發布** | `npm run check`（型別、相依分層、98 個單元測試）→ 建置單檔 → 產物大小門檻 → 發布 | 是 —— 但這些都是純 Node，兩秒跑完且完全確定性 |
 
 Playwright 手機視窗測試仍保留在 `tools/devicetest/`，需要檢查版面、safe-area、
 中斷或門間流程時再於本機手動執行，不會在每次 push 或 PR 自動啟動。
@@ -154,7 +154,7 @@ v3 草案已將 F0 記錄為驗收完成；`docs/f0_device_test_checklist.md` �
 目前下一步是先用真機確認 Door 3 的方向辨識、閘門可見度與拖曳手感，再設計可在 4～6 步內完成的均壓盤面，最後接入誠實但不完整的三向怪物提示。
 
 ```bash
-npm run check      # 型別 + 相依分層 + 89 個單元測試
+npm run check      # 型別 + 相依分層 + 98 個單元測試
 npm run build && npx http-server dist -p 8100 -s &
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/devicetest.mjs   # 57 項
 F0_URL=http://127.0.0.1:8100/index.html node tools/devicetest/safearea.mjs     # 16 項

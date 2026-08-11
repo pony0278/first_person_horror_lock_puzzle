@@ -56,7 +56,7 @@ import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { PUMP_HUB, door3Anchors, pumpHub } from './render/pumphub.js';
 import {
   PUMP_CONSOLE_LAYOUT, pumpConsole, pumpControlCentreClient,
-  pumpGaugeCentreClient,
+  pumpGaugeCentreClient, pumpLeverCentreClient,
 } from './render/pumpconsole.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
@@ -333,6 +333,7 @@ window.__door3 = () => ({
     visible: visibleInHierarchy(pumpConsole),
     layout: { ...PUMP_CONSOLE_LAYOUT },
     gauge: pumpGaugeCentreClient(),
+    lever: pumpLeverCentreClient(),
     controls: [0, 1, 2].flatMap(index => [-1, 1]
       .map(direction => ({
         index, direction, ...pumpControlCentreClient(index, direction),
@@ -346,6 +347,7 @@ window.__door3 = () => ({
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
 window.__door3ControlCentre = (index, direction) =>
   pumpControlCentreClient(Number(index), Number(direction));
+window.__door3LeverCentre = () => pumpLeverCentreClient();
 window.__door3Look = yaw => {
   if (!D3.active || intro.active) return false;
   look.yaw = Math.max(-180, Math.min(180, Number(yaw) || 0));

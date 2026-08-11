@@ -13,3 +13,4 @@ export const $dev   = document.getElementById('dev');
 export const $halt  = document.getElementById('halt');
 export const $hdbg  = document.getElementById('hdbg');
 export const $debugLab = document.getElementById('debugLab');
+export const $door3WaterLens = document.getElementById('door3WaterLens');

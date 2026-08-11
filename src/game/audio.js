@@ -7,6 +7,8 @@ export let actx = null;
 let wetStepBuffer = null;
 let wetStepBufferContext = null;
 let wetStepBufferBuilds = 0;
+let burstNoiseBuffer = null;
+let burstNoiseContext = null;
 
 /* iOS Safari 與 Chrome Android 只允許在使用者手勢中啟動 AudioContext。
    開場演出（beep('tap') / beep('thunk')）發生在任何手勢之前，因此 context
@@ -83,6 +85,62 @@ export function wetStep(strength = 1) {
   gain.gain.value = Math.max(0.025, Math.min(0.075, 0.052 * strength));
   source.connect(filter); filter.connect(gain); gain.connect(actx.destination);
   source.start(t);
+}
+
+function getBurstNoiseBuffer() {
+  if (burstNoiseBuffer && burstNoiseContext === actx) return burstNoiseBuffer;
+  const duration = 0.82;
+  const frames = Math.max(1, Math.floor(actx.sampleRate * duration));
+  const buffer = actx.createBuffer(1, frames, actx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < frames; i++) {
+    const p = i / frames;
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - p, 1.25);
+  }
+  burstNoiseBuffer = buffer;
+  burstNoiseContext = actx;
+  return buffer;
+}
+
+/** Low pump body plus valve chatter during one whole-tank transfer. */
+export function pumpTransferSound() {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
+  const oscillator = actx.createOscillator();
+  const gain = actx.createGain();
+  const filter = actx.createBiquadFilter();
+  oscillator.type = 'sawtooth';
+  oscillator.frequency.setValueAtTime(66, t);
+  oscillator.frequency.exponentialRampToValueAtTime(49, t + 0.70);
+  filter.type = 'lowpass';
+  filter.frequency.value = 260;
+  gain.gain.setValueAtTime(0.055, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+  oscillator.connect(filter); filter.connect(gain); gain.connect(actx.destination);
+  oscillator.start(t); oscillator.stop(t + 0.74);
+}
+
+/** Rear-upper pipe rupture: sharp crack, pressure blast, then a wet tail. */
+export function pipeBurstSound() {
+  actx ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  const t = actx.currentTime;
+  const source = actx.createBufferSource();
+  const filter = actx.createBiquadFilter();
+  const gain = actx.createGain();
+  const pan = actx.createStereoPanner?.();
+  source.buffer = getBurstNoiseBuffer();
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(1500, t);
+  filter.frequency.exponentialRampToValueAtTime(460, t + 0.75);
+  gain.gain.setValueAtTime(0.20, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.80);
+  source.connect(filter); filter.connect(gain);
+  if (pan) { pan.pan.value = 0.16; gain.connect(pan); pan.connect(actx.destination); }
+  else gain.connect(actx.destination);
+  source.start(t);
+  beep('thunk');
 }
 
 /** 給測試接點讀的音訊狀態。不直接輸出 actx，避免其他模組拿去亂改。 */

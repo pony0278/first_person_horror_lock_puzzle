@@ -8,7 +8,7 @@ import { pumpControlAtClient } from '../render/pumpconsole.js';
 import { hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
-import { adjustDoor3Pump } from './door3.js';
+import { operateDoor3Control } from './door3.js';
 import { interrupted } from './halt.js';
 
 /* ═══════════════════════════════════════════════════════════
@@ -97,7 +97,7 @@ view.addEventListener('pointerdown', e => {
 
   if (R.door === 3) {
     const control = pumpControlAtClient(e.clientX, e.clientY);
-    if (control && adjustDoor3Pump(control.index, control.direction)) {
+    if (control && operateDoor3Control(control)) {
       view.setPointerCapture(e.pointerId);
       door3ControlId = e.pointerId;
       e.preventDefault();
