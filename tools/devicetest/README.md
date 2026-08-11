@@ -49,7 +49,7 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 | `interrupt.mjs` | 切到背景與 WebGL context 遺失時，隱藏計時器是否停下、輸入是否關閉、提示是否出現，以及兩者疊加 |
 | `signature.mjs` | Three.js 場景圖的**結構**指紋（型別、幾何、材質、階層）＋ 全域接點與事件監聽。純程式碼搬移時用來確認什麼都沒漏，用法見檔頭 |
 | `transit.mjs` | 門 1 缺格與門間過場；Door 2 首次／備用件注視取回、熔斷同題復位、焦痕保留、怪物前進、強制取件凍結、第二根成功或致命失敗、Door 3 轉場、超時與重開（32 項） |
-| `door3-scene.mjs` | 門 3 十字揭露與靜止停留、工作檯正面操作位、直橫式控制讀表、四向視線錨點與拖曳停留 |
+| `door3-scene.mjs` | 門 3 十字揭露與靜止停留、工作檯正面操作位、直橫式控制讀表、四向視線錨點與拖曳停留；另以 PNG 像素比較驗證濕視野亮度、覆蓋率、操作區保護與四秒恢復 |
 | `safearea.mjs` | 四種瀏海配置下，可操作元素是否避開瀏海與 home indicator、洩壓鈕命中區、可操作區比例、撞針高度差有沒有被吃掉 |
 
 ## 幾個容易踩的量測陷阱
@@ -63,6 +63,8 @@ F0_URL=http://127.0.0.1:8101/f0.html node tools/devicetest/pinread.mjs
 
 **別用 `readPixels` 取畫面內容。** 沒有 `preserveDrawingBuffer` 時合成後讀回全 0。
 改用 `page.locator('#view').screenshot()` 的位元組長度當內容指標。
+需要量化濕視野時則直接解碼 Playwright 截圖 PNG，比較同一鏡頭的乾／濕畫素；測試前
+隱藏 Debug DOM，避免把面板遮擋誤算成 Shader 差異。
 
 **別在測試裡寫死可互動物的螢幕座標。** 鬆脫段的位置取決於鏡頭、走廊寬度與當下的
 yaw；`transit.mjs` 會在回頭超過 130° 後詢問 `window.__grabPoint()`，先證明零件真的進入

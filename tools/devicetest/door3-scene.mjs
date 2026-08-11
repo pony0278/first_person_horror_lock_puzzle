@@ -1,7 +1,10 @@
 /* Door 3 pump-hub greybox: spatial, sightline, and look-control checks. */
 import { chromium, devices } from 'playwright';
+import utilsBundle from 'playwright-core/lib/utilsBundle';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
+const { PNG } = utilsBundle;
 
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const chromiumPath = process.env.CHROMIUM_PATH
@@ -20,6 +23,62 @@ const check = (label, ok, detail) => {
   if (!ok) failures++;
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label} - ${detail}`);
 };
+
+const decodePng = bytes => PNG.sync.read(bytes);
+const luma = (data, offset) =>
+  data[offset] * 0.2126 + data[offset + 1] * 0.7152 + data[offset + 2] * 0.0722;
+
+function compareFrames(dryBytes, wetBytes) {
+  const dry = decodePng(dryBytes);
+  const wet = decodePng(wetBytes);
+  if (dry.width !== wet.width || dry.height !== wet.height) {
+    throw new Error(`Frame size mismatch ${dry.width}x${dry.height} / ${wet.width}x${wet.height}`);
+  }
+  let brightDry = 0;
+  let brightWet = 0;
+  let brightPixels = 0;
+  let changedPixels = 0;
+  let upperDelta = 0;
+  let upperPixels = 0;
+  let consoleDelta = 0;
+  let consolePixels = 0;
+  const pixels = dry.width * dry.height;
+  for (let y = 0; y < dry.height; y++) {
+    const ny = y / dry.height;
+    for (let x = 0; x < dry.width; x++) {
+      const nx = x / dry.width;
+      const offset = (y * dry.width + x) * 4;
+      const dryLuma = luma(dry.data, offset);
+      const wetLuma = luma(wet.data, offset);
+      if (dryLuma >= 38) {
+        brightDry += dryLuma;
+        brightWet += wetLuma;
+        brightPixels++;
+      }
+      const delta = Math.max(
+        Math.abs(dry.data[offset] - wet.data[offset]),
+        Math.abs(dry.data[offset + 1] - wet.data[offset + 1]),
+        Math.abs(dry.data[offset + 2] - wet.data[offset + 2]),
+      );
+      if (delta >= 12) changedPixels++;
+      if (ny <= 0.58) {
+        upperDelta += delta;
+        upperPixels++;
+      }
+      if (nx >= 0.22 && nx <= 0.78 && ny >= 0.58 && ny <= 0.94) {
+        consoleDelta += delta;
+        consolePixels++;
+      }
+    }
+  }
+  return {
+    brightnessRatio: brightWet / Math.max(1, brightDry),
+    changedRatio: changedPixels / pixels,
+    upperMeanDelta: upperDelta / Math.max(1, upperPixels),
+    consoleMeanDelta: consoleDelta / Math.max(1, consolePixels),
+    brightPixels,
+  };
+}
 
 const browser = await chromium.launch({
   executablePath: chromiumPath,
@@ -259,7 +318,9 @@ for (const profile of profiles) {
     JSON.stringify(state.console));
   check('wet vision uses deterministic refraction and no legacy DOM bubbles',
     state.console.wetGlass.active && state.console.wetGlass.amount > 0 &&
-    state.console.wetGlass.blurSamples === 8 && state.console.wetGlass.seed === 1842 &&
+    state.console.wetGlass.blurSamples === 8 && state.console.wetGlass.layerCount === 3 &&
+    state.console.wetGlass.seed === 1842 && state.console.wetGlass.toneMapped &&
+    state.console.wetGlass.targetColorSpace === 'srgb-linear' &&
     await page.evaluate(() => !document.getElementById('door3WaterLens')),
     JSON.stringify(state.console.wetGlass));
   check('rupture pushes physical debris toward the operator without moving the view',
@@ -267,7 +328,52 @@ for (const profile of profiles) {
     JSON.stringify({ effects: state.console.effects, yaw: state.yaw }));
 
   if (profile.name === 'landscape') {
-    await page.screenshot({ path: `${OUT}/door3-wet-glass.png` });
+    const view = page.locator('#view');
+    await page.evaluate(() => {
+      document.getElementById('debugLab').style.visibility = 'hidden';
+      window.__debugDoor3Fx('front');
+      window.__debugDoor3Fx('reset');
+    });
+    await page.waitForTimeout(220);
+    const dryFrame = await view.screenshot();
+
+    await page.evaluate(() => window.__debugDoor3Fx('seek-wet', 0.10));
+    await page.waitForTimeout(220);
+    const splashFrame = await view.screenshot({
+      path: `${OUT}/door3-wet-glass-splash.png`,
+    });
+    const splashMetrics = compareFrames(dryFrame, splashFrame);
+    check('initial splash sheet is visually present across the upper view',
+      splashMetrics.changedRatio >= 0.12 && splashMetrics.upperMeanDelta >= 5.5,
+      JSON.stringify(splashMetrics));
+
+    await page.evaluate(() => window.__debugDoor3Fx('seek-wet', 0.60));
+    await page.waitForTimeout(220);
+    const wetFrame = await view.screenshot({
+      path: `${OUT}/door3-wet-glass.png`,
+    });
+    const wetMetrics = compareFrames(dryFrame, wetFrame);
+    check('wet pass preserves the dry flashlight brightness within ten percent',
+      wetMetrics.brightnessRatio >= 0.90 && wetMetrics.brightnessRatio <= 1.10,
+      JSON.stringify(wetMetrics));
+    check('three-layer droplets create visible refraction without covering the console',
+      wetMetrics.changedRatio >= 0.10 &&
+      wetMetrics.consoleMeanDelta <= wetMetrics.upperMeanDelta * 0.82,
+      JSON.stringify(wetMetrics));
+
+    await page.evaluate(() => window.__debugDoor3Fx('seek-wet', 4));
+    await page.waitForTimeout(220);
+    const recoveredFrame = await view.screenshot();
+    const recoveredMetrics = compareFrames(dryFrame, recoveredFrame);
+    check('brightness and image fully recover when the four-second wet pass ends',
+      recoveredMetrics.brightnessRatio >= 0.90 && recoveredMetrics.brightnessRatio <= 1.10 &&
+      recoveredMetrics.changedRatio <= 0.06,
+      JSON.stringify(recoveredMetrics));
+    await page.evaluate(() => {
+      document.getElementById('debugLab').style.visibility = '';
+      window.__debugDoor3Fx('seek', 0.60);
+      window.__debugDoor3Fx('resume');
+    });
   }
 
   await page.evaluate(() => window.__door3Look(180));
