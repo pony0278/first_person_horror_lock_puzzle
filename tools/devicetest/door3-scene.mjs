@@ -90,7 +90,7 @@ const profiles = [
     userAgent: devices['iPhone 13'].userAgent },
   { name: 'portrait', width: 390, height: 844, dpr: 2,
     userAgent: devices['iPhone 13'].userAgent },
-];
+].filter(profile => !process.env.DOOR3_PROFILE || profile.name === process.env.DOOR3_PROFILE);
 
 for (const profile of profiles) {
   console.log(`\n[${profile.name}]`);
@@ -277,6 +277,10 @@ for (const profile of profiles) {
       yaw: state.yaw, controls: consoleBefore.controls,
       gauge: consoleBefore.gauge, lever: consoleBefore.lever,
     }));
+  check('lower minus glyphs clear the console front lip',
+    consoleBefore.visual.lowerButtonBottom > consoleBefore.visual.frontLipTop &&
+    consoleBefore.visual.lowerGlyphClearance >= 0.01,
+    JSON.stringify(consoleBefore.visual));
   await page.screenshot({
     path: `${OUT}/door3-${profile.name}-console.png`,
   });
@@ -285,6 +289,42 @@ for (const profile of profiles) {
       window.__door3ControlCentre(i, d), [index, direction]);
     await page.mouse.click(centre.x, centre.y);
   };
+
+  // A no-source inlet is harmless and lets the visual gesture be checked
+  // before the authored transfer route changes any tank volume.
+  {
+    const centre = await page.evaluate(() => window.__door3ControlCentre(1, 1));
+    const previousDebugScale = await page.evaluate(async () => {
+      const { anim } = await import('/src/state.js');
+      const previous = anim.debugScale;
+      anim.debugScale = 0.25;
+      return previous;
+    });
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.down();
+    await page.waitForFunction(() => window.__door3().console.handPress.phase === 'press');
+    await page.evaluate(async () => {
+      const { anim } = await import('/src/state.js');
+      anim.debugScale = 0;
+    });
+    await page.waitForTimeout(24);
+    const pressing = await page.evaluate(() => window.__door3().console.handPress);
+    check('tank click reaches with a straight index finger while other fingers curl',
+      pressing.active && pressing.phase === 'press' && pressing.index === 1 &&
+      pressing.direction === 1 && pressing.indexStraight && pressing.otherFingersCurled &&
+      pressing.fingertipDistance <= 0.085 && pressing.sleeveVisible &&
+      pressing.sleeveLength >= 1,
+      JSON.stringify(pressing));
+    if (profile.name === 'landscape') {
+      await page.screenshot({ path: `${OUT}/door3-control-index-press.png` });
+    }
+    await page.evaluate(async previous => {
+      const { anim } = await import('/src/state.js');
+      anim.debugScale = previous;
+    }, previousDebugScale);
+    await page.mouse.up();
+    await page.waitForFunction(() => !window.__door3().console.handPress.active);
+  }
   const transfer = async (source, target, expectedInteraction) => {
     await clickValve(source, -1);
     const selected = await page.evaluate(() => window.__door3());

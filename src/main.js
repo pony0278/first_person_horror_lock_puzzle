@@ -55,9 +55,10 @@ import { CB, breakerCentreClient, switchCentreClient } from './render/circuitboa
 import { doorPanel2, lcdGreen, lcdRed } from './render/doorpanel.js';
 import { PUMP_HUB, door3Anchors, pumpHub } from './render/pumphub.js';
 import {
-  PUMP_CONSOLE_LAYOUT, pumpConsole, pumpControlCentreClient,
+  PUMP_CONSOLE_LAYOUT, PUMP_CONSOLE_VISUAL, pumpConsole, pumpControlCentreClient,
   pumpGaugeCentreClient, pumpLeverCentreClient,
 } from './render/pumpconsole.js';
+import { door3ControlPressSnapshot } from './render/hands.js';
 import { decay } from './render/decay.js';
 import { monster } from './render/monster.js';
 import { renderPixelRatioCap, resize } from './render/viewport.js';
@@ -332,6 +333,8 @@ window.__door3 = () => ({
     ...door3PumpSnapshot(),
     visible: visibleInHierarchy(pumpConsole),
     layout: { ...PUMP_CONSOLE_LAYOUT },
+    visual: { ...PUMP_CONSOLE_VISUAL },
+    handPress: door3ControlPressSnapshot(),
     gauge: pumpGaugeCentreClient(),
     lever: pumpLeverCentreClient(),
     controls: [0, 1, 2].flatMap(index => [-1, 1]

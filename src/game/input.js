@@ -5,7 +5,7 @@ import { CFG } from '../logic/config.js';
 import { $dev, $hdbg, $pins, view } from '../dom.js';
 import { buildPins, renderPins } from '../render/cutaway.js';
 import { pumpControlAtClient } from '../render/pumpconsole.js';
-import { hd, hdSync } from '../render/hands.js';
+import { beginDoor3ControlPress, hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { operateDoor3Control } from './door3.js';
@@ -98,6 +98,7 @@ view.addEventListener('pointerdown', e => {
   if (R.door === 3) {
     const control = pumpControlAtClient(e.clientX, e.clientY);
     if (control && operateDoor3Control(control)) {
+      beginDoor3ControlPress(control);
       view.setPointerCapture(e.pointerId);
       door3ControlId = e.pointerId;
       e.preventDefault();

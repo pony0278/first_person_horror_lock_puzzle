@@ -131,6 +131,7 @@ export const JPOSE = {
   reach:  { index:[12,18,10,-4], middle:[16,22,13,0],  ring:[20,28,18,4],   pinky:[26,34,22,8],   thumb:[16,18,10,12] },
   wrench: { index:[62,88,60,0],  middle:[66,92,64,0],  ring:[70,95,66,2],   pinky:[73,98,68,5],   thumb:[40,50,45,-14] },
   pick:   { index:[38,42,28,-4], middle:[58,70,50,0],  ring:[68,85,60,3],   pinky:[72,92,66,6],   thumb:[30,34,26,6] },
+  point:  { index:[4,6,4,-2],    middle:[70,92,64,1],  ring:[74,98,68,3],   pinky:[78,102,72,6],  thumb:[38,48,32,-5] },
 };
 
 export const labSkinMat = new THREE.MeshStandardMaterial({
@@ -223,6 +224,29 @@ export function createLabHand(side) {
   }
   function offsetIndex(dj1, dj2) { target.index.j1 += dj1; target.index.j2 += dj2; }
 
+  const tipCandidate = new THREE.Vector3();
+  function pointTipOffsetCamera(handQuaternion, out = new THREE.Vector3()) {
+    const positions = geometry.attributes.position.array;
+    adapter.updateMatrix();
+    // Average the deformed index cap so placement follows the actual pointing
+    // fingertip instead of whichever palm/knuckle vertex happens to be farthest
+    // on screen after the wrist rotates.
+    out.set(0, 0, 0);
+    let capVertices = 0;
+    for (let vertex = 0; vertex < positions.length / 3; vertex++) {
+      const info = LAB.vertexInfo[vertex];
+      if (info.region !== 'index' || info.t < 0.9) continue;
+      const offset = vertex * 3;
+      tipCandidate.set(positions[offset], positions[offset + 1], positions[offset + 2]);
+      if (side < 0) tipCandidate.x *= -1;
+      tipCandidate.applyMatrix4(adapter.matrix).applyQuaternion(handQuaternion);
+      out.add(tipCandidate);
+      capVertices++;
+    }
+    if (capVertices) out.multiplyScalar(1 / capVertices);
+    return out;
+  }
+
   function update(dt) {
     let dirty = false;
     for (const f in current) for (const k in current[f]) {
@@ -260,7 +284,10 @@ export function createLabHand(side) {
   cuff.rotation.x = Math.PI/2 - 0.22;
   cuff.position.set(0, -0.012, 0.055); g.add(cuff);
 
-  return { group: g, side, setJoints, offsetIndex, update, target, adapter };
+  return {
+    group: g, side, setJoints, offsetIndex, update, target, adapter,
+    pointTipOffsetCamera,
+  };
 }
 
 /* 取景／手腕姿態表 — Roy 於 placement lab 調校（2026-08-05）
@@ -271,11 +298,25 @@ export const HPOSE = {
   reach:  { joints:'reach',  pron:95,  pitch:11,  yaw:-6,  x:0.270, y:-0.290, z:-0.660, swing:0 },
   wrench: { joints:'wrench', pron:88,  pitch:-30, yaw:16,  x:0.075, y:-0.430, z:-0.700, swing:0 },
   pick:   { joints:'pick',   pron:96,  pitch:-16, yaw:1,   x:0.360, y:-0.295, z:-0.640, swing:0 },
+  press:  { joints:'point',  pron:95,  pitch:75,  yaw:16,  x:0.245, y:-0.285, z:-0.610, swing:0 },
   away:   { joints:'fist',   pron:150, pitch:20,  yaw:-20, x:0.480, y:-0.680, z:-0.320, swing:0 },
 };
 
 export const handR = createLabHand(+1), handL = createLabHand(-1);
 camera.add(handR.group, handL.group);
+
+// Camera-space sleeve that keeps a distant control press connected to the
+// player's body. Moving only the 19 cm hand to a console two metres away reads
+// as a floating hand; this tapered segment grows from the lower-right frame.
+const pressSleeveMaterial = new THREE.MeshStandardMaterial({
+  color: 0x202329, roughness: 0.92, transparent: true, opacity: 0,
+});
+const pressSleeve = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.040, 0.062, 1, 10),
+  pressSleeveMaterial,
+);
+pressSleeve.visible = false;
+camera.add(pressSleeve);
 
 
 /* ── 手部 debug 模式（H 開關）───────────────────────────
@@ -354,8 +395,116 @@ export const handState = {
   L: { pron:0, pitch:8, yaw:-28, x:0.255, y:-0.305, z:-0.425, swing:1 },
 };
 
+const CONTROL_PRESS_DURATION = 0.58;
+const controlPress = {
+  active: false,
+  elapsed: 0,
+  target: new THREE.Vector3(),
+  normal: new THREE.Vector3(0, 0, 1),
+  index: null,
+  direction: 0,
+};
+const pressTip = new THREE.Vector3();
+const pressContact = new THREE.Vector3();
+const pressProbeTip = new THREE.Vector3();
+const pressProbeProjection = new THREE.Vector3();
+const pressSleeveAnchor = new THREE.Vector3(0.62, -0.72, -0.48);
+const pressSleeveWrist = new THREE.Vector3();
+const pressSleeveWristOffset = new THREE.Vector3(0.08, -0.05, 0.12);
+const pressSleeveDelta = new THREE.Vector3();
+const pressSleeveMid = new THREE.Vector3();
+const pressSleeveUp = new THREE.Vector3(0, 1, 0);
+
+const smooth01 = value => {
+  const t = THREE.MathUtils.clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+function pressEnvelope() {
+  const t = THREE.MathUtils.clamp(controlPress.elapsed / CONTROL_PRESS_DURATION, 0, 1);
+  if (t < 0.26) return smooth01(t / 0.26);
+  if (t < 0.62) return 1;
+  return 1 - smooth01((t - 0.62) / 0.38);
+}
+
+function pressDepth() {
+  const t = controlPress.elapsed / CONTROL_PRESS_DURATION;
+  if (t < 0.26 || t > 0.62) return 0;
+  return Math.sin((t - 0.26) / 0.36 * Math.PI) * 0.018;
+}
+
+/** Start a camera-space point-and-press gesture at the actual raycast hit. */
+export function beginDoor3ControlPress(control) {
+  if (control?.kind !== 'tank' || !Array.isArray(control.handTarget) ||
+      control.handTarget.length !== 3) return false;
+  controlPress.active = true;
+  controlPress.elapsed = 0;
+  controlPress.target.fromArray(control.handTarget);
+  if (Array.isArray(control.handNormal) && control.handNormal.length === 3)
+    controlPress.normal.fromArray(control.handNormal).normalize();
+  else controlPress.normal.set(0, 0, 1);
+  controlPress.index = control.index;
+  controlPress.direction = Math.sign(control.direction);
+  return true;
+}
+
+export function door3ControlPressSnapshot() {
+  const t = controlPress.active
+    ? THREE.MathUtils.clamp(controlPress.elapsed / CONTROL_PRESS_DURATION, 0, 1)
+    : 0;
+  handR.group.updateMatrix();
+  handR.pointTipOffsetCamera(handR.group.quaternion, pressProbeTip)
+    .add(handR.group.position);
+  camera.updateWorldMatrix(true, false);
+  pressProbeProjection.copy(controlPress.target);
+  camera.localToWorld(pressProbeProjection).project(camera);
+  return {
+    active: controlPress.active,
+    progress: +t.toFixed(3),
+    phase: !controlPress.active ? 'idle' : t < 0.26 ? 'reach' : t < 0.62 ? 'press' : 'retract',
+    index: controlPress.index,
+    direction: controlPress.direction,
+    indexStraight: handR.target.index.j1 <= 8 && handR.target.index.j2 <= 10,
+    otherFingersCurled: handR.target.middle.j1 >= 60 && handR.target.ring.j1 >= 60 &&
+      handR.target.pinky.j1 >= 60,
+    target: controlPress.target.toArray().map(value => +value.toFixed(3)),
+    fingertip: pressProbeTip.toArray().map(value => +value.toFixed(3)),
+    fingertipDistance: +pressProbeTip.distanceTo(controlPress.target).toFixed(3),
+    handPosition: handR.group.position.toArray().map(value => +value.toFixed(3)),
+    fingertipOffset: pressProbeTip.clone().sub(handR.group.position)
+      .toArray().map(value => +value.toFixed(3)),
+    targetNdc: pressProbeProjection.toArray().map(value => +value.toFixed(3)),
+    sleeveVisible: pressSleeve.visible,
+    sleeveLength: +pressSleeve.scale.y.toFixed(3),
+  };
+}
+
+function updateControlPressSleeve() {
+  const reach = controlPress.active ? pressEnvelope() : 0;
+  if (reach <= 0.015) {
+    pressSleeve.visible = false;
+    pressSleeveMaterial.opacity = 0;
+    return;
+  }
+  // Stop below/right of the palm so the sleeve connects to the cuff without
+  // covering the curled fingers or the extended index.
+  pressSleeveWrist.copy(handR.group.position).add(pressSleeveWristOffset);
+  pressSleeveDelta.subVectors(pressSleeveWrist, pressSleeveAnchor);
+  const length = pressSleeveDelta.length();
+  pressSleeve.visible = true;
+  pressSleeveMaterial.opacity = Math.min(0.94, reach * 1.8);
+  pressSleeve.position.copy(pressSleeveMid
+    .addVectors(pressSleeveAnchor, pressSleeveWrist).multiplyScalar(0.5));
+  pressSleeve.scale.set(1, length, 1);
+  pressSleeve.quaternion.setFromUnitVectors(
+    pressSleeveUp,
+    pressSleeveDelta.normalize(),
+  );
+}
+
 export function hTargets() {
   if (hd.on) return { L: $hdPose.value, R: $hdPose.value };
+  if (controlPress.active) return { L: 'wrench', R: 'press' };
   if (anim.handsOverride)
     return anim.handsOverride === 'reach'
       ? { L: 'side', R: 'reach' }
@@ -385,10 +534,29 @@ export function hPlace(hand, P, swingPhase, pressF, extra) {
     d2r(side*(P.pron - 90) + Math.sin(p+0.6)*6*side*sw),
     'YXZ'
   );
+  if (extra?.controlPress) {
+    hand.pointTipOffsetCamera(hand.group.quaternion, pressTip);
+    pressContact.copy(controlPress.target)
+      // Keep the skin just in front of the button face. Solving exactly to the
+      // raycast surface lets the depth buffer hide the extended finger inside
+      // the control even though the mathematical contact point is correct.
+      .addScaledVector(controlPress.normal, 0.080 - pressDepth())
+      .sub(pressTip);
+    hand.group.position.lerp(pressContact, pressEnvelope());
+  }
 }
 
 export function updateHands(dt) {
+  if (controlPress.active) {
+    if (R.door !== 3) controlPress.active = false;
+    else {
+      controlPress.elapsed += Math.max(0, dt);
+      if (controlPress.elapsed >= CONTROL_PRESS_DURATION) controlPress.active = false;
+    }
+  }
   const tg = hTargets();
+  const reachScale = controlPress.active ? pressEnvelope() : 0;
+  handR.adapter.scale.setScalar(GAME_HAND_SCALE * (1 + reachScale * 0.28));
   const k = 1 - Math.exp(-9 * dt);
   if (anim.handShake > 0) anim.handShake -= dt;
 
@@ -404,7 +572,9 @@ export function updateHands(dt) {
 
   // 撬鎖時右手：食指隨頂針行程伸展（量化三檔，避免每幀重蒙皮）
   let extraR = null;
-  if (!intro.active && !blind() && !hd.on) {
+  if (controlPress.active && !intro.active && !hd.on) {
+    extraR = { controlPress: true };
+  } else if (!intro.active && !blind() && !hd.on) {
     const lv = Math.round(pick.lift * 3) / 3;
     handR.offsetIndex(-lv * 20, -lv * 16);
     extraR = { dx: pickTool.position.x * 0.9, dy: lv * 0.012, dpitch: -lv * 6 };
@@ -414,4 +584,5 @@ export function updateHands(dt) {
   handL.update(dt); handR.update(dt);
   hPlace(handR, handState.R, intro.bobPhase, pressF, extraR);
   hPlace(handL, handState.L, intro.bobPhase, 0, null);
+  updateControlPressSleeve();
 }

@@ -13,6 +13,16 @@ export const PUMP_CONSOLE_LAYOUT = Object.freeze({
   clearLaneMinX: -0.25,
 });
 
+const FRONT_LIP_TOP = 0.75;
+const LOWER_CONTROL_Y = 0.82;
+const CONTROL_HALF_HEIGHT = 0.115 / 2;
+export const PUMP_CONSOLE_VISUAL = Object.freeze({
+  frontLipTop: FRONT_LIP_TOP,
+  lowerControlY: LOWER_CONTROL_Y,
+  lowerButtonBottom: LOWER_CONTROL_Y - CONTROL_HALF_HEIGHT,
+  lowerGlyphClearance: LOWER_CONTROL_Y - CONTROL_HALF_HEIGHT - FRONT_LIP_TOP,
+});
+
 const matFrame = new THREE.MeshStandardMaterial({
   color: 0x293136, roughness: 0.76, metalness: 0.48,
 });
@@ -134,7 +144,7 @@ const tankColumns = [-0.78, -0.42, -0.06];
 function addControl(index, direction, x, y) {
   const control = new THREE.Group();
   control.position.set(x + 0.055, y, -0.19);
-  control.userData = { index, direction, restZ: -0.19, pulse: 0 };
+  control.userData = { index, direction, restZ: -0.19, pulse: 0, pulseDelay: 0 };
   pumpConsole.add(control);
 
   const button = addBox(control, direction > 0 ? matRaise : matLower,
@@ -175,7 +185,10 @@ tankColumns.forEach((x, index) => {
     band.name = `door3-tank-${index + 1}-target-band`;
   }
   addControl(index, 1, x, 0.965);
-  addControl(index, -1, x, 0.755);
+  // The old 0.755 centre put the lower half of the button inside the 0.75 m
+  // front lip, so its white minus glyph was physically occluded. Keep the
+  // whole button above that lip with a small authored safety gap.
+  addControl(index, -1, x, LOWER_CONTROL_Y);
 });
 
 const gaugeFace = new THREE.Mesh(
@@ -259,7 +272,11 @@ export function pulsePumpControl(index, direction) {
   const control = controlGroups.find(item =>
     item.userData.index === index && item.userData.direction === Math.sign(direction));
   if (!control) return false;
-  control.userData.pulse = 1;
+  // Let the pointing finger arrive before the physical button travels. The
+  // game decision still happens immediately; only the visible depression is
+  // delayed so hand and control make contact together.
+  control.userData.pulse = 0;
+  control.userData.pulseDelay = 0.12;
   return true;
 }
 
@@ -275,7 +292,12 @@ export function updatePumpConsole(dt) {
   const targetAngle = pressureAngle(targetPressureRatio);
   gaugeNeedle.rotation.z += (targetAngle - gaugeNeedle.rotation.z) * blend;
   controlGroups.forEach(control => {
-    control.userData.pulse = Math.max(0, control.userData.pulse - dt * 5);
+    if (control.userData.pulseDelay > 0) {
+      control.userData.pulseDelay -= dt;
+      if (control.userData.pulseDelay <= 0) control.userData.pulse = 1;
+    } else {
+      control.userData.pulse = Math.max(0, control.userData.pulse - dt * 5);
+    }
     control.position.z = control.userData.restZ - control.userData.pulse * 0.025;
   });
   const leverTarget = masterLever.userData.pulled ? 1 : 0;
@@ -303,11 +325,20 @@ export function pumpControlAtClient(clientX, clientY) {
   controlRaycaster.setFromCamera(controlPointer, camera);
   const hit = controlRaycaster.intersectObjects(controlTargets, false)[0];
   if (!hit) return null;
+  camera.updateWorldMatrix(true, false);
+  const handTarget = camera.worldToLocal(hit.point.clone()).toArray();
+  const handNormal = (hit.face?.normal?.clone() ?? new THREE.Vector3(0, 0, 1))
+    .transformDirection(hit.object.matrixWorld)
+    .transformDirection(camera.matrixWorldInverse)
+    .normalize()
+    .toArray();
   if (hit.object.userData.controlKind === 'lever') return { kind: 'lever' };
   return {
     kind: 'tank',
     index: hit.object.userData.pumpIndex,
     direction: hit.object.userData.pumpDirection,
+    handTarget,
+    handNormal,
   };
 }
 
