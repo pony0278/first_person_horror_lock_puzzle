@@ -252,11 +252,23 @@ for (const profile of profiles) {
     JSON.stringify(state.console.volumes) === JSON.stringify([6, 0, 1]) &&
     state.console.totalVolume === initialTotal &&
     state.console.burstTriggered && state.console.effects.pipeBurst &&
-    state.console.effects.jetVisible && state.console.waterLensOpacity > 0,
+    state.console.effects.jetVisible && state.console.waterLensOpacity > 0 &&
+    state.console.effects.phase === 'surge' &&
+    state.console.effects.streamPressure >= 0.85 &&
+    state.console.effects.impactSplashVisible,
     JSON.stringify(state.console));
+  check('wet vision uses deterministic refraction and no legacy DOM bubbles',
+    state.console.wetGlass.active && state.console.wetGlass.amount > 0 &&
+    state.console.wetGlass.blurSamples === 8 && state.console.wetGlass.seed === 1842 &&
+    await page.evaluate(() => !document.getElementById('door3WaterLens')),
+    JSON.stringify(state.console.wetGlass));
   check('rupture pushes physical debris toward the operator without moving the view',
     state.console.effects.debrisProgress > 0 && Math.abs(state.yaw - consoleYaw) <= 1,
     JSON.stringify({ effects: state.console.effects, yaw: state.yaw }));
+
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-wet-glass.png` });
+  }
 
   await page.evaluate(() => window.__door3Look(180));
   await page.waitForTimeout(180);

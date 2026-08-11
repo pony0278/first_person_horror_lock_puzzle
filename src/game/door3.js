@@ -15,7 +15,7 @@ import {
   DOOR3_APPROACH, door3ApproachX, door3ApproachYaw, door3ApproachZ,
   door3OperatorProgress,
 } from '../logic/door3-transition.js';
-import { $door3WaterLens, $fade, $panel, $turnCue } from '../dom.js';
+import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
 import { camera, doorHinge, scene, vestibule } from '../render/scene.js';
 import { monster } from '../render/monster.js';
@@ -26,6 +26,9 @@ import {
   setPumpHubLevels, setPumpHubPuzzleState, triggerPumpPipeBurst, updatePumpHub,
 } from '../render/pumphub.js';
 import { pulsePumpControl } from '../render/pumpconsole.js';
+import {
+  resetWetGlass, triggerWetGlass, updateWetGlass, wetGlassSnapshot,
+} from '../render/wetglass.js';
 import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
 import { beep, pipeBurstSound, pumpTransferSound, wetStep } from './audio.js';
 import { T } from './transit.js';
@@ -49,7 +52,7 @@ export const D3 = {
   travelT: 0,
   stepT: 0,
   previousLightVisibility: null,
-  fx: { clock: 0, shake: 0, burstDelay: -1, waterT: -1 },
+  fx: { clock: 0, shake: 0, burstDelay: -1 },
   pump: {
     volumes: [...PUMP_CONSOLE.initialVolumes],
     levels: [...PUMP_CONSOLE.initialLevels],
@@ -115,9 +118,7 @@ function resetDoor3Pump() {
   D3.fx.clock = 0;
   D3.fx.shake = 0;
   D3.fx.burstDelay = -1;
-  D3.fx.waterT = -1;
-  $door3WaterLens.style.opacity = '0';
-  $door3WaterLens.style.setProperty('--water-slide', '0');
+  resetWetGlass();
   resetPumpHubEffects();
   syncDoor3PumpVisuals();
 }
@@ -219,6 +220,7 @@ export function operateDoor3Control(control) {
 }
 
 export function door3PumpSnapshot() {
+  const wetGlass = wetGlassSnapshot();
   return {
     capacities: [...PUMP_CONSOLE.capacities],
     volumes: [...D3.pump.volumes],
@@ -241,21 +243,11 @@ export function door3PumpSnapshot() {
     severeErrors: D3.pump.severeErrors,
     threatAdvances: D3.pump.threatAdvances,
     burstTriggered: D3.pump.burstTriggered,
-    waterLensOpacity: +($door3WaterLens.style.opacity || 0),
+    // Kept as a compatibility field for the existing browser scenario.
+    waterLensOpacity: wetGlass.amount,
+    wetGlass,
     effects: pumpHubEffectSnapshot(),
   };
-}
-
-function updateWaterLens(dt) {
-  if (D3.fx.waterT < 0) return;
-  D3.fx.waterT += dt;
-  const t = D3.fx.waterT;
-  const fadeIn = Math.min(1, t / 0.18);
-  const fadeOut = 1 - Math.max(0, Math.min(1, (t - 1.75) / 2.25));
-  const opacity = Math.max(0, Math.min(0.82, fadeIn * fadeOut * 0.82));
-  const slide = Math.max(0, Math.min(1, (t - 0.18) / 2.85));
-  $door3WaterLens.style.opacity = opacity.toFixed(3);
-  $door3WaterLens.style.setProperty('--water-slide', slide.toFixed(3));
 }
 
 function updateLatchSequence(dt) {
@@ -286,11 +278,11 @@ function updateDoor3Puzzle(dt) {
       D3.fx.burstDelay = -1;
       triggerPumpPipeBurst();
       pipeBurstSound();
-      D3.fx.waterT = 0;
+      triggerWetGlass();
       D3.fx.shake = Math.max(D3.fx.shake, 1);
     }
   }
-  updateWaterLens(dt);
+  updateWetGlass(dt);
   updateLatchSequence(dt);
 
   if (D3.pump.transferT > 0) {
