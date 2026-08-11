@@ -523,12 +523,14 @@ for (const profile of profiles) {
     state.console.leverPulled && state.console.complete &&
     state.console.effects.doorOpenRatio === 1 && state.escapePassage.clear,
     JSON.stringify({ phase: state.phase, passage: state.escapePassage, console: state.console }));
-  check('F2.3 freezes and clears its threat as soon as the valid lever is pulled',
-    state.console.threat.escaped && !state.console.effects.threat.active &&
-    !state.threatActor.visible &&
+  check('lever freezes F2.3 and hands the same actor to the final pursuit',
+    state.console.threat.escaped && state.console.pursuit.active &&
+    state.console.pursuit.visible && state.console.effects.threat.active &&
+    state.threatActor.visible &&
     Math.abs(state.console.threat.elapsed - threatElapsedBeforeLever) <= 0.02,
     JSON.stringify({ before: threatElapsedBeforeLever,
-      threat: state.console.threat, visual: state.console.effects.threat,
+      threat: state.console.threat, pursuit: state.console.pursuit,
+      visual: state.console.effects.threat,
       actor: state.threatActor }));
   if (profile.name === 'landscape') {
     await page.screenshot({ path: `${OUT}/door3-master-lever-pulled.png` });
@@ -544,7 +546,9 @@ for (const profile of profiles) {
   const floodDoorWorldZ = state.hubCenterZ + state.console.escape.gateZ;
   check('camera physically crosses the flood-gate threshold',
     state.console.escape.crossed && state.z < floodDoorWorldZ - 0.15 &&
-    Math.abs(state.x) <= 0.08 && state.walking,
+    Math.abs(state.x) <= 0.16 && state.walking &&
+    state.console.pursuit.escaped && !state.console.pursuit.active &&
+    !state.threatActor.visible,
     JSON.stringify({ x: state.x, z: state.z, floodDoorWorldZ,
       escape: state.console.escape }));
   if (profile.name === 'landscape') {
@@ -558,7 +562,7 @@ for (const profile of profiles) {
   state = await page.evaluate(() => window.__door3());
   check('success is recorded only after the safe-side breathing beat',
     state.console.escape.complete && state.console.escape.progress === 1 &&
-    !state.walking && state.fadeOpacity > 0,
+    !state.console.escape.clutch && !state.walking && state.fadeOpacity > 0,
     JSON.stringify({ phase: state.phase, walking: state.walking,
       fade: state.fadeOpacity, escape: state.console.escape }));
 
@@ -678,6 +682,37 @@ for (const profile of profiles) {
     Math.abs(state.threatActor.yawDeg - 90) <= 0.5,
     JSON.stringify(state.threatActor));
 
+  // A stare can hold one visible stage, but only for the authored 1.60 s.
+  // When the budget is exhausted the room blinks and the next corridor still
+  // begins in its cue phase rather than teleporting a visible actor.
+  await page.evaluate(() => {
+    window.__door3Look(180);
+    window.__setDoor3ThreatElapsed(9.96);
+  });
+  await page.locator('button[data-speed="2"]').click();
+  await page.locator('#dbgThreat').uncheck();
+  await page.waitForFunction(() =>
+    window.__door3?.().console.threat.forcedShifts >= 1, null, { timeout: 5000 });
+  state = await page.evaluate(() => window.__door3());
+  check('bounded rear stare masks the forced corridor change with a light blink',
+    state.console.threat.totalGazeHold >= 1.55 &&
+    state.console.threat.forcedShifts === 1 &&
+    state.console.threat.stage === 1 &&
+    state.console.threat.direction === 'left' &&
+    state.console.threat.phase === 'cue' &&
+    state.console.effects.threat.blackout > 0 &&
+    !state.threatActor.visible,
+    JSON.stringify({ threat: state.console.threat,
+      visual: state.console.effects.threat, actor: state.threatActor }));
+  await page.locator('#dbgThreat').check();
+  await page.evaluate(() => {
+    window.__door3Look(-90);
+    window.__setDoor3ThreatElapsed(17.70);
+  });
+  await page.waitForFunction(() =>
+    window.__door3?.().console.threat.stage === 2 &&
+    window.__door3?.().console.threat.phase === 'visible');
+
   state = await page.evaluate(async () => {
     const door3 = await import('/src/game/door3.js');
     const transfer = (source, target) => {
@@ -728,6 +763,113 @@ for (const profile of profiles) {
     restarted.door === 1 && restarted.intro,
     JSON.stringify(restarted));
   check('three-way threat path has no page errors',
+    errors.length === 0, errors.length ? errors.join(' | ') : 'none');
+  await context.close();
+}
+
+/* F2.4 terminal pursuit contract. A stage-five lever pull without the final
+ * stare must fail before the gate clears; using the full bounded stare must
+ * keep the player alive until the physical threshold locks a clutch win. */
+for (const profile of profiles) {
+  console.log(`\n[${profile.name} final pursuit]`);
+  const context = await browser.newContext({
+    viewport: { width: profile.width, height: profile.height },
+    deviceScaleFactor: profile.dpr,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: profile.userAgent,
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error).slice(0, 240)));
+
+  const prepareTerminalLever = async () => {
+    await page.goto(scenarioUrl(), { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.__debugLoad === 'function');
+    await page.evaluate(() => window.__debugLoad('door3', 'explore'));
+    await page.waitForFunction(() => window.__door3?.().phase === 'explore');
+    return page.evaluate(async () => {
+      const door3 = await import('/src/game/door3.js');
+      const { anim } = await import('/src/state.js');
+      anim.debugScale = 0;
+      window.__setDoor3ThreatElapsed(37.20);
+      const step = count => {
+        for (let index = 0; index < count; index++) door3.updateDoor3(1 / 60);
+      };
+      const transfer = (source, target) => {
+        door3.adjustDoor3Pump(source, -1);
+        door3.adjustDoor3Pump(target, 1);
+        step(55);
+      };
+      transfer(1, 2);
+      transfer(0, 1);
+      transfer(1, 2);
+      transfer(2, 0);
+      transfer(1, 2);
+      for (let index = 0; index < 180 && !door3.D3.pump.leverUnlocked; index++) {
+        door3.updateDoor3(1 / 60);
+      }
+      return window.__door3();
+    });
+  };
+
+  let state = await prepareTerminalLever();
+  check('terminal pursuit fixture reaches the real unlocked lever at stage five',
+    state.console.leverUnlocked && state.console.threat.stage === 5 &&
+    state.console.threat.direction === 'right' &&
+    state.console.threat.phase === 'visible',
+    JSON.stringify({ console: state.console, actor: state.threatActor }));
+
+  state = await page.evaluate(async () => {
+    const door3 = await import('/src/game/door3.js');
+    const { look, R } = await import('/src/state.js');
+    look.yaw = look.target = -90;
+    door3.pullDoor3MasterLever();
+    for (let index = 0; index < 360 &&
+         !door3.D3.escape.crossed && !door3.D3.pursuit.dead; index++) {
+      door3.updateDoor3(1 / 60);
+    }
+    return { door3: window.__door3(), over: R.over, won: R.won };
+  });
+  check('full bounded stare survives stage five and locks a clutch win at the threshold',
+    state.over && state.won && state.door3.console.escape.crossed &&
+    state.door3.console.escape.clutch && state.door3.console.pursuit.escaped &&
+    !state.door3.console.pursuit.active && !state.door3.threatActor.visible &&
+    state.door3.console.pursuit.gazeHeld >= 1.55 &&
+    state.door3.console.pursuit.minGap <= 1.25,
+    JSON.stringify(state));
+  if (profile.name === 'landscape') {
+    await page.screenshot({ path: `${OUT}/door3-final-pursuit-clutch.png` });
+  }
+
+  state = await prepareTerminalLever();
+  state = await page.evaluate(async () => {
+    const door3 = await import('/src/game/door3.js');
+    const { look, R } = await import('/src/state.js');
+    look.yaw = look.target = 0;
+    door3.pullDoor3MasterLever();
+    for (let index = 0; index < 240 && !door3.D3.pursuit.dead; index++) {
+      door3.updateDoor3(1 / 60);
+    }
+    return {
+      door3: window.__door3(),
+      over: R.over,
+      won: R.won,
+      result: document.querySelector('#fade > div')?.textContent ?? '',
+    };
+  });
+  check('stage-five lever pull without the final stare dies before the gate clears',
+    state.over && !state.won && state.door3.phase === 'dead' &&
+    state.door3.console.pursuit.dead && state.door3.threatActor.visible &&
+    state.result === '牠在防洪門升起前追上了你',
+    JSON.stringify(state));
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const pursuitPerformance = await page.evaluate(() => window.__door3().performance);
+  check('visible final pursuer stays within the Door 3 draw-call budget',
+    pursuitPerformance.drawCalls <= pursuitPerformance.budget.maxDrawCalls,
+    `calls=${pursuitPerformance.drawCalls}/${pursuitPerformance.budget.maxDrawCalls}`);
+  check('final pursuit path has no page errors',
     errors.length === 0, errors.length ? errors.join(' | ') : 'none');
   await context.close();
 }

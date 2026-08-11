@@ -58,6 +58,13 @@ describe('Door 3 honest three-way threat schedule', () => {
     expect(after.lethal).toBe(false);
   });
 
+  it('does not turn a terminal-stage rollback into an untelegraphed death', () => {
+    const terminalVisible = DOOR3_THREAT_LIMIT_SEC - 0.20;
+    expect(door3ThreatAt(terminalVisible).phase).toBe('visible');
+    expect(door3ThreatAdvancePenalty(terminalVisible)).toBe(0);
+    expect(door3ThreatAt(terminalVisible).lethal).toBe(false);
+  });
+
   it('maps every corridor to a pose facing back toward the player', () => {
     const rear = door3ThreatPose(door3ThreatAt(DOOR3_THREAT.firstCueSec + 2));
     const left = door3ThreatPose(door3ThreatAt(

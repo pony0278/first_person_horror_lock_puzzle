@@ -1,12 +1,16 @@
 /* Door 2 → Door 3 場景交接。
  *
  * This pass activates conserved-fluid routing, dual latch bands, the master
- * lever, first-operation pipe rupture, and the independent three-way threat.
- * Gaze restraint and the final chase through the opening remain for F2.4.
+ * lever, first-operation pipe rupture, the three-way threat, bounded gaze
+ * restraint, and the final chase through the opening.
  */
 
 import { CFG } from '../logic/config.js';
 import { DOOR3_PERFORMANCE } from '../logic/door3-performance.js';
+import {
+  DOOR3_GAZE, DOOR3_PURSUIT, door3GazeAligned, door3GazeHoldDelta,
+  door3PursuitAt, door3PursuitStart,
+} from '../logic/door3-pursuit.js';
 import {
   DOOR3_THREAT_LIMIT_SEC, door3ThreatAdvancePenalty, door3ThreatAt,
   door3ThreatCause, door3ThreatPose,
@@ -16,7 +20,8 @@ import {
   pumpPuzzleSolved, pumpVolumeTotal, transferPumpVolume,
 } from '../logic/pump-console.js';
 import {
-  DOOR3_APPROACH, DOOR3_ESCAPE, door3ApproachX, door3ApproachYaw,
+  DOOR3_APPROACH, DOOR3_ESCAPE, DOOR3_OPERATOR,
+  door3ApproachX, door3ApproachYaw,
   door3ApproachZ, door3EscapeCrossed, door3EscapeProgress, door3EscapeX,
   door3EscapeZ, door3OperatorProgress,
 } from '../logic/door3-transition.js';
@@ -53,10 +58,12 @@ const APPROACH_FOG = 0.041;
 const STEP_SEC = 0.38;
 const CONSOLE_STEP_SEC = 0.48;
 const DOOR3_TRANSITION_PAUSE = 'door3-greybox';
+const DOOR3_FINAL_PURSUIT_PAUSE = 'door3-final-pursuit';
 const ease = x => x * x * (3 - 2 * x);
 const DOOR3_CUE = '先按來源缸 －　再按目標缸 ＋　·　拖曳環視';
 const DEFAULT_CUE = '按住畫面 = 回頭　·　放開 = 轉回門鎖';
 const exploreFov = () => camera.aspect < 0.75 ? 80 : BASE_FOV;
+const DEFAULT_PURSUIT = door3PursuitStart(door3ThreatAt(0));
 
 export const D3 = {
   active: false,
@@ -66,11 +73,35 @@ export const D3 = {
   stepT: 0,
   previousLightVisibility: null,
   fx: { clock: 0, shake: 0, burstDelay: -1 },
-  escape: { progress: 0, crossed: false, complete: false },
+  escape: { progress: 0, crossed: false, complete: false, clutch: false },
   threat: {
     ...door3ThreatAt(0),
     announcedStage: -1,
     advances: 0,
+    escaped: false,
+    dead: false,
+    timelineOffset: 0,
+    totalGazeHold: 0,
+    stageGazeHold: 0,
+    gazeAligned: false,
+    gazeExhausted: false,
+    forcedShifts: 0,
+    blackout: 0,
+    lastRawElapsed: 0,
+  },
+  pursuit: {
+    active: false,
+    ...DEFAULT_PURSUIT,
+    elapsed: 0,
+    gazeHeld: 0,
+    gazeAligned: false,
+    effectiveElapsed: 0,
+    travel: 0,
+    gap: null,
+    minGap: null,
+    visible: false,
+    lethal: false,
+    pose: null,
     escaped: false,
     dead: false,
   },
@@ -95,6 +126,7 @@ export const D3 = {
     doorOpenRatio: 0,
     complete: false,
     severeErrors: 0,
+    protectedSevereErrors: 0,
     threatAdvances: 0,
     burstTriggered: false,
   },
@@ -134,6 +166,7 @@ function resetDoor3Pump() {
   D3.pump.doorOpenRatio = 0;
   D3.pump.complete = false;
   D3.pump.severeErrors = 0;
+  D3.pump.protectedSevereErrors = 0;
   D3.pump.threatAdvances = 0;
   D3.pump.burstTriggered = false;
   D3.fx.clock = 0;
@@ -142,12 +175,38 @@ function resetDoor3Pump() {
   D3.escape.progress = 0;
   D3.escape.crossed = false;
   D3.escape.complete = false;
+  D3.escape.clutch = false;
   Object.assign(D3.threat, door3ThreatAt(0), {
     announcedStage: -1,
     advances: 0,
     escaped: false,
     dead: false,
+    timelineOffset: 0,
+    totalGazeHold: 0,
+    stageGazeHold: 0,
+    gazeAligned: false,
+    gazeExhausted: false,
+    forcedShifts: 0,
+    blackout: 0,
+    lastRawElapsed: 0,
   });
+  Object.assign(D3.pursuit, {
+    active: false,
+    ...DEFAULT_PURSUIT,
+    elapsed: 0,
+    gazeHeld: 0,
+    gazeAligned: false,
+    effectiveElapsed: 0,
+    travel: 0,
+    gap: null,
+    minGap: null,
+    visible: false,
+    lethal: false,
+    pose: null,
+    escaped: false,
+    dead: false,
+  });
+  R.timer.resume(DOOR3_FINAL_PURSUIT_PAUSE);
   resetWetGlass();
   resetPumpHubEffects();
   resetPumpHubThreat();
@@ -214,7 +273,15 @@ export function adjustDoor3Pump(index, direction) {
     if (lostLatch) {
       D3.pump.severeErrors++;
       D3.pump.threatAdvances++;
-      R.timer.addPenalty(door3ThreatAdvancePenalty(R.timer.elapsed));
+      const effectiveElapsed = Math.max(
+        0, R.timer.elapsed - D3.threat.timelineOffset,
+      );
+      const penalty = door3ThreatAdvancePenalty(effectiveElapsed);
+      R.timer.addPenalty(penalty);
+      // Penalty time is an authored jump, not wall time spent staring. Do not
+      // let the next frame convert it into free gaze restraint.
+      D3.threat.lastRawElapsed = R.timer.elapsed;
+      if (penalty <= 0) D3.pump.protectedSevereErrors++;
       D3.fx.shake = Math.max(D3.fx.shake, 1.25);
       beep('severe');
     } else beep('tap');
@@ -237,16 +304,36 @@ export function pullDoor3MasterLever() {
     beep('release');
     return true;
   }
-  if (!freezeRoundForEnding(true)) return false;
+  if (R.over) return false;
+  const effectiveElapsed = Math.max(
+    0, R.timer.elapsed - D3.threat.timelineOffset,
+  );
+  Object.assign(D3.threat, door3ThreatAt(effectiveElapsed));
+  const start = door3PursuitStart(D3.threat);
+  const pursuit = door3PursuitAt({
+    ...start,
+    elapsed: 0,
+    gazeHeld: 0,
+    playerLocalZ: DOOR3_OPERATOR.z,
+    crossed: false,
+  });
+  R.timer.pause(DOOR3_FINAL_PURSUIT_PAUSE);
   D3.pump.leverPulled = true;
   D3.threat.escaped = true;
-  monster.visible = false;
-  setPumpHubThreatState();
+  Object.assign(D3.pursuit, pursuit, {
+    active: true,
+    gazeAligned: false,
+    minGap: Number.POSITIVE_INFINITY,
+    escaped: false,
+    dead: false,
+  });
   D3.phase = 'opening';
   D3.t = 0;
-  $turnCue.textContent = '防洪門升起中　·　回頭確認後方';
-  beep('release');
+  $turnCue.textContent = '防洪門升起中　·　盯住牠可短暫牽制';
+  door3ThreatSound(start.direction, start.stage);
+  beep('face');
   syncDoor3PumpVisuals();
+  syncDoor3ThreatVisuals();
   return true;
 }
 
@@ -278,6 +365,7 @@ export function door3PumpSnapshot() {
     leverPulled: D3.pump.leverPulled,
     complete: D3.pump.complete,
     severeErrors: D3.pump.severeErrors,
+    protectedSevereErrors: D3.pump.protectedSevereErrors,
     threatAdvances: D3.pump.threatAdvances,
     burstTriggered: D3.pump.burstTriggered,
     threat: {
@@ -295,12 +383,36 @@ export function door3PumpSnapshot() {
       advances: D3.threat.advances,
       escaped: D3.threat.escaped,
       dead: D3.threat.dead,
+      totalGazeHold: +D3.threat.totalGazeHold.toFixed(2),
+      stageGazeHold: +D3.threat.stageGazeHold.toFixed(2),
+      gazeAligned: D3.threat.gazeAligned,
+      gazeExhausted: D3.threat.gazeExhausted,
+      forcedShifts: D3.threat.forcedShifts,
+      blackout: +D3.threat.blackout.toFixed(2),
       timerVisible: false,
+    },
+    pursuit: {
+      active: D3.pursuit.active,
+      direction: D3.pursuit.direction,
+      stage: D3.pursuit.stage,
+      startDistance: D3.pursuit.distance,
+      elapsed: +D3.pursuit.elapsed.toFixed(2),
+      effectiveElapsed: +D3.pursuit.effectiveElapsed.toFixed(2),
+      gazeHeld: +D3.pursuit.gazeHeld.toFixed(2),
+      gazeAligned: D3.pursuit.gazeAligned,
+      gap: D3.pursuit.gap === null ? null : +D3.pursuit.gap.toFixed(2),
+      minGap: D3.pursuit.minGap === null || !Number.isFinite(D3.pursuit.minGap)
+        ? null : +D3.pursuit.minGap.toFixed(2),
+      visible: D3.pursuit.visible,
+      lethal: D3.pursuit.lethal,
+      escaped: D3.pursuit.escaped,
+      dead: D3.pursuit.dead,
     },
     escape: {
       progress: +D3.escape.progress.toFixed(2),
       crossed: D3.escape.crossed,
       complete: D3.escape.complete,
+      clutch: D3.escape.clutch,
       gateZ: DOOR3_ESCAPE.gateZ,
       endZ: DOOR3_ESCAPE.endZ,
       breatheSec: DOOR3_ESCAPE.breatheSec,
@@ -403,36 +515,99 @@ function updateDoor3Puzzle(dt) {
 }
 
 function syncDoor3ThreatVisuals() {
-  const active = D3.active && !D3.threat.escaped &&
+  const pursuitActive = D3.active &&
+    (D3.pursuit.active || D3.pursuit.dead) && !D3.pursuit.escaped;
+  const threatActive = D3.active && !D3.threat.escaped &&
     (D3.phase === 'explore' || D3.threat.dead) && D3.threat.stage >= 0;
-  setPumpHubThreatState(active ? {
+  const active = pursuitActive || threatActive;
+  setPumpHubThreatState(pursuitActive ? {
+    active: true,
+    direction: D3.pursuit.direction,
+    stage: D3.pursuit.stage,
+    cueProgress: 1,
+    presence: 1,
+    monsterVisible: D3.pursuit.visible,
+    blackout: 0,
+  } : threatActive ? {
     active: true,
     direction: D3.threat.direction,
     stage: D3.threat.stage,
     cueProgress: D3.threat.cueProgress,
     presence: D3.threat.presence,
     monsterVisible: D3.threat.monsterVisible,
+    blackout: D3.threat.blackout,
   } : {});
 
-  const pose = active ? door3ThreatPose(D3.threat) : null;
-  monster.visible = Boolean(pose && D3.threat.monsterVisible);
+  const pose = pursuitActive ? D3.pursuit.pose
+    : threatActive ? door3ThreatPose(D3.threat) : null;
+  const actorVisible = pursuitActive
+    ? D3.pursuit.visible : threatActive && D3.threat.monsterVisible;
+  monster.visible = Boolean(active && pose && actorVisible);
   if (!pose || !monster.visible) return;
   monster.position.set(pose.x, 0, pose.z);
   pumpHub.localToWorld(monster.position);
-  monster.position.y += Math.sin(D3.threat.elapsed * 1.7) * 0.012;
+  const actorTime = pursuitActive ? D3.pursuit.elapsed : D3.threat.elapsed;
+  monster.position.y += Math.sin(actorTime * 1.7) * 0.012;
   monster.rotation.y = pose.yawDeg * Math.PI / 180;
 }
 
-function updateDoor3Threat() {
+function updateDoor3Threat(dt) {
   if (!D3.active) return;
+  D3.threat.blackout = Math.max(
+    0,
+    D3.threat.blackout - dt / DOOR3_GAZE.forcedBlinkSec,
+  );
   if (D3.threat.dead || D3.threat.escaped || D3.phase !== 'explore') {
     syncDoor3ThreatVisuals();
     return;
   }
 
-  const next = door3ThreatAt(R.timer.elapsed);
+  const previousStage = D3.threat.stage;
+  const previousAligned = D3.threat.gazeAligned;
+  const rawElapsed = R.timer.elapsed;
+  const rawDelta = Math.max(0, rawElapsed - D3.threat.lastRawElapsed);
+  D3.threat.lastRawElapsed = rawElapsed;
+  // The interval since the previous frame was spent looking at the previously
+  // rendered actor. Evaluate restraint from that honest visible state before
+  // sampling the newly advanced wall clock; otherwise a low-FPS frame could
+  // cross a stage boundary before the stare is credited.
+  const holdBasis = D3.threat;
+  const alignedBeforeHold = holdBasis.monsterVisible &&
+    door3GazeAligned(look.yaw, holdBasis.direction);
+  const holdDelta = R.timer.paused ? 0 : door3GazeHoldDelta(
+    holdBasis,
+    look.yaw,
+    D3.threat.stageGazeHold,
+    rawDelta,
+  );
+  if (holdDelta > 0) {
+    D3.threat.timelineOffset += holdDelta;
+    D3.threat.totalGazeHold += holdDelta;
+    D3.threat.stageGazeHold += holdDelta;
+  }
+  const next = door3ThreatAt(Math.max(
+    0, rawElapsed - D3.threat.timelineOffset,
+  ));
   const enteredStage = next.stage >= 0 && next.stage !== D3.threat.announcedStage;
+  const changedStage = previousStage >= 0 && next.stage !== previousStage;
+  const exhaustedAtTransition = D3.threat.stageGazeHold +
+    Number.EPSILON * 32 >= DOOR3_GAZE.stageHoldSec;
+  const forcedShift = changedStage && exhaustedAtTransition &&
+    (previousAligned || alignedBeforeHold);
+  if (changedStage) D3.threat.stageGazeHold = 0;
+  const gazeAligned = next.monsterVisible &&
+    door3GazeAligned(look.yaw, next.direction);
+  const gazeExhausted = D3.threat.stageGazeHold + Number.EPSILON * 32 >=
+    DOOR3_GAZE.stageHoldSec;
   Object.assign(D3.threat, next, { advances: D3.pump.threatAdvances });
+  D3.threat.gazeAligned = gazeAligned;
+  D3.threat.gazeExhausted = gazeExhausted;
+  if (forcedShift) {
+    D3.threat.forcedShifts++;
+    D3.threat.blackout = 1;
+    D3.fx.shake = Math.max(D3.fx.shake, 0.62);
+    beep('thunk');
+  }
   if (enteredStage) {
     D3.threat.announcedStage = next.stage;
     door3ThreatSound(next.direction, next.stage);
@@ -446,6 +621,65 @@ function updateDoor3Threat() {
     D3.t = 0;
     D3.fx.shake = Math.max(D3.fx.shake, 1.55);
     failRound(door3ThreatCause(next.direction));
+  }
+}
+
+function updateDoor3Pursuit(dt) {
+  if (!D3.pursuit.active || D3.pursuit.dead || D3.pursuit.escaped) return;
+  D3.pursuit.elapsed += dt;
+  const playerLocalZ = intro.z - PUMP_HUB.centerWorldZ;
+  let next = door3PursuitAt({
+    direction: D3.pursuit.direction,
+    distance: D3.pursuit.distance,
+    stage: D3.pursuit.stage,
+    elapsed: D3.pursuit.elapsed,
+    gazeHeld: D3.pursuit.gazeHeld,
+    playerLocalZ,
+    crossed: D3.escape.crossed,
+  });
+  const gazeAligned = D3.phase === 'opening' && next.visible &&
+    door3GazeAligned(look.yaw, D3.pursuit.direction);
+  if (gazeAligned && D3.pursuit.gazeHeld < DOOR3_PURSUIT.gazeHoldSec) {
+    D3.pursuit.gazeHeld += Math.min(
+      dt,
+      DOOR3_PURSUIT.gazeHoldSec - D3.pursuit.gazeHeld,
+    );
+    next = door3PursuitAt({
+      direction: D3.pursuit.direction,
+      distance: D3.pursuit.distance,
+      stage: D3.pursuit.stage,
+      elapsed: D3.pursuit.elapsed,
+      gazeHeld: D3.pursuit.gazeHeld,
+      playerLocalZ,
+      crossed: D3.escape.crossed,
+    });
+  }
+  Object.assign(D3.pursuit, next, { gazeAligned });
+  D3.pursuit.minGap = Math.min(D3.pursuit.minGap, next.gap);
+  if (next.visible) {
+    const pressure = Math.max(0, 1 - next.gap / 4.5);
+    D3.fx.shake = Math.max(D3.fx.shake, pressure * 0.32);
+  }
+
+  if (next.lethal) {
+    D3.pursuit.dead = true;
+    D3.phase = 'dead';
+    D3.t = 0;
+    D3.fx.shake = Math.max(D3.fx.shake, 1.65);
+    syncDoor3ThreatVisuals();
+    failRound(D3.pump.doorOpenRatio < 1
+      ? '牠在防洪門升起前追上了你'
+      : '牠在門檻前抓住了你');
+    return;
+  }
+
+  if (D3.escape.crossed) {
+    D3.pursuit.active = false;
+    D3.pursuit.escaped = true;
+    D3.escape.clutch = D3.pursuit.minGap <= DOOR3_PURSUIT.clutchDistance;
+    freezeRoundForEnding(true);
+    monster.visible = false;
+    setPumpHubThreatState();
   }
 }
 
@@ -771,13 +1005,14 @@ export function updateDoor3(dt) {
       intro.bobY = 0;
       intro.roll = 0;
       R.elapsed = R.timer.elapsed;
-      endRound('逃脫成功');
+      endRound(D3.escape.clutch ? '極限逃脫' : '逃脫成功');
     }
   } else if (D3.phase === 'complete') {
     setCameraFov(BASE_FOV);
   }
 
-  updateDoor3Threat();
+  updateDoor3Pursuit(dt);
+  updateDoor3Threat(dt);
   updateDoor3Puzzle(dt);
   if (pumpHub.visible) updatePumpHub(dt);
 }
