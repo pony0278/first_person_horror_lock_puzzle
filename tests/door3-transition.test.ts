@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   DOOR3_APPROACH,
+  DOOR3_ESCAPE,
   DOOR3_OPERATOR,
   door3ApproachProgress,
   door3ApproachX,
   door3ApproachYaw,
   door3ApproachZ,
+  door3EscapeCrossed,
+  door3EscapeLocalZ,
+  door3EscapeProgress,
+  door3EscapeX,
+  door3EscapeZ,
   door3OperatorProgress,
 } from '../src/logic/door3-transition';
 
@@ -81,5 +87,44 @@ describe('Door 2 to Door 3 crossroads hold and console approach v4', () => {
     expect(door3ApproachZ(0, -19.62, -1)).toBe(0);
     expect(door3ApproachZ(0, -19.62, 99)).toBe(-19.62 + DOOR3_OPERATOR.z);
     expect(door3ApproachX(99)).toBe(DOOR3_OPERATOR.x);
+  });
+});
+
+describe('Door 3 physical escape completion path', () => {
+  it('runs through the flood gate before a two-to-three-second release beat', () => {
+    expect(DOOR3_ESCAPE.runSec).toBeGreaterThanOrEqual(1.8);
+    expect(DOOR3_ESCAPE.runSec).toBeLessThanOrEqual(2.5);
+    expect(DOOR3_ESCAPE.breatheSec).toBeGreaterThanOrEqual(2);
+    expect(DOOR3_ESCAPE.breatheSec).toBeLessThanOrEqual(3);
+    expect(DOOR3_ESCAPE.endZ).toBeLessThan(DOOR3_ESCAPE.gateZ - 2);
+  });
+
+  it('starts at the operator, aligns to the door, and ends beyond the threshold', () => {
+    expect(door3EscapeX(0)).toBe(DOOR3_OPERATOR.x);
+    expect(door3EscapeLocalZ(0)).toBe(DOOR3_OPERATOR.z);
+    expect(door3EscapeZ(-19.62, 0)).toBe(-19.62 + DOOR3_OPERATOR.z);
+
+    expect(door3EscapeX(DOOR3_ESCAPE.alignSec)).toBeCloseTo(0, 6);
+    expect(door3EscapeX(DOOR3_ESCAPE.runSec)).toBeCloseTo(0, 6);
+    expect(door3EscapeLocalZ(DOOR3_ESCAPE.runSec)).toBe(DOOR3_ESCAPE.endZ);
+    expect(door3EscapeCrossed(DOOR3_ESCAPE.runSec)).toBe(true);
+  });
+
+  it('never reverses and is centred before it crosses the physical gate', () => {
+    const samples = Array.from({ length: 216 }, (_, i) => i * 0.01);
+    const positions = samples.map(door3EscapeLocalZ);
+    expect(positions.every((value, i) => i === 0 || value <= positions[i - 1]!)).toBe(true);
+
+    const crossing = samples.find(door3EscapeCrossed);
+    expect(crossing).toBeDefined();
+    expect(Math.abs(door3EscapeX(crossing!))).toBeLessThan(0.01);
+  });
+
+  it('clamps negative and delayed frames safely', () => {
+    expect(door3EscapeProgress(-1)).toBe(0);
+    expect(door3EscapeProgress(99)).toBe(1);
+    expect(door3EscapeX(-1)).toBe(DOOR3_OPERATOR.x);
+    expect(door3EscapeLocalZ(-1)).toBe(DOOR3_OPERATOR.z);
+    expect(door3EscapeLocalZ(99)).toBe(DOOR3_ESCAPE.endZ);
   });
 });

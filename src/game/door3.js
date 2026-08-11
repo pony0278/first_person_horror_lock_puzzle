@@ -12,8 +12,9 @@ import {
   pumpPuzzleSolved, pumpVolumeTotal, transferPumpVolume,
 } from '../logic/pump-console.js';
 import {
-  DOOR3_APPROACH, door3ApproachX, door3ApproachYaw, door3ApproachZ,
-  door3OperatorProgress,
+  DOOR3_APPROACH, DOOR3_ESCAPE, door3ApproachX, door3ApproachYaw,
+  door3ApproachZ, door3EscapeCrossed, door3EscapeProgress, door3EscapeX,
+  door3EscapeZ, door3OperatorProgress,
 } from '../logic/door3-transition.js';
 import { $fade, $panel, $turnCue } from '../dom.js';
 import { R, ST, anim, hooks, intro, look } from '../state.js';
@@ -32,6 +33,7 @@ import {
 } from '../render/wetglass.js';
 import { resize, setCameraFov, setRenderPixelRatioCap } from '../render/viewport.js';
 import { beep, pipeBurstSound, pumpTransferSound, wetStep } from './audio.js';
+import { endRound } from './round.js';
 import { T } from './transit.js';
 
 const OPEN_RAD = 1.92;
@@ -54,6 +56,7 @@ export const D3 = {
   stepT: 0,
   previousLightVisibility: null,
   fx: { clock: 0, shake: 0, burstDelay: -1 },
+  escape: { progress: 0, crossed: false, complete: false },
   pump: {
     volumes: [...PUMP_CONSOLE.initialVolumes],
     levels: [...PUMP_CONSOLE.initialLevels],
@@ -119,6 +122,9 @@ function resetDoor3Pump() {
   D3.fx.clock = 0;
   D3.fx.shake = 0;
   D3.fx.burstDelay = -1;
+  D3.escape.progress = 0;
+  D3.escape.crossed = false;
+  D3.escape.complete = false;
   resetWetGlass();
   resetPumpHubEffects();
   syncDoor3PumpVisuals();
@@ -244,6 +250,14 @@ export function door3PumpSnapshot() {
     severeErrors: D3.pump.severeErrors,
     threatAdvances: D3.pump.threatAdvances,
     burstTriggered: D3.pump.burstTriggered,
+    escape: {
+      progress: +D3.escape.progress.toFixed(2),
+      crossed: D3.escape.crossed,
+      complete: D3.escape.complete,
+      gateZ: DOOR3_ESCAPE.gateZ,
+      endZ: DOOR3_ESCAPE.endZ,
+      breatheSec: DOOR3_ESCAPE.breatheSec,
+    },
     // Kept as a compatibility field for the existing browser scenario.
     waterLensOpacity: wetGlass.amount,
     wetGlass,
@@ -607,14 +621,64 @@ export function updateDoor3(dt) {
     D3.pump.doorOpenRatio = Math.min(1, D3.t / 2.70);
     syncDoor3PumpVisuals();
     if (D3.pump.doorOpenRatio >= 1) {
-      D3.phase = 'complete';
+      D3.phase = 'escape';
       D3.t = 0;
       D3.pump.complete = true;
-      $turnCue.textContent = '防洪門已開　·　立即通過';
+      D3.escape.progress = 0;
+      D3.stepT = 0;
+      intro.active = true;
+      intro.phase = 'run';
+      intro.bobY = 0;
+      intro.roll = 0;
+      intro.bobPhase = 0;
+      anim.handsOverride = null;
+      look.yaw = 0;
+      look.target = 0;
+      look.holding = false;
+      $turnCue.textContent = '防洪門已開　·　向前衝';
       beep('solved');
     }
+  } else if (D3.phase === 'escape') {
+    D3.escape.progress = door3EscapeProgress(D3.t);
+    D3.escape.crossed ||= door3EscapeCrossed(D3.t);
+    intro.x = door3EscapeX(D3.t);
+    intro.z = door3EscapeZ(PUMP_HUB.centerWorldZ, D3.t);
+    look.yaw = 0;
+    look.target = 0;
+    bobRun(dt, 0.96);
+    D3.stepT += dt;
+    while (D3.stepT >= STEP_SEC) {
+      D3.stepT -= STEP_SEC;
+      wetStep(0.92);
+    }
+    const sprint = ease(Math.min(1, D3.t / 0.42));
+    setCameraFov(exploreFov() + (SPRINT_FOV - exploreFov()) * sprint);
+    if (D3.t >= DOOR3_ESCAPE.runSec) {
+      D3.phase = 'breathe';
+      D3.t = 0;
+      D3.escape.progress = 1;
+      D3.escape.crossed = true;
+      intro.x = 0;
+      intro.z = PUMP_HUB.centerWorldZ + DOOR3_ESCAPE.endZ;
+      $turnCue.textContent = '';
+    }
+  } else if (D3.phase === 'breathe') {
+    const settle = Math.max(0, 1 - D3.t / 0.65);
+    intro.bobY *= settle;
+    intro.roll *= settle;
+    setCameraFov(BASE_FOV + (SPRINT_FOV - BASE_FOV) * settle);
+    if (D3.t >= DOOR3_ESCAPE.breatheSec) {
+      D3.phase = 'complete';
+      D3.t = 0;
+      D3.escape.complete = true;
+      intro.active = false;
+      intro.bobY = 0;
+      intro.roll = 0;
+      R.elapsed = R.timer.elapsed;
+      endRound('逃脫成功');
+    }
   } else if (D3.phase === 'complete') {
-    setCameraFov(exploreFov());
+    setCameraFov(BASE_FOV);
   }
 
   updateDoor3Puzzle(dt);

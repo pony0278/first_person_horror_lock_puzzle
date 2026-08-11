@@ -233,6 +233,33 @@ function door3SightlineProbe() {
   };
 }
 
+/** The raised flood leaf must reveal a real corridor, not the old backing slab. */
+function door3EscapePassageProbe() {
+  scene.updateMatrixWorld(true);
+  door3RayOrigin.set(0, 1.35, PUMP_HUB.frontDoorZ + 0.65);
+  pumpHub.localToWorld(door3RayOrigin);
+  door3Anchors.escape.getWorldPosition(door3RayTarget);
+  door3RayDirection.subVectors(door3RayTarget, door3RayOrigin);
+  const targetDistance = door3RayDirection.length();
+  door3Raycaster.set(door3RayOrigin, door3RayDirection.normalize());
+  door3Raycaster.near = 0.08;
+  door3Raycaster.far = Math.max(0.08, targetDistance - 0.30);
+  const blocker = door3Raycaster.intersectObjects(scene.children, true).find(hit => {
+    const object = hit.object;
+    const materialVisible = Array.isArray(object.material)
+      ? object.material.some(material => material.visible)
+      : object.material?.visible !== false;
+    return object.isMesh && materialVisible && visibleInHierarchy(object) &&
+      !hasAncestor(object, camera) && !object.userData.sightlineIgnore;
+  });
+  return {
+    clear: !blocker,
+    blocker: blocker ? blockerName(blocker.object) : '',
+    blockerDistance: blocker ? +blocker.distance.toFixed(2) : null,
+    targetDistance: +targetDistance.toFixed(2),
+  };
+}
+
 function door3PerformanceProbe() {
   let pointLights = 0;
   let transparentSurfaces = 0;
@@ -345,6 +372,7 @@ window.__door3 = () => ({
   anchors: Object.fromEntries(Object.entries(door3Anchors)
     .map(([name, anchor]) => [name, door3AnchorProbe(anchor)])),
   sightline: door3SightlineProbe(),
+  escapePassage: door3EscapePassageProbe(),
   performance: door3PerformanceProbe(),
 });
 window.__startDoor3 = () => Boolean(hooks.startDoor3?.());
