@@ -1,7 +1,5 @@
-/* Door 3 greybox: a flooded underground pump-hub intersection.
- *
- * This pass validates space, sightlines, and environmental language only.
- * The three-tank pressure puzzle and three-way monster chase stay inactive.
+/* Door 3 flooded underground pump-hub intersection, including its three-tank
+ * console, directional threat language, shared monster, and flood-gate escape.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -516,6 +514,7 @@ const pumpThreatState = {
   cueProgress: 0,
   presence: 0,
   monsterVisible: false,
+  blackout: 0,
   leftRippleStrength: 0,
   rightDarkLamps: 0,
   rearChainSway: 0,
@@ -528,6 +527,7 @@ export function setPumpHubThreatState({
   cueProgress = 0,
   presence = 0,
   monsterVisible = false,
+  blackout = 0,
 } = {}) {
   pumpThreatState.active = Boolean(active);
   pumpThreatState.direction = ['left', 'right', 'rear'].includes(direction)
@@ -536,6 +536,7 @@ export function setPumpHubThreatState({
   pumpThreatState.cueProgress = clamp01(Number(cueProgress) || 0);
   pumpThreatState.presence = clamp01(Number(presence) || 0);
   pumpThreatState.monsterVisible = Boolean(monsterVisible);
+  pumpThreatState.blackout = clamp01(Number(blackout) || 0);
 }
 
 function writeThreatChains(amplitude) {
@@ -557,6 +558,7 @@ export function resetPumpHubThreat() {
     cueProgress: 0,
     presence: 0,
     monsterVisible: false,
+    blackout: 0,
     leftRippleStrength: 0,
     rightDarkLamps: 0,
     rearChainSway: 0,
@@ -941,6 +943,7 @@ export function pumpHubEffectSnapshot() {
       cueProgress: +pumpThreatState.cueProgress.toFixed(2),
       presence: +pumpThreatState.presence.toFixed(2),
       monsterVisible: pumpThreatState.monsterVisible,
+      blackout: +pumpThreatState.blackout.toFixed(2),
       leftRippleStrength: +pumpThreatState.leftRippleStrength.toFixed(2),
       rightDarkLamps: pumpThreatState.rightDarkLamps,
       rearChainSway: +pumpThreatState.rearChainSway.toFixed(2),
@@ -1025,10 +1028,11 @@ export function updatePumpHub(dt) {
     ? pumpThreatState.presence : 0;
   const rearThreat = pumpThreatState.active && pumpThreatState.direction === 'rear'
     ? pumpThreatState.presence : 0;
+  const lightScale = 1 - pumpThreatState.blackout * 0.97;
 
-  leftLight.intensity = 1.05 +
+  leftLight.intensity = (1.05 +
     0.24 * Math.abs(Math.sin(hubTime * 7.1) * Math.sin(hubTime * 2.3)) +
-    leftThreat * 0.18;
+    leftThreat * 0.18) * lightScale;
 
   const rightDarkLamps = Math.min(rightThreatLampPositions.length,
     Math.floor(rightThreat * rightThreatLampPositions.length + 0.0001));
@@ -1037,22 +1041,22 @@ export function updatePumpHub(dt) {
     const dark = index < rightDarkLamps;
     const flicker = 0.78 + 0.22 * Math.abs(Math.sin(hubTime * (10.7 + index * 2.1)));
     signalLamps.setColorAt(rightThreatLampIndices[index], signalLampColor.setRGB(
-      (dark ? 0.012 : 0.44 * flicker),
-      (dark ? 0.018 : 0.60 * flicker),
-      (dark ? 0.024 : 0.72 * flicker),
+      (dark ? 0.012 : 0.44 * flicker) * lightScale,
+      (dark ? 0.018 : 0.60 * flicker) * lightScale,
+      (dark ? 0.024 : 0.72 * flicker) * lightScale,
     ));
   });
-  rightLight.intensity = (0.88 +
+  rightLight.intensity = ((0.88 +
     0.20 * Math.abs(Math.sin(hubTime * 11.7))) *
-    (1 - rightDarkLamps / rightThreatLampPositions.length * 0.84);
+    (1 - rightDarkLamps / rightThreatLampPositions.length * 0.84)) * lightScale;
 
   const rearPulse = 0.76 + 0.10 * Math.sin(hubTime * 1.7);
   const rearAlarm = 1 + rearThreat *
     (0.34 + 0.28 * Math.abs(Math.sin(hubTime * 9.2)));
   signalLamps.setColorAt(rearSignalLampIndex, signalLampColor.setRGB(
-    0.38 * rearPulse * rearAlarm,
-    0.15 * rearPulse * rearAlarm,
-    0.12 * rearPulse * rearAlarm,
+    0.38 * rearPulse * rearAlarm * lightScale,
+    0.15 * rearPulse * rearAlarm * lightScale,
+    0.12 * rearPulse * rearAlarm * lightScale,
   ));
   const rearChainSway = rearThreat *
     (0.10 + Math.max(0, pumpThreatState.stage) * 0.018);
@@ -1061,7 +1065,11 @@ export function updatePumpHub(dt) {
 
   const frontPulse = 0.82 +
     0.16 * Math.abs(Math.sin(hubTime * 8.9) * Math.sin(hubTime * 2.0));
-  matFrontTube.color.setRGB(0.40 * frontPulse, 0.52 * frontPulse, 0.53 * frontPulse);
+  matFrontTube.color.setRGB(
+    0.40 * frontPulse * lightScale,
+    0.52 * frontPulse * lightScale,
+    0.53 * frontPulse * lightScale,
+  );
   signalLamps.setColorAt(frontSignalLampIndex, signalLampColor.copy(matFrontTube.color));
   signalLamps.instanceColor.needsUpdate = true;
 
@@ -1096,6 +1104,12 @@ export function updatePumpHub(dt) {
 
     writeMouthParticles(burstT);
     writeImpactParticles(burstT);
+    const mouthBurstVisible = burstT < 0.82;
+    const impactBurstVisible = burstT < 1.20;
+    burstMouthSpray.visible = mouthBurstVisible;
+    mouthMist.visible = mouthBurstVisible;
+    burstImpactSplash.visible = impactBurstVisible;
+    impactMist.visible = impactBurstVisible;
     burstMouthSpray.material.opacity = burstPulse * 0.88;
     burstImpactSplash.material.opacity = Math.min(0.78, pressure * 0.72);
     mouthMist.material.opacity = burstPulse * 0.62;
@@ -1106,7 +1120,8 @@ export function updatePumpHub(dt) {
 
     burstRipples.forEach(ring => {
       const localT = burstT - ring.userData.delay;
-      if (localT < 0 || localT > 1.25) {
+      ring.visible = localT >= 0 && localT <= 1.25;
+      if (!ring.visible) {
         ring.material.opacity = 0;
         return;
       }

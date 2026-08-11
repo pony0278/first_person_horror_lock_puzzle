@@ -40,7 +40,7 @@ import './game/loop.js';
 
 import { CFG } from './logic/config.js';
 import { DOOR3_PERFORMANCE, drawingBufferPixelBudget } from './logic/door3-performance.js';
-import { DOOR3_THREAT_LIMIT_SEC } from './logic/door3-threat.js';
+import { DOOR3_THREAT_LIMIT_SEC, door3ThreatAt } from './logic/door3-threat.js';
 import { $pins } from './dom.js';
 import { R, ST, hooks, intro, look } from './state.js';
 import { DOOR_Z, camera, renderer, scene, vestibule } from './render/scene.js';
@@ -400,10 +400,21 @@ window.__door3Look = yaw => {
 };
 window.__setDoor3ThreatElapsed = seconds => {
   if (!D3.active || D3.phase !== 'explore') return false;
-  R.timer.setElapsed(Math.max(0, Math.min(
+  const effectiveElapsed = Math.max(0, Math.min(
     DOOR3_THREAT_LIMIT_SEC + 1,
     Number(seconds) || 0,
-  )));
+  ));
+  // F2.4 gaze restraint offsets the hidden timeline. Debug checkpoints name
+  // effective threat time, so preserve that contract after any earlier stare.
+  R.timer.setElapsed(effectiveElapsed + D3.threat.timelineOffset);
+  D3.threat.lastRawElapsed = R.timer.elapsed;
+  Object.assign(D3.threat, door3ThreatAt(effectiveElapsed), {
+    announcedStage: door3ThreatAt(effectiveElapsed).stage,
+    stageGazeHold: 0,
+    gazeAligned: false,
+    gazeExhausted: false,
+    blackout: 0,
+  });
   return true;
 };
 
