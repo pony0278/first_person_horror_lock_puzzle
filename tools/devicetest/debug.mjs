@@ -116,6 +116,42 @@ check('Console checkpoint starts the post-pause walk toward the centred operator
   Math.abs(door3Console.door3.operator.yaw) <= 0.1,
   JSON.stringify(door3Console));
 
+await page.locator('#dbgDoor3Operator').click();
+await page.waitForFunction(() => window.__debugLab?.().sequence === 'door3' &&
+  window.__door3?.().phase === 'explore');
+let door3Fx = await page.evaluate(() => ({ lab: window.__debugLab(), door3: window.__door3() }));
+check('Door 3 operator button loads the legal centred interaction checkpoint',
+  door3Fx.lab.sequence === 'door3' && door3Fx.lab.stage === 'explore' &&
+  door3Fx.door3.phase === 'explore' && door3Fx.door3.distanceToOperator <= 0.03 &&
+  Math.abs(door3Fx.door3.yaw) <= 0.1,
+  JSON.stringify(door3Fx));
+
+await page.locator('button.dbgDoor3Phase[data-time="0.60"]').click();
+door3Fx = await page.evaluate(() => ({ lab: window.__debugLab(), door3: window.__door3() }));
+check('Door 3 surge preset seeks and freezes both world water and wet vision',
+  door3Fx.lab.paused && door3Fx.door3.console.effects.phase === 'surge' &&
+  Math.abs(door3Fx.door3.console.effects.burstT - 0.6) <= 0.02 &&
+  Math.abs(door3Fx.door3.console.wetGlass.time - 0.6) <= 0.02 &&
+  door3Fx.door3.console.wetGlass.amount > 0,
+  JSON.stringify({ lab: door3Fx.lab, console: door3Fx.door3.console }));
+await page.locator('#dbgDoor3Fx').scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${OUT}/debug-door3-fx-lab.png` });
+
+await page.locator('#dbgDoor3Rear').click();
+door3Fx = await page.evaluate(() => ({ lab: window.__debugLab(), door3: window.__door3() }));
+check('Frozen Door 3 FX still permits rear-pipe inspection',
+  Math.abs(Math.abs(door3Fx.door3.yaw) - 180) <= 0.1,
+  `yaw=${door3Fx.door3.yaw}`);
+
+await page.locator('#dbgDoor3Reset').click();
+await page.locator('#dbgDoor3Wet').click();
+await page.waitForTimeout(180);
+door3Fx = await page.evaluate(() => ({ lab: window.__debugLab(), door3: window.__door3() }));
+check('Wet-vision shortcut runs without the pipe-burst geometry',
+  !door3Fx.door3.console.effects.pipeBurst && door3Fx.door3.console.wetGlass.active &&
+  door3Fx.door3.console.wetGlass.amount > 0,
+  JSON.stringify(door3Fx.door3.console));
+
 check('Debug mode produces no browser exceptions', errors.length === 0,
   errors.slice(0, 3).join(' | ') || 'none');
 console.log(`\n=== FAIL ${failures} ===`);

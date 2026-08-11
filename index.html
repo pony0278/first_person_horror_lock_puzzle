@@ -175,6 +175,8 @@
   #debugLab .dbgButtons { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:5px; margin-top:6px; }
   #debugLab .dbgButtons.four { grid-template-columns:repeat(4, minmax(0, 1fr)); }
   #debugLab .dbgButtons button { min-width:0; padding-left:3px; padding-right:3px; }
+  #debugLab .dbgButtons.three { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  #debugLab .dbgHint { margin:5px 0 0; color:#625d56; font-size:9px; line-height:1.4; }
   #dbgStatus { display:block; min-height:66px; white-space:pre-wrap; color:#889890;
     background:#080a0a; border:1px solid #222827; border-radius:3px; padding:6px;
     user-select:text; }
@@ -275,6 +277,28 @@
         <button id="dbgCopy" type="button">複製測試網址</button>
       </div>
       <div id="dbgLink"></div>
+    </section>
+    <section id="dbgDoor3Fx">
+      <h4>Door 3 Operator / FX</h4>
+      <div class="dbgButtons">
+        <button id="dbgDoor3Operator" type="button">進入操作位</button>
+        <button id="dbgDoor3Replay" type="button">↻ 重播爆管</button>
+        <button id="dbgDoor3Wet" type="button">只播濕視野</button>
+        <button id="dbgDoor3Reset" type="button">重置特效</button>
+      </div>
+      <div class="dbgButtons three">
+        <button class="dbgDoor3Phase" data-time="0.10" type="button">爆裂 .10s</button>
+        <button class="dbgDoor3Phase" data-time="0.60" type="button">高壓 .60s</button>
+        <button class="dbgDoor3Phase" data-time="2.20" type="button">細漏 2.20s</button>
+      </div>
+      <label>定格秒數<input id="dbgDoor3Time" type="number" min="0" max="4" step="0.05" value="0.60"></label>
+      <div class="dbgButtons">
+        <button id="dbgDoor3Seek" type="button">定格到此秒</button>
+        <button id="dbgDoor3Rear" type="button">看後方破管</button>
+        <button id="dbgDoor3Front" type="button">回工作檯</button>
+        <button id="dbgDoor3Resume" type="button">▶ 繼續播放</button>
+      </div>
+      <p class="dbgHint">定格會暫停時間；視角仍可拖曳。按「繼續播放」由該幀接著播放。</p>
     </section>
     <output id="dbgStatus"></output>
   </div>
