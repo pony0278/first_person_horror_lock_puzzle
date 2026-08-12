@@ -72,7 +72,7 @@ export function door3FinaleFaceProgress(elapsedSec: number): number {
 export function door3FinaleBlackoutLampCount(elapsedSec: number): number {
   if (!Number.isFinite(elapsedSec) || elapsedSec < DOOR3_FINALE.blackoutLeadSec) return 0;
   const count = 1 + Math.floor(
-    (elapsedSec - DOOR3_FINALE.blackoutLeadSec) / DOOR3_FINALE.blackoutStepSec,
+    (elapsedSec - DOOR3_FINALE.blackoutLeadSec) / DOOR3_FINALE.blackoutStepSec + 1e-9,
   );
   return Math.max(0, Math.min(DOOR3_FINALE.blackoutLampCount, count));
 }
@@ -98,5 +98,6 @@ export function door3FinaleSecondRunProgress(elapsedSec: number): number {
 
 /** Negative local-Z offset from the first safe-side stop point. */
 export function door3FinaleSecondRunOffset(elapsedSec: number): number {
-  return -DOOR3_FINALE.secondRunDistance * door3FinaleSecondRunProgress(elapsedSec);
+  const progress = door3FinaleSecondRunProgress(elapsedSec);
+  return progress <= 0 ? 0 : -DOOR3_FINALE.secondRunDistance * progress;
 }
