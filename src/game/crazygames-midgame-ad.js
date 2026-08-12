@@ -27,11 +27,15 @@ export function createCrazyGamesMidgameRestartFlow({
   let pending = false;
   let adStarted = false;
   let lastResult = { status: 'idle', error: null };
+  let requestCount = 0;
+  let restartCount = 0;
 
   const snapshot = () => ({
     pending,
     adStarted,
     lastResult,
+    requestCount,
+    restartCount,
     audio: audioGate.snapshot?.() ?? null,
   });
 
@@ -45,10 +49,16 @@ export function createCrazyGamesMidgameRestartFlow({
     return true;
   }
 
+  function restartOnce(restart) {
+    restartCount++;
+    restart?.();
+  }
+
   function requestAndRestart(restart) {
     if (pendingPromise) return pendingPromise;
 
     const token = ++generation;
+    requestCount++;
     pending = true;
     adStarted = false;
 
@@ -74,7 +84,7 @@ export function createCrazyGamesMidgameRestartFlow({
         lastResult = result;
         pending = false;
         adStarted = false;
-        restart?.();
+        restartOnce(restart);
         return result;
       } catch (error) {
         audioGate.resume();
@@ -89,7 +99,7 @@ export function createCrazyGamesMidgameRestartFlow({
         lastResult = normalized;
         pending = false;
         adStarted = false;
-        restart?.();
+        restartOnce(restart);
         return normalized;
       } finally {
         // A second request cannot start while pendingPromise is non-null, so the
