@@ -16,14 +16,42 @@ export interface Door3EscalationVisual {
   leak: number;
   benchTremor: number;
   warningLight: number;
+  wallContamination: number;
+  floorContamination: number;
+  pipeContamination: number;
 }
 
+/**
+ * F2.4.1 keeps the first pipe rupture recognisably water, then lets the same
+ * red seep language from Doors 1/2 invade Door 3 in increasingly undeniable
+ * layers. Every value is monotonic: the pump room never cleans itself up.
+ */
 export const DOOR3_ESCALATION_VISUALS = Object.freeze([
-  { branchShade: 0.00, puddle: 0.00, leak: 0.00, benchTremor: 0.00, warningLight: 0.00 },
-  { branchShade: 0.08, puddle: 0.12, leak: 0.18, benchTremor: 0.06, warningLight: 0.12 },
-  { branchShade: 0.16, puddle: 0.30, leak: 0.38, benchTremor: 0.16, warningLight: 0.28 },
-  { branchShade: 0.25, puddle: 0.52, leak: 0.66, benchTremor: 0.34, warningLight: 0.52 },
-  { branchShade: 0.36, puddle: 0.78, leak: 0.92, benchTremor: 0.62, warningLight: 0.82 },
+  {
+    branchShade: 0.00, puddle: 0.00, leak: 0.00, benchTremor: 0.00,
+    warningLight: 0.00, wallContamination: 0.00, floorContamination: 0.00,
+    pipeContamination: 0.00,
+  },
+  {
+    branchShade: 0.08, puddle: 0.12, leak: 0.18, benchTremor: 0.06,
+    warningLight: 0.12, wallContamination: 0.18, floorContamination: 0.04,
+    pipeContamination: 0.00,
+  },
+  {
+    branchShade: 0.16, puddle: 0.30, leak: 0.38, benchTremor: 0.16,
+    warningLight: 0.28, wallContamination: 0.40, floorContamination: 0.24,
+    pipeContamination: 0.10,
+  },
+  {
+    branchShade: 0.25, puddle: 0.52, leak: 0.66, benchTremor: 0.34,
+    warningLight: 0.52, wallContamination: 0.70, floorContamination: 0.58,
+    pipeContamination: 0.48,
+  },
+  {
+    branchShade: 0.36, puddle: 0.78, leak: 0.92, benchTremor: 0.62,
+    warningLight: 0.82, wallContamination: 1.00, floorContamination: 0.90,
+    pipeContamination: 0.92,
+  },
 ] as const satisfies readonly Door3EscalationVisual[]);
 
 export const initialDoor3EscalationMemory = (): Door3EscalationMemory => ({
