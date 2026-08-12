@@ -9,6 +9,7 @@ import { pumpControlAtClient } from '../render/pumpconsole.js';
 import { beginDoor3ControlPress, hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
+import './door3-black-plane-cleanup.js';
 import { D3, operateDoor3Control } from './door3.js';
 import { startDoor3DedicatedEscapeRun } from './door3-escape-run.js';
 import { startDoor3EnvironmentalEscalation } from './door3-escalation.js';
