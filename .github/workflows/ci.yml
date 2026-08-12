@@ -14,9 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── 建置驗證：快路徑 ──────────────────────────────────────
-  # 型別、相依分層、單元測試都是純 Node，加起來兩秒且完全確定性。
-  # 整個 job 約一分鐘。
   verify:
     name: 建置驗證
     runs-on: ubuntu-latest
@@ -36,15 +33,8 @@ jobs:
       - name: 建置單檔
         run: npm run build
 
-      - name: 產物大小
-        run: |
-          BYTES=$(stat -c%s dist/index.html)
-          echo "dist/index.html = $BYTES bytes ($((BYTES/1024)) KB)"
-          # 設計文件 §2：初始下載 ≤ 20MB。5MB 當早期警戒線。
-          if [ "$BYTES" -gt 5242880 ]; then
-            echo "::error::產物超過 5MB，離 §2 的 20MB 上限已經不遠"
-            exit 1
-          fi
+      - name: CrazyGames 上架產物檢查
+        run: npm run cg:readiness
 
       - name: 上傳 Pages 產物
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -52,8 +42,6 @@ jobs:
         with:
           path: dist
 
-  # ── GitHub Pages：只允許 main 的 push 進入部署環境 ────────
-  # PR 只執行 verify，不會建立 github-pages deployment。
   deploy:
     name: 發布 GitHub Pages
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -66,7 +54,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # enablement: true 會在 Pages 尚未啟用時自動開啟並設成 GitHub Actions 來源。
       - name: 設定 Pages
         uses: actions/configure-pages@v5
         with:
