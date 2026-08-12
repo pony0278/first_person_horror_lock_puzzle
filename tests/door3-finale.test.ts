@@ -80,7 +80,7 @@ describe('Door 3 F2.5 / F2.5R false-safety finale', () => {
     expect(door3FinaleRunRevealYaw(faceFullAt)).toBeGreaterThan(120);
   });
 
-  it('starts the corridor blackout during the same moving reveal and finishes it before the run ends', () => {
+  it('fails the old gate-side lamps during the moving reveal, without delaying the run', () => {
     expect(door3FinaleRunBlackoutClock(DOOR3_FINALE.runBlackoutAtSec - 0.01)).toBe(0);
     expect(door3FinaleRunBlackoutClock(DOOR3_FINALE.runBlackoutAtSec + 0.20))
       .toBeCloseTo(0.20, 8);
@@ -100,7 +100,9 @@ describe('Door 3 F2.5 / F2.5R false-safety finale', () => {
     expect(door3FinaleBlackoutProgress(10)).toBe(1);
   });
 
-  it('runs the full second physical escape without a stationary face-hold phase', () => {
+  it('runs long enough for an endless corridor to register before the fall', () => {
+    expect(DOOR3_FINALE.secondRunSec).toBeGreaterThanOrEqual(5);
+    expect(DOOR3_FINALE.secondRunDistance).toBeGreaterThanOrEqual(16);
     expect(door3FinaleSecondRunProgress(0)).toBe(0);
     expect(door3FinaleSecondRunOffset(0)).toBe(0);
     const half = door3FinaleSecondRunOffset(DOOR3_FINALE.secondRunSec / 2);
@@ -111,7 +113,8 @@ describe('Door 3 F2.5 / F2.5R false-safety finale', () => {
       .toBe(-DOOR3_FINALE.secondRunDistance);
   });
 
-  it('reveals the contaminated slip hazard before the fall begins', () => {
+  it('reveals the contaminated slip hazard only near the end of the long sprint', () => {
+    expect(DOOR3_FINALE.slipRevealProgress).toBeGreaterThanOrEqual(0.8);
     expect(door3FinaleSlipProgress(0)).toBe(0);
     expect(door3FinaleSlipProgress(DOOR3_FINALE.slipRevealProgress)).toBe(0);
     expect(door3FinaleSlipProgress((1 + DOOR3_FINALE.slipRevealProgress) / 2))
@@ -133,23 +136,18 @@ describe('Door 3 F2.5 / F2.5R false-safety finale', () => {
     expect(DOOR3_FINALE.fallCameraDrop).toBeGreaterThan(0.9);
   });
 
-  it('turns the fallen view back while darkness closes the remaining gap', () => {
+  it('keeps the fallen view forward and never lets the threat close the gap before blackout', () => {
     expect(door3FinaleGroundLookYaw(0)).toBe(DOOR3_FINALE.fallTwistDeg);
-    expect(door3FinaleGroundLookYaw(DOOR3_FINALE.groundLookSec)).toBe(180);
+    expect(door3FinaleGroundLookYaw(DOOR3_FINALE.blackoutAtSec)).toBeLessThan(20);
     expect(door3FinaleGroundChaseProgress(0)).toBe(0);
-    expect(door3FinaleGroundChaseProgress(DOOR3_FINALE.groundChaseSec)).toBe(1);
+    expect(door3FinaleGroundChaseProgress(DOOR3_FINALE.blackoutAtSec)).toBeLessThan(0.01);
   });
 
-  it('flashes the near eyes briefly before the hard blackout', () => {
-    expect(door3FinaleEyeFlash(DOOR3_FINALE.eyeFlashAtSec)).toBe(0);
-    expect(door3FinaleEyeFlash(
-      DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec * 0.42,
-    )).toBeGreaterThan(0.95);
-    expect(door3FinaleEyeFlash(
-      DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec,
-    )).toBe(0);
-    expect(DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec)
-      .toBeLessThanOrEqual(DOOR3_FINALE.blackoutAtSec);
+  it('cuts to unconsciousness without the old near-eye jumpscare', () => {
+    expect(DOOR3_FINALE.eyeFlashAtSec).toBeGreaterThan(DOOR3_FINALE.blackoutAtSec);
+    expect(door3FinaleEyeFlash(0)).toBe(0);
+    expect(door3FinaleEyeFlash(DOOR3_FINALE.blackoutAtSec - 0.01)).toBe(0);
+    expect(door3FinaleEyeFlash(DOOR3_FINALE.blackoutAtSec)).toBe(0);
     expect(door3FinaleBlackoutReady(DOOR3_FINALE.blackoutAtSec - 0.01)).toBe(false);
     expect(door3FinaleBlackoutReady(DOOR3_FINALE.blackoutAtSec)).toBe(true);
   });
