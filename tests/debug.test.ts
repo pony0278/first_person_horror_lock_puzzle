@@ -64,9 +64,18 @@ describe('Developer Debug Lab URL contract', () => {
     expect(stages.slice(-3)).toEqual(['cross', 'console', 'explore']);
   });
 
-  it('keeps a direct Door 3 operator checkpoint for FX inspection', () => {
-    expect(debugStages('door3')).toEqual(['explore']);
+  it('keeps direct Door 3 operator and solved checkpoints', () => {
+    expect(debugStages('door3')).toEqual(['explore', 'solved']);
     expect(parseDebugOptions('debug=1&sequence=door3&stage=explore').stage)
       .toBe('explore');
+    expect(parseDebugOptions('debug=1&sequence=door3&stage=solved').stage)
+      .toBe('solved');
+  });
+
+  it('round-trips the Door 3 solved checkpoint in a shareable URL', () => {
+    const solved = parseDebugOptions(
+      'debug=1&sequence=door3&stage=solved&speed=1&loop=0&seed=1842',
+    );
+    expect(parseDebugOptions(debugQuery(solved))).toEqual(solved);
   });
 });
