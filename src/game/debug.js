@@ -13,6 +13,7 @@ import { seededCircuit } from '../logic/circuit.js';
 import { $debugLab } from '../dom.js';
 import { R, ST, anim, hooks, look } from '../state.js';
 import { D2, setDoor2Answer, testDoor2, updateDoor2 } from './door2-circuit.js';
+import { solveDoor3DebugPuzzle } from './door3-debug.js';
 import {
   D3, door3PumpSnapshot, replayDoor3DebugEffects, resetDoor3DebugEffects,
   seekDoor3DebugEffects, updateDoor3,
@@ -42,6 +43,7 @@ const STAGE_LABELS = {
   success: '正解提交瞬間', unlocked: '電磁鎖解開', open: 'Door 2 開門',
   walk: '直線接近十字中心', cross: '十字中心／停留觀察',
   console: '走向工作檯正面', explore: '工作檯正面操作位',
+  solved: '解謎完成／總閘桿可拉',
 };
 
 const el = id => document.getElementById(id);
@@ -147,6 +149,18 @@ function prepareDoor2Door3(stage) {
     dt => updateDoor3(dt));
 }
 
+function prepareDoor3(stage) {
+  prepareDoor2Door3('explore');
+  if (stage === 'explore') return;
+  if (stage === 'solved') {
+    if (!solveDoor3DebugPuzzle()) {
+      throw new Error('Door 3 solved checkpoint could not complete the pump puzzle');
+    }
+    return;
+  }
+  throw new Error(`Unknown Door 3 debug stage: ${stage}`);
+}
+
 function applyThreatFreeze() {
   if (!DBG.enabled) return;
   if (DBG.threatFrozen) R.timer.pause(DEBUG_THREAT);
@@ -189,7 +203,7 @@ function loadScenario() {
     else if (DBG.sequence === 'door1-door2') seekDoor1Door2(DBG.stage);
     else if (DBG.sequence === 'door2') prepareDoor2(DBG.stage);
     else if (DBG.sequence === 'door2-door3') prepareDoor2Door3(DBG.stage);
-    else if (DBG.sequence === 'door3') prepareDoor2Door3('explore');
+    else if (DBG.sequence === 'door3') prepareDoor3(DBG.stage);
 
     applyThreatFreeze();
     applyPlayback();
@@ -480,6 +494,7 @@ export function initDebug() {
   window.__debugLoad = (sequence, stage) => jumpTo(sequence, stage);
   window.__debugDoor3Fx = (action, value) => {
     if (action === 'operator') return jumpTo('door3', 'explore');
+    if (action === 'solved') return jumpTo('door3', 'solved');
     if (action === 'replay') return replayDoor3Fx(false);
     if (action === 'wet') return replayDoor3Fx(true);
     if (action === 'reset') return resetDoor3Fx();
