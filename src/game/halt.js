@@ -6,6 +6,7 @@ import { renderPins } from '../render/cutaway.js';
 import { renderer } from '../render/scene.js';
 import { R } from '../state.js';
 import { unlockAudio } from './audio.js';
+import { crazyGamesGameplay } from './crazygames-lifecycle.js';
 import { resize } from '../render/viewport.js';
 
 /* ═══════════════════════════════════════════════════════════
@@ -26,6 +27,13 @@ export function setHalt(reason, on) {
   if (on) { halted.add(reason); R.timer.pause(reason); }
   else    { halted.delete(reason); R.timer.resume(reason); }
 
+  // CrazyGames handles tab / focus visibility itself. Only an actual WebGL
+  // rendering interruption is one of our own gameplay breaks.
+  if (reason === 'contextlost') {
+    if (on) crazyGamesGameplay.pause(reason);
+    else crazyGamesGameplay.resume(reason);
+  }
+
   // 只有 context 遺失需要蓋畫面 —— 那時 canvas 是全黑的，不講一聲玩家不知道發生什麼事
   const msg = [...halted].map(r => HALT_MSG[r]).filter(Boolean)[0] ?? '';
   $halt.querySelector('p').textContent = msg;
@@ -37,8 +45,8 @@ export const interrupted = () => halted.size > 0;
 
 document.addEventListener('visibilitychange', () => {
   setHalt('hidden', document.hidden);
-  // iOS 切回前景後 AudioContext 仍是 suspended，先試著接回來；
-  // 失敗也沒關係，下一次觸控的 unlockAudio 會補上。
+  // CrazyGames explicitly tracks focus/visibility on its own; do not emit
+  // gameplayStop/gameplayStart here or the platform would double-count it.
   if (!document.hidden) unlockAudio();
 });
 
