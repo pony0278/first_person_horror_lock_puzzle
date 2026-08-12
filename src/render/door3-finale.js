@@ -1,4 +1,5 @@
-/* F2.5.1 / F2.5.2 — physical floodgate damage and black-face reveal.
+/* F2.5.1 / F2.5.2 / F2.5.3 — physical floodgate damage, black-face reveal,
+ * corridor blackout, and the extended second-escape passage.
  *
  * The face is procedural: a transparent CanvasTexture supplies overexposed eyes,
  * a too-wide grin, and RGB separation. It lives behind the real floodgate, so
@@ -99,7 +100,7 @@ const gateLeak = new THREE.Mesh(new THREE.CircleGeometry(1, 36), leakMaterial);
 gateLeak.name = 'door3-finale-red-gate-leak';
 gateLeak.rotation.x = -Math.PI / 2;
 gateLeak.scale.set(0.18, 0.55, 1);
-gateLeak.position.set(0.18, -1.185, -0.58);
+gateLeak.position.set(0.18, 0.025, -0.58);
 gateLeak.renderOrder = 5;
 finaleRig.add(gateLeak);
 
@@ -233,6 +234,89 @@ blackFace.visible = false;
 blackFace.renderOrder = 8;
 finaleRig.add(blackFace);
 
+/* F2.5.3 extends the old escape corridor instead of letting the camera run
+ * beyond authored geometry. floodDoor local z=0 is the gate; the original
+ * corridor ends around -7.05, so this continuation reaches -13.45. */
+const corridorExtension = new THREE.Group();
+corridorExtension.name = 'door3-finale-corridor-extension';
+finaleRig.add(corridorExtension);
+const corridorFloorMat = new THREE.MeshStandardMaterial({
+  color: 0x202629, roughness: 0.94, metalness: 0.04,
+});
+const corridorWallMat = new THREE.MeshStandardMaterial({
+  color: 0x292d2f, roughness: 0.90, metalness: 0.06,
+});
+const corridorMetalMat = new THREE.MeshStandardMaterial({
+  color: 0x353b3d, roughness: 0.72, metalness: 0.40,
+});
+const addCorridorBox = (material, sx, sy, sz, x, y, z, name) => {
+  const mesh = new THREE.Mesh(fragmentGeo, material);
+  mesh.name = name;
+  mesh.scale.set(sx, sy, sz);
+  mesh.position.set(x, y, z);
+  corridorExtension.add(mesh);
+  return mesh;
+};
+const corridorStartZ = -7.02;
+const corridorEndZ = -13.45;
+const corridorLength = Math.abs(corridorEndZ - corridorStartZ);
+const corridorCentreZ = (corridorStartZ + corridorEndZ) / 2;
+addCorridorBox(corridorFloorMat, 2.46, 0.08, corridorLength,
+  0, -0.04, corridorCentreZ, 'door3-finale-extension-floor');
+addCorridorBox(corridorWallMat, 0.14, 3.45, corridorLength,
+  -1.23, 1.725, corridorCentreZ, 'door3-finale-extension-left-wall');
+addCorridorBox(corridorWallMat, 0.14, 3.45, corridorLength,
+  1.23, 1.725, corridorCentreZ, 'door3-finale-extension-right-wall');
+addCorridorBox(corridorWallMat, 2.46, 0.10, corridorLength,
+  0, 3.50, corridorCentreZ, 'door3-finale-extension-ceiling');
+for (const [index, z] of [-7.35, -9.45, -11.55, -13.20].entries()) {
+  addCorridorBox(corridorMetalMat, 0.14, 3.40, 0.18,
+    -1.12, 1.70, z, `door3-finale-extension-rib-l-${index}`);
+  addCorridorBox(corridorMetalMat, 0.14, 3.40, 0.18,
+    1.12, 1.70, z, `door3-finale-extension-rib-r-${index}`);
+  addCorridorBox(corridorMetalMat, 2.24, 0.14, 0.18,
+    0, 3.29, z, `door3-finale-extension-rib-top-${index}`);
+}
+const farCapMat = new THREE.MeshBasicMaterial({ color: 0x020304, toneMapped: false });
+addCorridorBox(farCapMat, 2.34, 3.30, 0.03,
+  0, 1.65, corridorEndZ - 0.02, 'door3-finale-extension-dark-end');
+
+/* Seven visible ceiling lamps cross the existing corridor and the extension.
+ * They use emissive-looking unlit materials instead of seven PointLights, so
+ * the authored chase does not explode Door 3's light/draw budget. */
+const corridorLampZ = [-1.35, -3.15, -4.95, -6.75, -8.55, -10.35, -12.15];
+const corridorLamps = corridorLampZ.map((z, index) => {
+  const housing = addCorridorBox(corridorMetalMat, 0.72, 0.055, 0.18,
+    0, 3.30, z, `door3-finale-lamp-housing-${index + 1}`);
+  housing.userData.sightlineIgnore = true;
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xa8c9bd,
+    toneMapped: false,
+  });
+  const lamp = addCorridorBox(material, 0.52, 0.025, 0.11,
+    0, 3.235, z - 0.01, `door3-finale-lamp-${index + 1}`);
+  lamp.userData.sightlineIgnore = true;
+  return { lamp, material };
+});
+
+/* A physical darkness front advances with the lamp failures. The face rides
+ * just in front of it, so looking back reads as a creature inside approaching
+ * darkness rather than a flat full-screen overlay. */
+const darknessMaterial = new THREE.MeshBasicMaterial({
+  color: 0x000000,
+  transparent: true,
+  opacity: 0,
+  depthWrite: true,
+  side: THREE.DoubleSide,
+  toneMapped: false,
+});
+const darknessFront = new THREE.Mesh(new THREE.PlaneGeometry(2.36, 3.30), darknessMaterial);
+darknessFront.name = 'door3-finale-advancing-darkness';
+darknessFront.position.set(0, 1.65, 0.20);
+darknessFront.visible = false;
+darknessFront.renderOrder = 6;
+finaleRig.add(darknessFront);
+
 export function resetDoor3FinaleVisual() {
   doorLeaf.visible = true;
   dents.forEach(({ group, bulge, rim }) => {
@@ -255,20 +339,29 @@ export function resetDoor3FinaleVisual() {
   voidMaterial.opacity = 0;
   blackFace.visible = false;
   faceMaterial.opacity = 0;
-  blackFace.position.x = 0;
-  blackFace.position.y = 1.42;
+  blackFace.position.set(0, 1.42, 0.46);
   blackFace.scale.set(1, 1, 1);
+  darknessFront.visible = false;
+  darknessMaterial.opacity = 0;
+  darknessFront.position.z = 0.20;
+  corridorLamps.forEach(({ material }) => material.color.setHex(0xa8c9bd));
 }
 
 export function setDoor3FinaleVisual({
   impacts = 0,
   breakProgress = 0,
   faceProgress = 0,
+  blackoutLamps = 0,
+  blackoutProgress = 0,
+  chaseProgress = 0,
   time = 0,
 } = {}) {
   const damage = Math.max(0, Math.min(3, Math.trunc(impacts)));
   const broken = Math.max(0, Math.min(1, Number(breakProgress) || 0));
   const face = Math.max(0, Math.min(1, Number(faceProgress) || 0));
+  const lampCount = Math.max(0, Math.min(corridorLamps.length, Math.trunc(blackoutLamps)));
+  const blackout = Math.max(0, Math.min(1, Number(blackoutProgress) || 0));
+  const chase = Math.max(0, Math.min(1, Number(chaseProgress) || 0));
 
   dents.forEach(({ group, bulge, rim }, index) => {
     const active = damage > index;
@@ -306,10 +399,32 @@ export function setDoor3FinaleVisual({
   blackFace.visible = face > 0.015;
   const flicker = 0.82 + 0.18 * Math.abs(Math.sin(time * 13.7) * Math.sin(time * 3.1));
   faceMaterial.opacity = face * flicker;
-  const creep = 0.86 + face * 0.18;
+
+  corridorLamps.forEach(({ material }, index) => {
+    if (index < lampCount) {
+      material.color.setRGB(0.008, 0.010, 0.010);
+      return;
+    }
+    const next = index === lampCount && blackout > 0;
+    const unstable = next
+      ? 0.42 + 0.58 * Math.abs(Math.sin(time * 22.7) * Math.sin(time * 7.1))
+      : 0.90 + 0.10 * Math.abs(Math.sin(time * 2.7 + index));
+    material.color.setRGB(0.66 * unstable, 0.79 * unstable, 0.74 * unstable);
+  });
+
+  const initialChase = blackout * 0.28;
+  const darknessChase = Math.max(initialChase, chase);
+  darknessFront.visible = darknessChase > 0.015;
+  darknessMaterial.opacity = Math.min(0.96, 0.58 + darknessChase * 0.38);
+  darknessFront.position.z = 0.20 - darknessChase * 10.60;
+
+  const creep = 0.86 + face * 0.18 + darknessChase * 0.13;
   blackFace.scale.set(creep, creep, 1);
   blackFace.position.x = Math.sin(time * 31) * 0.012 * face;
   blackFace.position.y = 1.42 + Math.cos(time * 23) * 0.008 * face;
+  blackFace.position.z = darknessChase > 0.015
+    ? darknessFront.position.z - 0.055
+    : 0.46;
 }
 
 resetDoor3FinaleVisual();
