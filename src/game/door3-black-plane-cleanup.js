@@ -9,6 +9,7 @@
  * progressively dimmer lamps/materials, never by a wall the camera can cross.
  */
 import '../render/door3-finale.js';
+import '../render/door3-face-separation.js';
 import { startDoor3FragmentClearance } from '../render/door3-fragment-clearance.js';
 import { floodDoor, pumpHub } from '../render/pumphub.js';
 import { D3 } from './door3.js';
