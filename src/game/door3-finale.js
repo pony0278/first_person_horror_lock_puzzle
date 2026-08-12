@@ -6,17 +6,24 @@
  */
 import {
   DOOR3_FINALE,
+  door3FinaleBlackoutLampCount,
+  door3FinaleBlackoutProgress,
   door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
+  door3FinaleEscapeYaw,
   door3FinaleFaceProgress,
   door3FinaleGateOpenRatio,
   door3FinaleImpactCount,
+  door3FinaleSecondRunOffset,
+  door3FinaleSecondRunProgress,
 } from '../logic/door3-finale.js';
 import { $turnCue } from '../dom.js';
 import { R, intro, look } from '../state.js';
+import { camera } from '../render/scene.js';
 import { setPumpHubPuzzleState } from '../render/pumphub.js';
 import { resetDoor3FinaleVisual, setDoor3FinaleVisual } from '../render/door3-finale.js';
-import { actx, beep } from './audio.js';
+import { setCameraFov } from '../render/viewport.js';
+import { actx, beep, wetStep } from './audio.js';
 import { endRound } from './round.js';
 
 let started = false;
@@ -25,7 +32,11 @@ let crossedAt = null;
 let gateSlamPlayed = false;
 let lastImpactCount = 0;
 let rupturePlayed = false;
+let lastBlackoutLampCount = 0;
+let run2StartZ = null;
+let run2BaseFov = null;
 let completed = false;
+const SECOND_RUN_STEP_SEC = 0.31;
 
 function ensureFinaleState(state) {
   state.finale ??= {
@@ -34,6 +45,9 @@ function ensureFinaleState(state) {
     impactCount: 0,
     breakProgress: 0,
     faceProgress: 0,
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
   };
   return state.finale;
 }
@@ -43,6 +57,9 @@ function resetRuntime(state) {
   gateSlamPlayed = false;
   lastImpactCount = 0;
   rupturePlayed = false;
+  lastBlackoutLampCount = 0;
+  run2StartZ = null;
+  run2BaseFov = null;
   completed = false;
   resetDoor3FinaleVisual();
   if (state) Object.assign(ensureFinaleState(state), {
@@ -51,6 +68,9 @@ function resetRuntime(state) {
     impactCount: 0,
     breakProgress: 0,
     faceProgress: 0,
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
   });
 }
 
@@ -85,6 +105,25 @@ function gateBang(strength = 1) {
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.30);
   osc.connect(filter); filter.connect(gain); gain.connect(context.destination);
   osc.start(now); osc.stop(now + 0.32);
+}
+
+/** Short electrical death snap. Muted players still see the exact lamp go dark. */
+function blackoutSnap(index) {
+  const context = actx;
+  if (!context || context.state !== 'running') return;
+  const now = context.currentTime;
+  const osc = context.createOscillator();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  osc.type = index % 2 ? 'square' : 'sawtooth';
+  osc.frequency.setValueAtTime(Math.max(420, 1120 - index * 86), now);
+  osc.frequency.exponentialRampToValueAtTime(170, now + 0.075);
+  filter.type = 'bandpass';
+  filter.frequency.value = 1250;
+  gain.gain.setValueAtTime(0.036 + index * 0.002, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
+  osc.connect(filter); filter.connect(gain); gain.connect(context.destination);
+  osc.start(now); osc.stop(now + 0.11);
 }
 
 function beginCheckback(state) {
@@ -148,6 +187,9 @@ function updateCheckback(state) {
     impactCount: impacts,
     breakProgress,
     faceProgress: 0,
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
   });
   setDoor3FinaleVisual({ impacts, breakProgress, faceProgress: 0, time });
 
@@ -159,6 +201,30 @@ function updateCheckback(state) {
     look.target = 180;
     beep('face');
   }
+}
+
+function beginBlackout(state) {
+  state.phase = 'finale-blackout';
+  state.t = 0;
+  lastBlackoutLampCount = 0;
+  run2StartZ = intro.z;
+  run2BaseFov = camera.fov;
+  const finale = ensureFinaleState(state);
+  Object.assign(finale, {
+    phase: 'blackout',
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
+  });
+  look.holding = false;
+  look.yaw = 180;
+  look.target = 180;
+  intro.active = true;
+  intro.phase = 'run';
+  intro.bobY = 0;
+  intro.roll = 0;
+  state.stepT = 0;
+  $turnCue.textContent = '';
 }
 
 function updateFace(state) {
@@ -175,18 +241,157 @@ function updateFace(state) {
     impactCount: 3,
     breakProgress: 1,
     faceProgress,
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
   });
   setDoor3FinaleVisual({ impacts: 3, breakProgress: 1, faceProgress, time });
 
-  // Temporary bridge while F2.5.3 is not implemented yet. The next phase will
-  // replace this completion with corridor blackout + second escape.
-  if (time >= DOOR3_FINALE.faceHoldSec && !completed) {
+  if (time >= DOOR3_FINALE.faceHoldSec) beginBlackout(state);
+}
+
+function updateBlackout(state) {
+  const time = state.t;
+  const blackoutLamps = door3FinaleBlackoutLampCount(time);
+  const blackoutProgress = door3FinaleBlackoutProgress(time);
+  const yaw = door3FinaleEscapeYaw(time);
+
+  if (blackoutLamps > lastBlackoutLampCount) {
+    for (let lamp = lastBlackoutLampCount; lamp < blackoutLamps; lamp++) {
+      blackoutSnap(lamp);
+      state.fx.shake = Math.max(state.fx.shake, 0.10 + lamp * 0.025);
+    }
+    lastBlackoutLampCount = blackoutLamps;
+  }
+
+  look.yaw = yaw;
+  look.target = yaw;
+  intro.bobY = Math.sin(time * 2.2) * 0.004;
+  intro.roll = Math.sin(time * 1.7) * 0.10 * blackoutProgress;
+
+  Object.assign(ensureFinaleState(state), {
+    phase: 'blackout',
+    impactCount: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps,
+    blackoutProgress,
+    secondRunProgress: 0,
+  });
+  setDoor3FinaleVisual({
+    impacts: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps,
+    blackoutProgress,
+    chaseProgress: 0,
+    time,
+  });
+
+  if (time >= DOOR3_FINALE.secondRunStartSec) {
+    state.phase = 'finale-run2';
+    state.t = 0;
+    state.stepT = 0;
+    intro.bobPhase = 0;
+    look.yaw = 0;
+    look.target = 0;
+    ensureFinaleState(state).phase = 'run2';
+    beep('face');
+  }
+}
+
+function updateSecondRun(state, dt) {
+  const time = state.t;
+  const progress = door3FinaleSecondRunProgress(time);
+  const blackoutClock = DOOR3_FINALE.secondRunStartSec + time;
+  const blackoutLamps = door3FinaleBlackoutLampCount(blackoutClock);
+  const blackoutProgress = door3FinaleBlackoutProgress(blackoutClock);
+  const chaseProgress = 0.28 + progress * 0.72;
+
+  if (blackoutLamps > lastBlackoutLampCount) {
+    for (let lamp = lastBlackoutLampCount; lamp < blackoutLamps; lamp++) blackoutSnap(lamp);
+    lastBlackoutLampCount = blackoutLamps;
+  }
+
+  intro.active = true;
+  intro.phase = 'run';
+  intro.x = 0;
+  intro.z = (run2StartZ ?? intro.z) + door3FinaleSecondRunOffset(time);
+  intro.bobPhase += dt * 9.0;
+  intro.bobY = Math.sin(intro.bobPhase * 2) * 0.061;
+  intro.roll = Math.sin(intro.bobPhase) * 1.35;
+  look.yaw = 0;
+  look.target = 0;
+  look.holding = false;
+
+  state.stepT += dt;
+  while (state.stepT >= SECOND_RUN_STEP_SEC) {
+    state.stepT -= SECOND_RUN_STEP_SEC;
+    wetStep(1.18);
+  }
+  state.fx.shake = Math.max(state.fx.shake, 0.13 + blackoutProgress * 0.08);
+  if (run2BaseFov !== null) {
+    const sprintIn = Math.min(1, time / 0.34);
+    setCameraFov(run2BaseFov + 4.2 * sprintIn);
+  }
+
+  Object.assign(ensureFinaleState(state), {
+    phase: 'run2',
+    impactCount: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps,
+    blackoutProgress,
+    secondRunProgress: progress,
+  });
+  setDoor3FinaleVisual({
+    impacts: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps,
+    blackoutProgress,
+    chaseProgress,
+    time: blackoutClock,
+  });
+
+  if (progress >= 1) {
+    state.phase = 'finale-run2-settle';
+    state.t = 0;
+    ensureFinaleState(state).phase = 'run2-settle';
+    intro.bobY = 0;
+    intro.roll = 0;
+  }
+}
+
+function updateSecondRunSettle(state) {
+  const time = state.t;
+  const settle = Math.max(0, 1 - time / DOOR3_FINALE.secondRunSettleSec);
+  intro.bobY *= settle;
+  intro.roll *= settle;
+  look.yaw = 0;
+  look.target = 0;
+  if (run2BaseFov !== null) setCameraFov(run2BaseFov + 4.2 * settle);
+
+  setDoor3FinaleVisual({
+    impacts: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps: DOOR3_FINALE.blackoutLampCount,
+    blackoutProgress: 1,
+    chaseProgress: 1,
+    time: DOOR3_FINALE.secondRunStartSec + DOOR3_FINALE.secondRunSec + time,
+  });
+
+  // F2.5.4 will replace this release with the fall + final glimpse. For now the
+  // second escape remains a complete playable endpoint instead of dead-ending.
+  if (time >= DOOR3_FINALE.secondRunSettleSec && !completed) {
     completed = true;
     state.escape.complete = true;
-    ensureFinaleState(state).phase = 'temporary-complete';
+    ensureFinaleState(state).phase = 'temporary-post-run-complete';
     intro.active = false;
     intro.bobY = 0;
     intro.roll = 0;
+    if (run2BaseFov !== null) setCameraFov(run2BaseFov);
     R.elapsed = R.timer.elapsed;
     endRound(state.escape.clutch ? '極限逃脫' : '逃脫成功');
   }
@@ -209,13 +414,22 @@ function applyFrame(state) {
   else if (state.phase === 'breathe' && state.escape.crossed && !completed) beginCheckback(state);
   else if (state.phase === 'finale-checkback') updateCheckback(state);
   else if (state.phase === 'finale-face') updateFace(state);
+  else if (state.phase === 'finale-blackout') updateBlackout(state);
+  else if (state.phase === 'finale-run2') updateSecondRun(state, 1 / 60);
+  else if (state.phase === 'finale-run2-settle') updateSecondRunSettle(state);
 }
 
 export function startDoor3FalseSafetyFinale(getDoor3State) {
   if (started || typeof requestAnimationFrame !== 'function') return;
   started = true;
-  const frame = () => {
-    applyFrame(getDoor3State?.());
+  let previousAt = null;
+  const frame = frameAt => {
+    const now = Number.isFinite(frameAt) ? frameAt : performance.now();
+    const dt = previousAt === null ? 0 : Math.min(0.05, Math.max(0, (now - previousAt) / 1000));
+    previousAt = now;
+    const state = getDoor3State?.();
+    if (state?.phase === 'finale-run2') updateSecondRun(state, dt);
+    else applyFrame(state);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
