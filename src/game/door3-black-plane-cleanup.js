@@ -15,6 +15,7 @@ import { startDoor3LeafAssemblyLifecycle } from '../render/door3-leaf-lifecycle.
 import { startDoor3ThreatIsolation } from '../render/door3-threat-isolation.js';
 import { floodDoor, pumpHub } from '../render/pumphub.js';
 import { D3 } from './door3.js';
+import { startDoor3Level0NoclipFinale } from './door3-level0-finale.js';
 
 export const DOOR3_REMOVED_BLACK_OBJECTS = Object.freeze([
   'door3-escape-void',
@@ -48,3 +49,6 @@ removeDoor3LegacyBlackPlanes();
 startDoor3FragmentClearance(() => D3);
 startDoor3LeafAssemblyLifecycle(() => D3);
 startDoor3ThreatIsolation(() => D3);
+// Install after threat isolation so Level 0 can become the final camera-layer
+// override during the noclip cliffhanger.
+startDoor3Level0NoclipFinale(() => D3);
