@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   DOOR3_FINALE,
+  door3FinaleBlackoutLampCount,
+  door3FinaleBlackoutProgress,
   door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
+  door3FinaleEscapeYaw,
   door3FinaleFaceProgress,
   door3FinaleGateOpenRatio,
   door3FinaleImpactCount,
+  door3FinaleSecondRunOffset,
+  door3FinaleSecondRunProgress,
 } from '../src/logic/door3-finale';
 
 describe('Door 3 F2.5 false-safety finale', () => {
@@ -45,5 +50,40 @@ describe('Door 3 F2.5 false-safety finale', () => {
     expect(door3FinaleFaceProgress(DOOR3_FINALE.faceRevealSec / 2)).toBeGreaterThan(0);
     expect(door3FinaleFaceProgress(DOOR3_FINALE.faceRevealSec)).toBe(1);
     expect(DOOR3_FINALE.faceHoldSec).toBeGreaterThan(DOOR3_FINALE.faceRevealSec);
+  });
+
+  it('kills corridor lamps one-by-one from the broken gate toward the player', () => {
+    expect(door3FinaleBlackoutLampCount(0)).toBe(0);
+    expect(door3FinaleBlackoutLampCount(DOOR3_FINALE.blackoutLeadSec)).toBe(1);
+    expect(door3FinaleBlackoutLampCount(
+      DOOR3_FINALE.blackoutLeadSec + DOOR3_FINALE.blackoutStepSec * 2,
+    )).toBe(3);
+    expect(door3FinaleBlackoutLampCount(
+      DOOR3_FINALE.blackoutLeadSec +
+      DOOR3_FINALE.blackoutStepSec * (DOOR3_FINALE.blackoutLampCount - 1),
+    )).toBe(DOOR3_FINALE.blackoutLampCount);
+    expect(door3FinaleBlackoutProgress(0)).toBe(0);
+    expect(door3FinaleBlackoutProgress(10)).toBe(1);
+  });
+
+  it('turns away only after the blackout has already advanced', () => {
+    expect(door3FinaleEscapeYaw(0)).toBe(180);
+    expect(door3FinaleEscapeYaw(DOOR3_FINALE.escapeTurnStartSec)).toBe(180);
+    expect(door3FinaleBlackoutLampCount(DOOR3_FINALE.escapeTurnStartSec))
+      .toBeGreaterThanOrEqual(3);
+    expect(door3FinaleEscapeYaw(
+      DOOR3_FINALE.escapeTurnStartSec + DOOR3_FINALE.escapeTurnSec,
+    )).toBe(0);
+  });
+
+  it('runs a second physical escape for the full authored corridor distance', () => {
+    expect(door3FinaleSecondRunProgress(0)).toBe(0);
+    expect(door3FinaleSecondRunOffset(0)).toBe(0);
+    const half = door3FinaleSecondRunOffset(DOOR3_FINALE.secondRunSec / 2);
+    expect(half).toBeLessThan(0);
+    expect(half).toBeGreaterThan(-DOOR3_FINALE.secondRunDistance);
+    expect(door3FinaleSecondRunProgress(DOOR3_FINALE.secondRunSec)).toBe(1);
+    expect(door3FinaleSecondRunOffset(DOOR3_FINALE.secondRunSec))
+      .toBe(-DOOR3_FINALE.secondRunDistance);
   });
 });
