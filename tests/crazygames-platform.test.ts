@@ -13,6 +13,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
     });
     expect(platform.gameplayStart()).toBe(false);
     expect(platform.gameplayStop()).toBe(false);
+    expect(platform.gameSettings()).toBeNull();
     await expect(platform.requestAd('midgame')).resolves.toEqual({
       status: 'skipped', error: null,
     });
@@ -48,6 +49,32 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
     expect(gameplayStop).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes game settings and wraps settings change listeners', async () => {
+    let listener: ((settings: any) => void) | null = null;
+    const addSettingsChangeListener = vi.fn((fn: (settings: any) => void) => { listener = fn; });
+    const removeSettingsChangeListener = vi.fn();
+    const settings = { muteAudio: true, disableChat: false };
+    const platform = createCrazyGamesPlatform({
+      CrazyGames: { SDK: {
+        environment: 'crazygames',
+        init: vi.fn(async () => undefined),
+        game: { settings, addSettingsChangeListener, removeSettingsChangeListener },
+      } },
+    } as any);
+    await platform.init();
+
+    expect(platform.gameSettings()).toEqual({ muteAudio: true, disableChat: false });
+    const callback = vi.fn();
+    const unsubscribe = platform.subscribeGameSettings(callback);
+    expect(addSettingsChangeListener).toHaveBeenCalledTimes(1);
+
+    listener?.({ muteAudio: false, disableChat: true });
+    expect(callback).toHaveBeenCalledWith({ muteAudio: false, disableChat: true });
+    expect(unsubscribe()).toBe(true);
+    expect(removeSettingsChangeListener).toHaveBeenCalledTimes(1);
+    expect(unsubscribe()).toBe(false);
+  });
+
   it('keeps calls disabled when the SDK reports a disabled environment', async () => {
     const gameplayStart = vi.fn();
     const platform = createCrazyGamesPlatform({
@@ -62,6 +89,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
       initialized: true, available: true, enabled: false, environment: 'disabled',
     });
     expect(platform.gameplayStart()).toBe(false);
+    expect(platform.gameSettings()).toBeNull();
     expect(gameplayStart).not.toHaveBeenCalled();
   });
 
