@@ -20,7 +20,7 @@ function fakeAudioMute() {
 describe('CG4 CrazyGames audio lifecycle', () => {
   it('applies initial SDK muteAudio and follows settings changes', async () => {
     const audioMute = fakeAudioMute();
-    let listener: ((settings: any) => void) | null = null;
+    let listener: unknown = null;
     const unsubscribe = vi.fn(() => true);
     const platform = {
       gameSettings: vi.fn(() => ({ muteAudio: true, disableChat: false })),
@@ -42,7 +42,7 @@ describe('CG4 CrazyGames audio lifecycle', () => {
     );
     expect(lifecycle.snapshot().platformMuted).toBe(true);
 
-    listener?.({ muteAudio: false, disableChat: false });
+    (listener as (settings: any) => void)({ muteAudio: false, disableChat: false });
     expect(audioMute.setMuted).toHaveBeenLastCalledWith(
       CRAZYGAMES_AUDIO_REASONS.setting,
       false,
