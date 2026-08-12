@@ -102,7 +102,7 @@ export function door3MetalDisplacement(
   for (let index = 0; index < DOOR3_METAL_IMPACTS.length; index++) {
     const factor = door3MetalImpactFactor(impactAgesSec[index] ?? -1);
     if (factor <= 0) continue;
-    const impact = DOOR3_METAL_IMPACTS[index];
+    const impact = DOOR3_METAL_IMPACTS[index]!;
     displacement -= door3MetalProfile(x - impact.x, y - impact.y, impact, surface) * factor;
   }
   return displacement;
