@@ -5,37 +5,53 @@ const crazyGamesSdkV3 = {
   name: 'crazygames-sdk-v3',
   transformIndexHtml: {
     order: 'pre' as const,
-    handler() {
-      return [
-        {
-          tag: 'script',
-          attrs: { src: 'https://sdk.crazygames.com/crazygames-sdk-v3.js' },
-          injectTo: 'head-pre' as const,
-        },
-        {
-          tag: 'script',
-          attrs: { type: 'module', src: '/src/platform/crazygames-bootstrap.js' },
-          injectTo: 'head' as const,
-        },
-      ];
+    handler(html: string) {
+      const submissionHtml = html
+        .replace('<html lang="zh-Hant">', '<html lang="en">')
+        .replace('<title>F3 — 淹水泵房壓力轉液</title>', '<title>First Person Horror Lock Puzzle</title>')
+        .replace(
+          '<div id="turnCue">按住畫面 = 回頭　·　放開 = 轉回門鎖</div>',
+          '<div id="turnCue">HOLD VIEW = LOOK BACK · RELEASE = RETURN TO LOCK</div>',
+        )
+        .replace('<button id="dump">全部洩壓</button>', '<button id="dump">VENT ALL</button>');
+
+      return {
+        html: submissionHtml,
+        tags: [
+          {
+            tag: 'script',
+            attrs: { src: 'https://sdk.crazygames.com/crazygames-sdk-v3.js' },
+            injectTo: 'head-pre' as const,
+          },
+          {
+            tag: 'script',
+            attrs: { type: 'module', src: '/src/platform/crazygames-bootstrap.js' },
+            injectTo: 'head' as const,
+          },
+          {
+            tag: 'script',
+            attrs: { type: 'module', src: '/src/game/submission-bootstrap.js' },
+            injectTo: 'head' as const,
+          },
+        ],
+      };
     },
   },
 };
 
 /**
- * 建置成單一 HTML 檔。
+ * Build one self-contained game HTML file.
  *
- * 三個理由：
- * 1. 遊戲自己的 Three.js / 貼圖 / 程式資產全部自帶；唯一外部 script 是
- *    CrazyGames 官方 SDK v3，依平台整合規格在遊戲程式之前載入。
- * 2. 解決報告 H5 —— 原型的 importmap 指向 unpkg，離線或弱網直接白畫面。
- * 3. 實機測試可以把遊戲本體保持在單一 HTML 產物中。
+ * Three reasons:
+ * 1. Three.js, textures and game code stay bundled; the CrazyGames SDK is the
+ *    only platform-owned external script.
+ * 2. No importmap/CDN dependency is needed for the game itself.
+ * 3. CrazyGames submission QA can validate one deterministic upload artifact.
  */
 export default defineConfig({
   plugins: [crazyGamesSdkV3, viteSingleFile()],
   build: {
     target: 'es2022',
-    // three.js 是唯一的大型相依，全部內嵌
     assetsInlineLimit: 100_000_000,
     chunkSizeWarningLimit: 4000,
   },

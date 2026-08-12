@@ -26,6 +26,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run deps && npm run test",
-    "deps": "node tools/deps.mjs"
+    "deps": "node tools/deps.mjs",
+    "cg:readiness": "node tools/crazygames-readiness.mjs"
   }
 }
