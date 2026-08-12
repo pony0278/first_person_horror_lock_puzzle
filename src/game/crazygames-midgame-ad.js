@@ -6,41 +6,15 @@
  * the same restart path.
  *
  * This coordinator is intentionally independent from game/audio.js. Runtime code
- * injects an AudioContext gate; unit tests can inject a deterministic fake.
+ * injects the CG4 audio lifecycle gate; unit tests inject a deterministic fake.
  */
 import { crazyGamesPlatform } from '../platform/crazygames.js';
 import { crazyGamesReady } from '../platform/crazygames-bootstrap.js';
 
-export function createAudioAdGate(context) {
-  let suspendedByAd = false;
-
-  function suspend() {
-    const audio = context?.();
-    suspendedByAd = Boolean(
-      audio && audio.state === 'running' && typeof audio.suspend === 'function',
-    );
-    if (!suspendedByAd) return false;
-    audio.suspend().catch(() => { suspendedByAd = false; });
-    return true;
-  }
-
-  function resume() {
-    if (!suspendedByAd) return false;
-    suspendedByAd = false;
-    const audio = context?.();
-    if (!audio || audio.state !== 'suspended' || globalThis.document?.hidden ||
-        typeof audio.resume !== 'function') return false;
-    audio.resume().catch(() => {});
-    return true;
-  }
-
-  return { suspend, resume, snapshot: () => ({ suspendedByAd }) };
-}
-
 const NO_AUDIO_GATE = Object.freeze({
   suspend: () => false,
   resume: () => false,
-  snapshot: () => ({ suspendedByAd: false }),
+  snapshot: () => ({ muted: false, reasons: [] }),
 });
 
 export function createCrazyGamesMidgameRestartFlow({
@@ -67,8 +41,7 @@ export function createCrazyGamesMidgameRestartFlow({
     pending = false;
     adStarted = false;
     // Do not resume audio here. If an ad has already started, only its actual
-    // finished/error callback may restore audio; otherwise game audio could play
-    // over the advertisement.
+    // finished/error callback may release the ad mute reason.
     return true;
   }
 
@@ -94,7 +67,7 @@ export function createCrazyGamesMidgameRestartFlow({
         });
 
         // The adapter normally invokes one completion callback. Keep this
-        // idempotent fallback so future SDK behavior cannot leave audio suspended.
+        // idempotent fallback so future SDK behavior cannot leave the ad reason set.
         audioGate.resume();
 
         if (token !== generation) return { status: 'cancelled', error: null };
