@@ -13,6 +13,7 @@ import { monster } from '../render/monster.js';
 import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scene.js';
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { beep } from './audio.js';
+import { crazyGamesGameplay } from './crazygames-lifecycle.js';
 
 const ROUND_PAUSE = 'round';
 let restartTimer = null;
@@ -89,6 +90,10 @@ export function newRound() {
   pickTool.userData.insert = wrench.userData.insert = 0.12;
   pickTool.position.z = wrench.position.z = 0.12;
   $fade.classList.remove('on');
+
+  // CG2: the whole Door 1 → Door 2 → Door 3 chain is one continuous gameplay
+  // session. Start once the round is fully constructed and visually uncovered.
+  crazyGamesGameplay.beginSession();
 }
 
 /** 正式開場的結束狀態；自動化與 Debug checkpoint 共用，避免各自竄改 DOM。 */
@@ -175,6 +180,9 @@ export function failRound(msg) {
 }
 
 export function endRound(msg) {
+  // CG2: result / death / Level 0 cliffhanger is a real gameplay break. Door
+  // transitions deliberately do not call this function, so they remain one session.
+  crazyGamesGameplay.endSession();
   recordAttempt(msg);
   $fade.querySelector('div').textContent = msg;
   $fade.classList.add('on');
