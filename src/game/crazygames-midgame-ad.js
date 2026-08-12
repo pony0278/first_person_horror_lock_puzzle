@@ -4,16 +4,18 @@
  * frozen and covered before this flow begins, so an ad request can never advance
  * gameplay. Basic Launch / unfilled / adblock / cooldown errors all converge on
  * the same restart path.
+ *
+ * This coordinator is intentionally independent from game/audio.js. Runtime code
+ * injects an AudioContext gate; unit tests can inject a deterministic fake.
  */
 import { crazyGamesPlatform } from '../platform/crazygames.js';
 import { crazyGamesReady } from '../platform/crazygames-bootstrap.js';
-import { actx } from './audio.js';
 
-function createAudioAdGate(context = () => actx) {
+export function createAudioAdGate(context) {
   let suspendedByAd = false;
 
   function suspend() {
-    const audio = context();
+    const audio = context?.();
     suspendedByAd = Boolean(
       audio && audio.state === 'running' && typeof audio.suspend === 'function',
     );
@@ -25,7 +27,7 @@ function createAudioAdGate(context = () => actx) {
   function resume() {
     if (!suspendedByAd) return false;
     suspendedByAd = false;
-    const audio = context();
+    const audio = context?.();
     if (!audio || audio.state !== 'suspended' || globalThis.document?.hidden ||
         typeof audio.resume !== 'function') return false;
     audio.resume().catch(() => {});
@@ -35,10 +37,16 @@ function createAudioAdGate(context = () => actx) {
   return { suspend, resume, snapshot: () => ({ suspendedByAd }) };
 }
 
+const NO_AUDIO_GATE = Object.freeze({
+  suspend: () => false,
+  resume: () => false,
+  snapshot: () => ({ suspendedByAd: false }),
+});
+
 export function createCrazyGamesMidgameRestartFlow({
   ready = crazyGamesReady,
   platform = crazyGamesPlatform,
-  audioGate = createAudioAdGate(),
+  audioGate = NO_AUDIO_GATE,
 } = {}) {
   let generation = 0;
   let pendingPromise = null;
@@ -122,6 +130,3 @@ export function createCrazyGamesMidgameRestartFlow({
 
   return Object.freeze({ requestAndRestart, cancelPending, snapshot });
 }
-
-export const crazyGamesDeathRestartAd = createCrazyGamesMidgameRestartFlow();
-globalThis.__crazyGamesAd = () => crazyGamesDeathRestartAd.snapshot();
