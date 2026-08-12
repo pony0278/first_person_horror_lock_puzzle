@@ -26,7 +26,7 @@ walk(SRC);
 
 /** 分層：數字越小越底層，只能被更上層匯入。 */
 const LAYER = [
-  [/^logic\//, 0, 'logic'],
+  [/^(logic|platform)\//, 0, 'logic/platform'],
   [/^(state|dom)\.js$/, 1, 'state/dom'],
   [/^render\//, 2, 'render'],
   [/^game\//, 3, 'game'],
@@ -60,7 +60,7 @@ for (const [f, deps] of edges) {
     if (layerOf(d) > layerOf(f)) violations.push(`${f} (${layerName(f)}) → ${d} (${layerName(d)})`);
   }
 }
-console.log('\n分層方向（logic → state/dom → render → game → main）：');
+console.log('\n分層方向（logic/platform → state/dom → render → game → main）：');
 if (violations.length) violations.forEach(v => console.log('  ✗ 反向匯入：', v));
 else console.log('  ✓ 全部單向');
 
