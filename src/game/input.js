@@ -8,8 +8,11 @@ import { pumpControlAtClient } from '../render/pumpconsole.js';
 import { beginDoor3ControlPress, hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
-import { operateDoor3Control } from './door3.js';
+import { D3, operateDoor3Control } from './door3.js';
+import { startDoor3EnvironmentalEscalation } from './door3-escalation.js';
 import { interrupted } from './halt.js';
+
+startDoor3EnvironmentalEscalation(() => D3);
 
 /* ═══════════════════════════════════════════════════════════
    輸入
@@ -79,11 +82,16 @@ let keyLook = false;
 let door3Drag = null;
 let door3ControlId = null;
 const clampYaw = yaw => Math.max(-180, Math.min(180, yaw));
+const door3InspectCodes = new Set([
+  'KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyD', 'ArrowRight', 'KeyS', 'ArrowDown',
+]);
 
-/** Door 1/2 保留按住回頭；Door 3 改為可停留在任一岔路的拖曳環視。 */
+/** Door 3 keeps free directional inspection only while the player is holding it. */
 function syncLook() {
   if (R.door === 3) {
-    look.holding = lookId !== null;
+    const on = lookId !== null || keyLook;
+    look.holding = on;
+    if (!on) look.target = 0;
     return;
   }
   const on = lookId !== null || keyLook;
@@ -110,8 +118,13 @@ view.addEventListener('pointerdown', e => {
   lookId = e.pointerId;
 
   if (R.door === 3) {
-    door3Drag = { x: e.clientX, yaw: look.target };
+    // F2.4: every checkback begins from the workbench-facing pose. The player
+    // may inspect any branch while held, but releasing is a deliberate return
+    // to the task instead of leaving the camera parked on the monster.
+    door3Drag = { x: e.clientX, yaw: 0 };
+    look.target = 0;
     look.holding = true;
+    view.style.cursor = 'grabbing';
   } else syncLook();
 });
 
@@ -123,14 +136,17 @@ view.addEventListener('pointermove', e => {
   look.target = clampYaw(door3Drag.yaw + dx / Math.max(1, view.clientWidth) * 300);
 });
 
-/** 強制放開視角。Door 1/2 回彈正面；Door 3 保留玩家選定方向。 */
+/** 強制放開視角。Door 3 也回彈工作臺，讓查看本身重新成為一個決策。 */
 export const stopLook = () => {
   lookId = null;
   keyLook = false;
   door3Drag = null;
   door3ControlId = null;
-  if (R.door === 3) look.holding = false;
-  else syncLook();
+  if (R.door === 3) {
+    look.holding = false;
+    look.target = 0;
+    view.style.cursor = 'grab';
+  } else syncLook();
 };
 const onUp = e => {
   if (e.pointerId === door3ControlId) {
@@ -140,8 +156,11 @@ const onUp = e => {
   if (e.pointerId !== lookId) return;
   lookId = null;
   door3Drag = null;
-  if (R.door === 3) look.holding = false;
-  else syncLook();
+  if (R.door === 3) {
+    look.holding = keyLook;
+    if (!keyLook) look.target = 0;
+    view.style.cursor = 'grab';
+  } else syncLook();
 };
 view.addEventListener('pointerup', onUp);
 view.addEventListener('pointercancel', onUp);
@@ -160,8 +179,9 @@ addEventListener('keydown', e => {
     }[e.code];
     if (door3Yaw !== undefined) {
       e.preventDefault();
+      keyLook = true;
       look.target = door3Yaw;
-      look.holding = false;
+      look.holding = true;
       return;
     }
   }
@@ -183,6 +203,12 @@ addEventListener('keydown', e => {
   }
 });
 addEventListener('keyup', e => {
+  if (R.door === 3 && door3InspectCodes.has(e.code)) {
+    keyLook = false;
+    look.holding = lookId !== null;
+    if (lookId === null) look.target = 0;
+    return;
+  }
   if (R.door !== 3 && e.code === 'KeyS') { keyLook = false; syncLook(); }
 });
 // 切走視窗時 keyup 會漏接；回來時不保留任何按住／拖曳狀態。
