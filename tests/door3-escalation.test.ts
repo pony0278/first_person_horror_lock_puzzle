@@ -50,4 +50,32 @@ describe('Door 3 F2.4 environmental escalation', () => {
     expect(terminal.benchTremor).toBeGreaterThan(warning.benchTremor);
     expect(terminal.branchShade).toBeGreaterThan(warning.branchShade);
   });
+
+  it('keeps the first rupture clear before progressively contaminating the same water system', () => {
+    const quiet = door3EscalationVisual(0);
+    const firstWarning = door3EscalationVisual(1);
+    const middle = door3EscalationVisual(3);
+    const terminal = door3EscalationVisual(4);
+
+    expect(quiet.wallContamination).toBe(0);
+    expect(firstWarning.wallContamination).toBeGreaterThan(0);
+    expect(firstWarning.pipeContamination).toBe(0);
+    expect(middle.pipeContamination).toBeGreaterThan(0);
+    expect(terminal.pipeContamination).toBeGreaterThan(middle.pipeContamination);
+    expect(terminal.floorContamination).toBeGreaterThan(middle.floorContamination);
+    expect(terminal.wallContamination).toBeGreaterThan(middle.wallContamination);
+  });
+
+  it('keeps every contamination channel monotonic across escalation levels', () => {
+    const visuals = [0, 1, 2, 3, 4].map(level =>
+      door3EscalationVisual(level as 0 | 1 | 2 | 3 | 4));
+    for (let index = 1; index < visuals.length; index++) {
+      expect(visuals[index]!.wallContamination)
+        .toBeGreaterThanOrEqual(visuals[index - 1]!.wallContamination);
+      expect(visuals[index]!.floorContamination)
+        .toBeGreaterThanOrEqual(visuals[index - 1]!.floorContamination);
+      expect(visuals[index]!.pipeContamination)
+        .toBeGreaterThanOrEqual(visuals[index - 1]!.pipeContamination);
+    }
+  });
 });
