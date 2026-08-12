@@ -90,7 +90,7 @@ describe('Door 2 to Door 3 crossroads hold and console approach v4', () => {
   });
 });
 
-describe('Door 3 physical escape completion path', () => {
+describe('Door 3 dedicated physical escape run', () => {
   it('runs through the flood gate before a two-to-three-second release beat', () => {
     expect(DOOR3_ESCAPE.runSec).toBeGreaterThanOrEqual(1.8);
     expect(DOOR3_ESCAPE.runSec).toBeLessThanOrEqual(2.5);
@@ -99,15 +99,36 @@ describe('Door 3 physical escape completion path', () => {
     expect(DOOR3_ESCAPE.endZ).toBeLessThan(DOOR3_ESCAPE.gateZ - 2);
   });
 
-  it('starts at the operator, aligns to the door, and ends beyond the threshold', () => {
+  it('starts exactly at the workbench operator pose and aligns while already running', () => {
     expect(door3EscapeX(0)).toBe(DOOR3_OPERATOR.x);
     expect(door3EscapeLocalZ(0)).toBe(DOOR3_OPERATOR.z);
     expect(door3EscapeZ(-19.62, 0)).toBe(-19.62 + DOOR3_OPERATOR.z);
+    expect(DOOR3_ESCAPE.launchSec).toBeLessThan(DOOR3_ESCAPE.alignSec);
 
     expect(door3EscapeX(DOOR3_ESCAPE.alignSec)).toBeCloseTo(0, 6);
     expect(door3EscapeX(DOOR3_ESCAPE.runSec)).toBeCloseTo(0, 6);
     expect(door3EscapeLocalZ(DOOR3_ESCAPE.runSec)).toBe(DOOR3_ESCAPE.endZ);
     expect(door3EscapeCrossed(DOOR3_ESCAPE.runSec)).toBe(true);
+  });
+
+  it('accelerates only at launch, then keeps a constant forward sprint instead of easing out', () => {
+    expect(door3EscapeProgress(0)).toBe(0);
+    expect(door3EscapeProgress(DOOR3_ESCAPE.launchSec / 2)).toBeGreaterThan(0);
+
+    const times = [0.50, 0.90, 1.30, 1.70];
+    const positions = times.map(door3EscapeLocalZ);
+    const deltas = positions.slice(1).map((value, index) =>
+      Math.abs(value - positions[index]!));
+    expect(deltas[0]).toBeGreaterThan(0);
+    expect(deltas[1]).toBeCloseTo(deltas[0]!, 8);
+    expect(deltas[2]).toBeCloseTo(deltas[0]!, 8);
+
+    const finalWindow = Math.abs(
+      door3EscapeLocalZ(DOOR3_ESCAPE.runSec) -
+      door3EscapeLocalZ(DOOR3_ESCAPE.runSec - 0.20),
+    );
+    const middleWindow = Math.abs(door3EscapeLocalZ(1.20) - door3EscapeLocalZ(1.00));
+    expect(finalWindow).toBeCloseTo(middleWindow, 8);
   });
 
   it('never reverses and is centred before it crosses the physical gate', () => {

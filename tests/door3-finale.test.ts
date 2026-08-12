@@ -4,24 +4,25 @@ import {
   door3FinaleBlackoutLampCount,
   door3FinaleBlackoutProgress,
   door3FinaleBlackoutReady,
-  door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
   door3FinaleClearReady,
-  door3FinaleEscapeYaw,
   door3FinaleEyeFlash,
-  door3FinaleFaceProgress,
   door3FinaleFallProgress,
   door3FinaleFallSlideOffset,
   door3FinaleGateOpenRatio,
   door3FinaleGroundChaseProgress,
   door3FinaleGroundLookYaw,
   door3FinaleImpactCount,
+  door3FinaleRunBlackoutClock,
+  door3FinaleRunBreakProgress,
+  door3FinaleRunFaceProgress,
+  door3FinaleRunRevealYaw,
   door3FinaleSecondRunOffset,
   door3FinaleSecondRunProgress,
   door3FinaleSlipProgress,
 } from '../src/logic/door3-finale';
 
-describe('Door 3 F2.5 false-safety finale', () => {
+describe('Door 3 F2.5 / F2.5R false-safety finale', () => {
   it('slams the floodgate only after crossing and closes monotonically', () => {
     const samples = [0, 0.12, 0.28, DOOR3_FINALE.gateCloseSec]
       .map(door3FinaleGateOpenRatio);
@@ -31,60 +32,75 @@ describe('Door 3 F2.5 false-safety finale', () => {
       expect(samples[i]).toBeLessThanOrEqual(samples[i - 1]!);
   });
 
-  it('authors exactly three escalating impacts before the rupture', () => {
+  it('authors exactly three escalating impacts and uses the third as the run handoff', () => {
     expect(door3FinaleImpactCount(0)).toBe(0);
     expect(door3FinaleImpactCount(DOOR3_FINALE.impactTimes[0])).toBe(1);
     expect(door3FinaleImpactCount(DOOR3_FINALE.impactTimes[1])).toBe(2);
     expect(door3FinaleImpactCount(DOOR3_FINALE.impactTimes[2])).toBe(3);
-    expect(DOOR3_FINALE.breakAtSec).toBeGreaterThan(DOOR3_FINALE.impactTimes[2]);
+    expect(DOOR3_FINALE.secondRunStartSec).toBe(0);
   });
 
-  it('does not turn the player until the first bang has supplied a reason', () => {
+  it('does not perform the initial checkback until the first bang supplies a reason', () => {
     expect(door3FinaleCheckbackYaw(0)).toBe(0);
     expect(door3FinaleCheckbackYaw(DOOR3_FINALE.impactTimes[0])).toBe(0);
     expect(door3FinaleCheckbackYaw(DOOR3_FINALE.turnDelaySec + DOOR3_FINALE.turnSec))
       .toBe(180);
   });
 
-  it('breaks the gate after the third impact instead of popping instantly', () => {
-    expect(door3FinaleBreakProgress(DOOR3_FINALE.impactTimes[2])).toBe(0);
-    expect(door3FinaleBreakProgress(DOOR3_FINALE.breakAtSec)).toBe(0);
-    expect(door3FinaleBreakProgress(DOOR3_FINALE.breakAtSec + DOOR3_FINALE.breakSec))
-      .toBe(1);
+  it('turns forward immediately after hit three, then shoulder-checks while still running', () => {
+    expect(door3FinaleRunRevealYaw(0)).toBe(180);
+    expect(door3FinaleRunRevealYaw(DOOR3_FINALE.runForwardTurnSec)).toBe(0);
+    expect(door3FinaleRunRevealYaw(DOOR3_FINALE.runLookBackStartSec)).toBe(0);
+
+    const lookBackEnd = DOOR3_FINALE.runLookBackStartSec + DOOR3_FINALE.runLookBackSec;
+    expect(door3FinaleRunRevealYaw(lookBackEnd))
+      .toBe(DOOR3_FINALE.runLookBackYawDeg);
+
+    const holdEnd = lookBackEnd + DOOR3_FINALE.runLookBackHoldSec;
+    expect(door3FinaleRunRevealYaw(holdEnd - 0.01))
+      .toBeCloseTo(DOOR3_FINALE.runLookBackYawDeg, 4);
+    expect(door3FinaleRunRevealYaw(holdEnd + DOOR3_FINALE.runReturnSec)).toBe(0);
   });
 
-  it('resolves the black face gradually from darkness', () => {
-    expect(door3FinaleFaceProgress(0)).toBe(0);
-    expect(door3FinaleFaceProgress(DOOR3_FINALE.faceRevealSec / 2)).toBeGreaterThan(0);
-    expect(door3FinaleFaceProgress(DOOR3_FINALE.faceRevealSec)).toBe(1);
-    expect(DOOR3_FINALE.faceHoldSec).toBeGreaterThan(DOOR3_FINALE.faceRevealSec);
+  it('is already physically moving before the floodgate ruptures behind the player', () => {
+    expect(DOOR3_FINALE.runBreakAtSec).toBeGreaterThan(0);
+    expect(door3FinaleRunBreakProgress(DOOR3_FINALE.runBreakAtSec)).toBe(0);
+    expect(door3FinaleSecondRunOffset(DOOR3_FINALE.runBreakAtSec)).toBeLessThan(0);
+    expect(door3FinaleRunBreakProgress(
+      DOOR3_FINALE.runBreakAtSec + DOOR3_FINALE.breakSec,
+    )).toBe(1);
   });
 
-  it('kills corridor lamps one-by-one from the broken gate toward the player', () => {
+  it('reveals the black face only after rupture and while the shoulder-check is readable', () => {
+    expect(DOOR3_FINALE.runFaceAtSec)
+      .toBeGreaterThanOrEqual(DOOR3_FINALE.runBreakAtSec + DOOR3_FINALE.breakSec);
+    expect(door3FinaleRunFaceProgress(DOOR3_FINALE.runFaceAtSec)).toBe(0);
+    const faceFullAt = DOOR3_FINALE.runFaceAtSec + DOOR3_FINALE.faceRevealSec;
+    expect(door3FinaleRunFaceProgress(faceFullAt)).toBe(1);
+    expect(door3FinaleRunRevealYaw(faceFullAt)).toBeGreaterThan(120);
+  });
+
+  it('starts the corridor blackout during the same moving reveal and finishes it before the run ends', () => {
+    expect(door3FinaleRunBlackoutClock(DOOR3_FINALE.runBlackoutAtSec - 0.01)).toBe(0);
+    expect(door3FinaleRunBlackoutClock(DOOR3_FINALE.runBlackoutAtSec + 0.20))
+      .toBeCloseTo(0.20, 8);
+
     expect(door3FinaleBlackoutLampCount(0)).toBe(0);
     expect(door3FinaleBlackoutLampCount(DOOR3_FINALE.blackoutLeadSec)).toBe(1);
     expect(door3FinaleBlackoutLampCount(
       DOOR3_FINALE.blackoutLeadSec + DOOR3_FINALE.blackoutStepSec * 2,
     )).toBe(3);
-    expect(door3FinaleBlackoutLampCount(
-      DOOR3_FINALE.blackoutLeadSec +
-      DOOR3_FINALE.blackoutStepSec * (DOOR3_FINALE.blackoutLampCount - 1),
-    )).toBe(DOOR3_FINALE.blackoutLampCount);
-    expect(door3FinaleBlackoutProgress(0)).toBe(0);
+
+    const finalLampClock = DOOR3_FINALE.blackoutLeadSec +
+      DOOR3_FINALE.blackoutStepSec * (DOOR3_FINALE.blackoutLampCount - 1);
+    expect(door3FinaleBlackoutLampCount(finalLampClock))
+      .toBe(DOOR3_FINALE.blackoutLampCount);
+    expect(DOOR3_FINALE.runBlackoutAtSec + finalLampClock)
+      .toBeLessThan(DOOR3_FINALE.secondRunSec);
     expect(door3FinaleBlackoutProgress(10)).toBe(1);
   });
 
-  it('turns away only after the blackout has already advanced', () => {
-    expect(door3FinaleEscapeYaw(0)).toBe(180);
-    expect(door3FinaleEscapeYaw(DOOR3_FINALE.escapeTurnStartSec)).toBe(180);
-    expect(door3FinaleBlackoutLampCount(DOOR3_FINALE.escapeTurnStartSec))
-      .toBeGreaterThanOrEqual(3);
-    expect(door3FinaleEscapeYaw(
-      DOOR3_FINALE.escapeTurnStartSec + DOOR3_FINALE.escapeTurnSec,
-    )).toBe(0);
-  });
-
-  it('runs a second physical escape for the full authored corridor distance', () => {
+  it('runs the full second physical escape without a stationary face-hold phase', () => {
     expect(door3FinaleSecondRunProgress(0)).toBe(0);
     expect(door3FinaleSecondRunOffset(0)).toBe(0);
     const half = door3FinaleSecondRunOffset(DOOR3_FINALE.secondRunSec / 2);

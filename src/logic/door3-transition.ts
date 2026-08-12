@@ -26,18 +26,20 @@ export const DOOR3_OPERATOR = Object.freeze({
 
 /**
  * Door 3's success path stays physical: after the flood gate clears, the
- * camera aligns with the opening, runs through it, then holds on the safe side
- * before the round result appears.
+ * camera runs continuously from the operator station through the real opening.
+ * This path is authored independently from Door 1's intro/glance cinematic.
  */
 export const DOOR3_ESCAPE = Object.freeze({
   /** Pump-hub local Z of the flood-gate threshold. */
   gateZ: -7.55,
   /** Camera stopping point, leaving visible corridor beyond the player. */
   endZ: -11.40,
-  /** Align with the narrow doorway before reaching its threshold. */
-  alignSec: 0.88,
+  /** Align with the narrow doorway while the sprint is already underway. */
+  alignSec: 0.72,
+  /** Short acceleration only; after this the run keeps a near-constant pace. */
+  launchSec: 0.22,
   runSec: 2.15,
-  /** Quiet release beat before the success result covers the scene. */
+  /** Quiet release beat before the false-safety finale takes over. */
   breatheSec: 2.40,
 });
 
@@ -78,8 +80,18 @@ export function door3ApproachYaw(elapsedSec: number): number {
   return DOOR3_OPERATOR.yawDeg * door3OperatorProgress(elapsedSec);
 }
 
+/**
+ * Dedicated finale sprint progress. The first launchSec seconds integrate a
+ * smooth acceleration from rest; after that the player keeps the attained
+ * speed instead of easing back toward zero before the floodgate.
+ */
 export function door3EscapeProgress(elapsedSec: number): number {
-  return smoothstep(clamp01(elapsedSec / DOOR3_ESCAPE.runSec));
+  const t = Math.max(0, Math.min(DOOR3_ESCAPE.runSec, elapsedSec));
+  const accel = Math.min(DOOR3_ESCAPE.launchSec, DOOR3_ESCAPE.runSec);
+  const normalizer = DOOR3_ESCAPE.runSec - accel / 2;
+  if (normalizer <= 0) return clamp01(t / DOOR3_ESCAPE.runSec);
+  if (t < accel) return clamp01((t * t / (2 * accel)) / normalizer);
+  return clamp01((t - accel / 2) / normalizer);
 }
 
 export function door3EscapeX(elapsedSec: number): number {

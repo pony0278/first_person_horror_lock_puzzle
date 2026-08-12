@@ -1,26 +1,28 @@
-/* F2.5 — False Safety Finale companion.
+/* F2.5 / F2.5R — False Safety Finale companion.
  *
  * Door 3 already owns the authoritative escape clock. This module observes that
  * clock and takes over only after the player honestly crosses the floodgate.
- * It therefore cannot grant an early escape or bypass the existing pursuit.
+ * F2.5R.3 starts the second escape on the third impact: rupture, shoulder-check,
+ * face reveal, and corridor blackout now happen while the player keeps moving.
  */
 import {
   DOOR3_FINALE,
   door3FinaleBlackoutLampCount,
   door3FinaleBlackoutProgress,
   door3FinaleBlackoutReady,
-  door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
   door3FinaleClearReady,
-  door3FinaleEscapeYaw,
   door3FinaleEyeFlash,
-  door3FinaleFaceProgress,
   door3FinaleFallProgress,
   door3FinaleFallSlideOffset,
   door3FinaleGateOpenRatio,
   door3FinaleGroundChaseProgress,
   door3FinaleGroundLookYaw,
   door3FinaleImpactCount,
+  door3FinaleRunBlackoutClock,
+  door3FinaleRunBreakProgress,
+  door3FinaleRunFaceProgress,
+  door3FinaleRunRevealYaw,
   door3FinaleSecondRunOffset,
   door3FinaleSecondRunProgress,
   door3FinaleSlipProgress,
@@ -41,6 +43,7 @@ let crossedAt = null;
 let gateSlamPlayed = false;
 let lastImpactCount = 0;
 let rupturePlayed = false;
+let faceCuePlayed = false;
 let lastBlackoutLampCount = 0;
 let run2StartZ = null;
 let run2BaseFov = null;
@@ -82,6 +85,7 @@ function resetRuntime(state) {
   gateSlamPlayed = false;
   lastImpactCount = 0;
   rupturePlayed = false;
+  faceCuePlayed = false;
   lastBlackoutLampCount = 0;
   run2StartZ = null;
   run2BaseFov = null;
@@ -210,11 +214,44 @@ function updateEscape(state) {
   }
 }
 
+function beginRunFirstReveal(state, finale) {
+  state.phase = 'finale-run2';
+  state.t = 0;
+  state.stepT = 0;
+  run2StartZ = intro.z;
+  run2BaseFov = camera.fov;
+  rupturePlayed = false;
+  faceCuePlayed = false;
+  lastBlackoutLampCount = 0;
+  intro.active = true;
+  intro.phase = 'run';
+  intro.bobPhase = 0;
+  intro.bobY = 0;
+  intro.roll = 0;
+  intro.arriveF = 0;
+  look.holding = false;
+  look.yaw = 180;
+  look.target = 180;
+  Object.assign(finale, {
+    phase: 'run2',
+    impactCount: 3,
+    breakProgress: 0,
+    faceProgress: 0,
+    blackoutLamps: 0,
+    blackoutProgress: 0,
+    secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
+  });
+  $turnCue.textContent = '';
+}
+
 function updateCheckback(state) {
   const time = state.t;
   const impacts = door3FinaleImpactCount(time);
   const yaw = door3FinaleCheckbackYaw(time);
-  const breakProgress = door3FinaleBreakProgress(time);
 
   look.yaw = yaw;
   look.target = yaw;
@@ -229,17 +266,11 @@ function updateCheckback(state) {
     lastImpactCount = impacts;
   }
 
-  if (breakProgress > 0.01 && !rupturePlayed) {
-    rupturePlayed = true;
-    state.fx.shake = Math.max(state.fx.shake, 1.72);
-    gateBang(1.42);
-  }
-
   const finale = ensureFinaleState(state);
   Object.assign(finale, {
-    phase: breakProgress > 0 ? 'rupture' : 'checkback',
+    phase: 'checkback',
     impactCount: impacts,
-    breakProgress,
+    breakProgress: 0,
     faceProgress: 0,
     blackoutLamps: 0,
     blackoutProgress: 0,
@@ -249,128 +280,12 @@ function updateCheckback(state) {
     groundChaseProgress: 0,
     eyeFlash: 0,
   });
-  setDoor3FinaleVisual({ impacts, breakProgress, faceProgress: 0, time });
+  setDoor3FinaleVisual({ impacts, breakProgress: 0, faceProgress: 0, time });
   setDoor3EndingVisual();
 
-  if (breakProgress >= 1) {
-    state.phase = 'finale-face';
-    state.t = 0;
-    finale.phase = 'face';
-    look.yaw = 180;
-    look.target = 180;
-    beep('face');
-  }
-}
-
-function beginBlackout(state) {
-  state.phase = 'finale-blackout';
-  state.t = 0;
-  lastBlackoutLampCount = 0;
-  run2StartZ = intro.z;
-  run2BaseFov = camera.fov;
-  const finale = ensureFinaleState(state);
-  Object.assign(finale, {
-    phase: 'blackout',
-    blackoutLamps: 0,
-    blackoutProgress: 0,
-    secondRunProgress: 0,
-    slipProgress: 0,
-    fallProgress: 0,
-    groundChaseProgress: 0,
-    eyeFlash: 0,
-  });
-  look.holding = false;
-  look.yaw = 180;
-  look.target = 180;
-  intro.active = true;
-  intro.phase = 'run';
-  intro.bobY = 0;
-  intro.roll = 0;
-  state.stepT = 0;
-  $turnCue.textContent = '';
-}
-
-function updateFace(state) {
-  const time = state.t;
-  const faceProgress = door3FinaleFaceProgress(time);
-  look.yaw = 180;
-  look.target = 180;
-  intro.bobY = Math.sin(time * 1.7) * 0.006;
-  intro.roll = Math.sin(time * 1.15) * 0.18 * faceProgress;
-  state.fx.shake = Math.max(state.fx.shake, faceProgress * 0.08);
-
-  Object.assign(ensureFinaleState(state), {
-    phase: 'face',
-    impactCount: 3,
-    breakProgress: 1,
-    faceProgress,
-    blackoutLamps: 0,
-    blackoutProgress: 0,
-    secondRunProgress: 0,
-    slipProgress: 0,
-    fallProgress: 0,
-    groundChaseProgress: 0,
-    eyeFlash: 0,
-  });
-  setDoor3FinaleVisual({ impacts: 3, breakProgress: 1, faceProgress, time });
-  setDoor3EndingVisual();
-
-  if (time >= DOOR3_FINALE.faceHoldSec) beginBlackout(state);
-}
-
-function updateBlackout(state) {
-  const time = state.t;
-  const blackoutLamps = door3FinaleBlackoutLampCount(time);
-  const blackoutProgress = door3FinaleBlackoutProgress(time);
-  const yaw = door3FinaleEscapeYaw(time);
-
-  if (blackoutLamps > lastBlackoutLampCount) {
-    for (let lamp = lastBlackoutLampCount; lamp < blackoutLamps; lamp++) {
-      blackoutSnap(lamp);
-      state.fx.shake = Math.max(state.fx.shake, 0.10 + lamp * 0.025);
-    }
-    lastBlackoutLampCount = blackoutLamps;
-  }
-
-  look.yaw = yaw;
-  look.target = yaw;
-  intro.bobY = Math.sin(time * 2.2) * 0.004;
-  intro.roll = Math.sin(time * 1.7) * 0.10 * blackoutProgress;
-
-  Object.assign(ensureFinaleState(state), {
-    phase: 'blackout',
-    impactCount: 3,
-    breakProgress: 1,
-    faceProgress: 1,
-    blackoutLamps,
-    blackoutProgress,
-    secondRunProgress: 0,
-    slipProgress: 0,
-    fallProgress: 0,
-    groundChaseProgress: 0,
-    eyeFlash: 0,
-  });
-  setDoor3FinaleVisual({
-    impacts: 3,
-    breakProgress: 1,
-    faceProgress: 1,
-    blackoutLamps,
-    blackoutProgress,
-    chaseProgress: 0,
-    time,
-  });
-  setDoor3EndingVisual();
-
-  if (time >= DOOR3_FINALE.secondRunStartSec) {
-    state.phase = 'finale-run2';
-    state.t = 0;
-    state.stepT = 0;
-    intro.bobPhase = 0;
-    look.yaw = 0;
-    look.target = 0;
-    ensureFinaleState(state).phase = 'run2';
-    beep('face');
-  }
+  // F2.5R.3: the third blow is the decision point. Do not stand around waiting
+  // for rupture or a face hold; the body commits to the second escape now.
+  if (impacts >= 3) beginRunFirstReveal(state, finale);
 }
 
 function beginFall(state) {
@@ -389,13 +304,28 @@ function updateSecondRun(state, dt) {
   const time = state.t;
   const progress = door3FinaleSecondRunProgress(time);
   const slipProgress = door3FinaleSlipProgress(progress);
-  const blackoutClock = DOOR3_FINALE.secondRunStartSec + time;
+  const breakProgress = door3FinaleRunBreakProgress(time);
+  const faceProgress = door3FinaleRunFaceProgress(time);
+  const blackoutClock = door3FinaleRunBlackoutClock(time);
   const blackoutLamps = door3FinaleBlackoutLampCount(blackoutClock);
   const blackoutProgress = door3FinaleBlackoutProgress(blackoutClock);
-  const chaseProgress = 0.28 + progress * 0.72;
+  const chaseProgress = blackoutProgress * (0.26 + progress * 0.74);
+  const yaw = door3FinaleRunRevealYaw(time);
 
+  if (breakProgress > 0.01 && !rupturePlayed) {
+    rupturePlayed = true;
+    state.fx.shake = Math.max(state.fx.shake, 1.72);
+    gateBang(1.42);
+  }
+  if (faceProgress > 0.02 && !faceCuePlayed) {
+    faceCuePlayed = true;
+    beep('face');
+  }
   if (blackoutLamps > lastBlackoutLampCount) {
-    for (let lamp = lastBlackoutLampCount; lamp < blackoutLamps; lamp++) blackoutSnap(lamp);
+    for (let lamp = lastBlackoutLampCount; lamp < blackoutLamps; lamp++) {
+      blackoutSnap(lamp);
+      state.fx.shake = Math.max(state.fx.shake, 0.10 + lamp * 0.025);
+    }
     lastBlackoutLampCount = blackoutLamps;
   }
 
@@ -405,10 +335,11 @@ function updateSecondRun(state, dt) {
   intro.z = (run2StartZ ?? intro.z) + door3FinaleSecondRunOffset(time);
   intro.bobPhase += dt * 9.0;
   intro.bobY = Math.sin(intro.bobPhase * 2) * 0.061;
-  intro.roll = Math.sin(intro.bobPhase) * 1.35;
+  intro.roll = Math.sin(intro.bobPhase) * 1.35 +
+    Math.sin(time * 1.9) * 0.10 * faceProgress;
   intro.arriveF = 0;
-  look.yaw = 0;
-  look.target = 0;
+  look.yaw = yaw;
+  look.target = yaw;
   look.holding = false;
 
   state.stepT += dt;
@@ -425,8 +356,8 @@ function updateSecondRun(state, dt) {
   Object.assign(ensureFinaleState(state), {
     phase: 'run2',
     impactCount: 3,
-    breakProgress: 1,
-    faceProgress: 1,
+    breakProgress,
+    faceProgress,
     blackoutLamps,
     blackoutProgress,
     secondRunProgress: progress,
@@ -437,14 +368,14 @@ function updateSecondRun(state, dt) {
   });
   setDoor3FinaleVisual({
     impacts: 3,
-    breakProgress: 1,
-    faceProgress: 1,
+    breakProgress,
+    faceProgress,
     blackoutLamps,
     blackoutProgress,
     chaseProgress,
-    time: blackoutClock,
+    time,
   });
-  setDoor3EndingVisual({ slipProgress, time: blackoutClock });
+  setDoor3EndingVisual({ slipProgress, time });
 
   if (progress >= 1) beginFall(state);
 }
@@ -491,7 +422,7 @@ function updateFall(state) {
     blackoutLamps: DOOR3_FINALE.blackoutLampCount,
     blackoutProgress: 1,
     chaseProgress: 1,
-    time: DOOR3_FINALE.secondRunStartSec + DOOR3_FINALE.secondRunSec + time,
+    time: DOOR3_FINALE.secondRunSec + time,
   });
   setDoor3EndingVisual({ slipProgress: 1, time });
 
@@ -562,7 +493,7 @@ function updateGround(state) {
     blackoutLamps: DOOR3_FINALE.blackoutLampCount,
     blackoutProgress: 1,
     chaseProgress: 1,
-    time: DOOR3_FINALE.secondRunStartSec + DOOR3_FINALE.secondRunSec + time,
+    time: DOOR3_FINALE.secondRunSec + time,
   });
   setDoor3EndingVisual({
     slipProgress: 1,
@@ -611,8 +542,6 @@ function applyFrame(state) {
   // before it can complete, preserving the physical escape path up to this point.
   else if (state.phase === 'breathe' && state.escape.crossed && !completed) beginCheckback(state);
   else if (state.phase === 'finale-checkback') updateCheckback(state);
-  else if (state.phase === 'finale-face') updateFace(state);
-  else if (state.phase === 'finale-blackout') updateBlackout(state);
   else if (state.phase === 'finale-fall') updateFall(state);
   else if (state.phase === 'finale-ground') updateGround(state);
   else if (state.phase === 'finale-black') updateFinalBlack(state);
