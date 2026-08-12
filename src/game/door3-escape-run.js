@@ -9,6 +9,12 @@
  * It deliberately leaves intro.active=true: the lower puzzle panel stays hidden
  * and input remains cinematic, while Door 3 remains the sole writer of x/z,
  * head bob, FOV, and forward look during the sprint.
+ *
+ * Door 1's procedural hand rig selects its authored running pose from
+ * anim.handsOverride='run'. The dedicated Door 3 phase is intentionally not the
+ * generic intro.phase='run', so claim that same hand pose explicitly while this
+ * companion owns the escape. This restores the alternating arm swing without
+ * re-enabling Door 1's old hint-wall / slow-motion state machine.
  */
 import { anim, intro, look } from '../state.js';
 
@@ -16,14 +22,22 @@ export const DOOR3_ESCAPE_INTRO_PHASE = 'door3-escape-run';
 
 let started = false;
 let activeRound = false;
+let ownsRunHands = false;
+
+function releaseRunHands() {
+  if (ownsRunHands && anim.handsOverride === 'run') anim.handsOverride = null;
+  ownsRunHands = false;
+}
 
 function applyFrame(state) {
   if (!state?.active) {
+    releaseRunHands();
     activeRound = false;
     return;
   }
 
   if (state.phase !== 'escape') {
+    releaseRunHands();
     activeRound = false;
     return;
   }
@@ -34,6 +48,8 @@ function applyFrame(state) {
   look.holding = false;
   look.target = 0;
   anim.timeScale = 1;
+  anim.handsOverride = 'run';
+  ownsRunHands = true;
 }
 
 export function startDoor3DedicatedEscapeRun(getDoor3State) {
