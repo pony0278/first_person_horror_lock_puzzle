@@ -14,7 +14,7 @@ export const DEBUG_SEQUENCES = {
   'door1-door2': ['unlock', 'through', 'corner', 'approach', 'arrive', 'door2'],
   door2: ['missing', 'first-fuse', 'burnout', 'final-fuse'],
   'door2-door3': ['success', 'unlocked', 'open', 'through', 'walk', 'cross', 'console', 'explore'],
-  door3: ['explore'],
+  door3: ['explore', 'solved'],
 } as const;
 
 export type DebugSequence = keyof typeof DEBUG_SEQUENCES;
