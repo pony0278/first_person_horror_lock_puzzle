@@ -4,6 +4,7 @@
 import { CFG } from '../logic/config.js';
 import { $dev, $hdbg, $pins, view } from '../dom.js';
 import { buildPins, renderPins } from '../render/cutaway.js';
+import { startDoor3FloodgateDeformation } from '../render/door3-floodgate-deform.js';
 import { pumpControlAtClient } from '../render/pumpconsole.js';
 import { beginDoor3ControlPress, hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
@@ -17,6 +18,7 @@ import { interrupted } from './halt.js';
 startDoor3DedicatedEscapeRun(() => D3);
 startDoor3EnvironmentalEscalation(() => D3);
 startDoor3FalseSafetyFinale(() => D3);
+startDoor3FloodgateDeformation(() => D3);
 
 /* ═══════════════════════════════════════════════════════════
    輸入
