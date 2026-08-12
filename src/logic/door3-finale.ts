@@ -1,8 +1,8 @@
 /** F2.5 / F2.5R — Door 3 false-safety finale timing contract.
  *
- * F2.5R.3 removes the old stand-still face reveal. The third floodgate hit now
- * starts the second escape immediately; rupture, the shoulder check, black-face
- * reveal, and corridor blackout all happen while the player keeps moving.
+ * F2.5R.3 removes the old stand-still face reveal. F2.5R.4 keeps the face at
+ * the ruined gate, turns the second escape into a longer endless-corridor run,
+ * and ends on loss of consciousness rather than a pursuing-face jumpscare.
  */
 
 export const DOOR3_FINALE = Object.freeze({
@@ -27,21 +27,21 @@ export const DOOR3_FINALE = Object.freeze({
   /** The face becomes readable only after the damaged leaf has opened into void. */
   runFaceAtSec: 0.72,
   faceRevealSec: 0.50,
-  /** Blackout starts during the shoulder check and continues through the run. */
+  /** Gate-side lamps fail during the shoulder check; forward endless lamps dim separately. */
   runBlackoutAtSec: 0.98,
 
-  /** Darkness walks from the broken gate toward the player lamp-by-lamp. */
+  /** Legacy gate-side lamp chain. No physical darkness wall follows the player. */
   blackoutLampCount: 7,
   blackoutLeadSec: 0.10,
   blackoutStepSec: 0.22,
 
-  /** Second escape now starts at the exact third impact, not after a face hold. */
+  /** F2.5R.4: a longer continuous sprint sells the corridor as effectively endless. */
   secondRunStartSec: 0,
-  secondRunSec: 2.55,
-  secondRunDistance: 8.40,
+  secondRunSec: 5.20,
+  secondRunDistance: 18.00,
 
-  /** F2.5.4: the red pool becomes readable only near the end of the sprint. */
-  slipRevealProgress: 0.72,
+  /** The contaminated pool is readable only near the end of the long sprint. */
+  slipRevealProgress: 0.84,
   /** A tiny skid beat precedes the actual loss of balance. */
   fallLeadSec: 0.10,
   fallSec: 0.72,
@@ -49,15 +49,16 @@ export const DOOR3_FINALE = Object.freeze({
   fallSlideDistance: 0.58,
   fallCameraDrop: 1.02,
   fallRollDeg: -18,
-  /** The fallen body twists only slightly; the ground beat then looks back. */
-  fallTwistDeg: 34,
-  groundLookSec: 0.46,
-  /** Darkness reaches the fallen player within roughly one second. */
-  groundChaseSec: 0.92,
-  /** Final near-eye flash is deliberately brief. */
-  eyeFlashAtSec: 0.70,
+  /** F2.5R.4: the player collapses facing roughly forward and never turns back to the threat. */
+  fallTwistDeg: 12,
+  groundLookSec: 999,
+  /** No monster closes the gap after the fall; these remain compatibility clocks only. */
+  groundChaseSec: 999,
+  /** Disable the old near-eye flash by scheduling it well after the blackout. */
+  eyeFlashAtSec: 999,
   eyeFlashSec: 0.18,
-  blackoutAtSec: 0.92,
+  /** Brief dazed ground beat, then consciousness cuts out. */
+  blackoutAtSec: 1.05,
   /** Hold complete darkness before the result text appears. */
   clearDelaySec: 1.00,
 } as const);
@@ -139,7 +140,7 @@ export function door3FinaleRunBlackoutClock(elapsedRunSec: number): number {
   return Math.max(0, elapsedRunSec - DOOR3_FINALE.runBlackoutAtSec);
 }
 
-/** Number of corridor lamps swallowed by the advancing darkness (0..7). */
+/** Number of gate-side lamps that have failed (0..7). */
 export function door3FinaleBlackoutLampCount(elapsedSec: number): number {
   if (!Number.isFinite(elapsedSec) || elapsedSec < DOOR3_FINALE.blackoutLeadSec) return 0;
   const count = 1 + Math.floor(
@@ -148,7 +149,7 @@ export function door3FinaleBlackoutLampCount(elapsedSec: number): number {
   return Math.max(0, Math.min(DOOR3_FINALE.blackoutLampCount, count));
 }
 
-/** Smooth 0..1 advance of the darkness front across the authored lamp chain. */
+/** Smooth 0..1 failure progress across the authored gate-side lamp chain. */
 export function door3FinaleBlackoutProgress(elapsedSec: number): number {
   const finalLampAt = DOOR3_FINALE.blackoutLeadSec +
     (DOOR3_FINALE.blackoutLampCount - 1) * DOOR3_FINALE.blackoutStepSec;
@@ -180,24 +181,24 @@ export function door3FinaleFallProgress(elapsedSec: number): number {
   );
 }
 
-/** Forward slide after the slip, kept inside the authored corridor extension. */
+/** Forward slide after the slip, kept inside the recycled corridor. */
 export function door3FinaleFallSlideOffset(elapsedSec: number): number {
   const progress = door3FinaleFallProgress(elapsedSec);
   return progress <= 0 ? 0 : -DOOR3_FINALE.fallSlideDistance * progress;
 }
 
-/** Fallen camera turns from the partial body twist to a full look back. */
+/** Fallen camera barely twists; it no longer performs a final monster checkback. */
 export function door3FinaleGroundLookYaw(elapsedSec: number): number {
   const p = smoothstep(elapsedSec / DOOR3_FINALE.groundLookSec);
   return DOOR3_FINALE.fallTwistDeg + (180 - DOOR3_FINALE.fallTwistDeg) * p;
 }
 
-/** Darkness/face closes the remaining ground-level gap. */
+/** Compatibility progress; R4 keeps it near zero until after consciousness is gone. */
 export function door3FinaleGroundChaseProgress(elapsedSec: number): number {
   return smoothstep(elapsedSec / DOOR3_FINALE.groundChaseSec);
 }
 
-/** Very brief overexposed eye flash immediately before the hard cut to black. */
+/** Legacy eye flash remains addressable but is disabled during the actual ending. */
 export function door3FinaleEyeFlash(elapsedSec: number): number {
   const local = (elapsedSec - DOOR3_FINALE.eyeFlashAtSec) / DOOR3_FINALE.eyeFlashSec;
   if (!Number.isFinite(local) || local <= 0 || local >= 1) return 0;
