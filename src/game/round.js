@@ -5,6 +5,7 @@ import { CFG } from '../logic/config.js';
 import { LockState } from '../logic/lock.js';
 import { createPinPuzzle } from '../logic/pin-puzzle.js';
 import { door2Cause, primaryCause as primaryCauseOf, stationThresholds } from '../logic/round.js';
+import { crazyGamesPlatformSnapshot } from '../platform/crazygames.js';
 import { $fade } from '../dom.js';
 import { buildPins, flashTrack, renderPins } from '../render/cutaway.js';
 import { decay, decayGroup, reflection } from '../render/decay.js';
@@ -14,8 +15,9 @@ import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scen
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { audioMute, beep } from './audio.js';
 import { createCrazyGamesAudioLifecycle } from './crazygames-audio.js';
-import { crazyGamesGameplay } from './crazygames-lifecycle.js';
+import { crazyGamesGameplay, crazyGamesGameplaySnapshot } from './crazygames-lifecycle.js';
 import { createCrazyGamesMidgameRestartFlow } from './crazygames-midgame-ad.js';
+import { installCrazyGamesPreviewQa } from './crazygames-preview-qa.js';
 
 const ROUND_PAUSE = 'round';
 let restartTimer = null;
@@ -28,6 +30,18 @@ const crazyGamesDeathRestartAd = createCrazyGamesMidgameRestartFlow({
 globalThis.__crazyGamesAudio = () => crazyGamesAudio.snapshot();
 globalThis.__crazyGamesAudioReady = crazyGamesAudioReady;
 globalThis.__crazyGamesAd = () => crazyGamesDeathRestartAd.snapshot();
+installCrazyGamesPreviewQa({
+  platformSnapshot: crazyGamesPlatformSnapshot,
+  gameplaySnapshot: crazyGamesGameplaySnapshot,
+  audioSnapshot: () => crazyGamesAudio.snapshot(),
+  adSnapshot: () => crazyGamesDeathRestartAd.snapshot(),
+  gameSnapshot: () => ({
+    door: R.door,
+    over: R.over,
+    won: R.won,
+    lastAttempt: R.attempts.length ? R.attempts[R.attempts.length - 1].msg : null,
+  }),
+});
 
 /** 開始一扇門自己的威脅回合；跨門環境衰變由呼叫端保留。 */
 export function beginDoorRound(door, limit, frontPool, hold = CFG.stations.hold) {
