@@ -3,14 +3,22 @@ import {
   DOOR3_FINALE,
   door3FinaleBlackoutLampCount,
   door3FinaleBlackoutProgress,
+  door3FinaleBlackoutReady,
   door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
+  door3FinaleClearReady,
   door3FinaleEscapeYaw,
+  door3FinaleEyeFlash,
   door3FinaleFaceProgress,
+  door3FinaleFallProgress,
+  door3FinaleFallSlideOffset,
   door3FinaleGateOpenRatio,
+  door3FinaleGroundChaseProgress,
+  door3FinaleGroundLookYaw,
   door3FinaleImpactCount,
   door3FinaleSecondRunOffset,
   door3FinaleSecondRunProgress,
+  door3FinaleSlipProgress,
 } from '../src/logic/door3-finale';
 
 describe('Door 3 F2.5 false-safety finale', () => {
@@ -85,5 +93,55 @@ describe('Door 3 F2.5 false-safety finale', () => {
     expect(door3FinaleSecondRunProgress(DOOR3_FINALE.secondRunSec)).toBe(1);
     expect(door3FinaleSecondRunOffset(DOOR3_FINALE.secondRunSec))
       .toBe(-DOOR3_FINALE.secondRunDistance);
+  });
+
+  it('reveals the contaminated slip hazard before the fall begins', () => {
+    expect(door3FinaleSlipProgress(0)).toBe(0);
+    expect(door3FinaleSlipProgress(DOOR3_FINALE.slipRevealProgress)).toBe(0);
+    expect(door3FinaleSlipProgress((1 + DOOR3_FINALE.slipRevealProgress) / 2))
+      .toBeGreaterThan(0);
+    expect(door3FinaleSlipProgress(1)).toBe(1);
+  });
+
+  it('drops and slides the player through one continuous physical fall', () => {
+    expect(door3FinaleFallProgress(0)).toBe(0);
+    expect(door3FinaleFallProgress(DOOR3_FINALE.fallLeadSec)).toBe(0);
+    const middle = DOOR3_FINALE.fallLeadSec + DOOR3_FINALE.fallSec / 2;
+    expect(door3FinaleFallProgress(middle)).toBeGreaterThan(0);
+    expect(door3FinaleFallProgress(middle)).toBeLessThan(1);
+    expect(door3FinaleFallSlideOffset(0)).toBe(0);
+    expect(door3FinaleFallProgress(DOOR3_FINALE.fallLeadSec + DOOR3_FINALE.fallSec))
+      .toBe(1);
+    expect(door3FinaleFallSlideOffset(DOOR3_FINALE.fallLeadSec + DOOR3_FINALE.fallSec))
+      .toBe(-DOOR3_FINALE.fallSlideDistance);
+    expect(DOOR3_FINALE.fallCameraDrop).toBeGreaterThan(0.9);
+  });
+
+  it('turns the fallen view back while darkness closes the remaining gap', () => {
+    expect(door3FinaleGroundLookYaw(0)).toBe(DOOR3_FINALE.fallTwistDeg);
+    expect(door3FinaleGroundLookYaw(DOOR3_FINALE.groundLookSec)).toBe(180);
+    expect(door3FinaleGroundChaseProgress(0)).toBe(0);
+    expect(door3FinaleGroundChaseProgress(DOOR3_FINALE.groundChaseSec)).toBe(1);
+  });
+
+  it('flashes the near eyes briefly before the hard blackout', () => {
+    expect(door3FinaleEyeFlash(DOOR3_FINALE.eyeFlashAtSec)).toBe(0);
+    expect(door3FinaleEyeFlash(
+      DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec * 0.42,
+    )).toBeGreaterThan(0.95);
+    expect(door3FinaleEyeFlash(
+      DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec,
+    )).toBe(0);
+    expect(DOOR3_FINALE.eyeFlashAtSec + DOOR3_FINALE.eyeFlashSec)
+      .toBeLessThanOrEqual(DOOR3_FINALE.blackoutAtSec);
+    expect(door3FinaleBlackoutReady(DOOR3_FINALE.blackoutAtSec - 0.01)).toBe(false);
+    expect(door3FinaleBlackoutReady(DOOR3_FINALE.blackoutAtSec)).toBe(true);
+  });
+
+  it('holds complete darkness before showing the clear result', () => {
+    expect(door3FinaleClearReady(0)).toBe(false);
+    expect(door3FinaleClearReady(DOOR3_FINALE.clearDelaySec - 0.01)).toBe(false);
+    expect(door3FinaleClearReady(DOOR3_FINALE.clearDelaySec)).toBe(true);
+    expect(DOOR3_FINALE.clearDelaySec).toBeGreaterThanOrEqual(0.9);
   });
 });
