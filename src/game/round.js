@@ -14,6 +14,7 @@ import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scen
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
 import { beep } from './audio.js';
 import { crazyGamesGameplay } from './crazygames-lifecycle.js';
+import { crazyGamesDeathRestartAd } from './crazygames-midgame-ad.js';
 
 const ROUND_PAUSE = 'round';
 let restartTimer = null;
@@ -50,6 +51,9 @@ export function beginDoorRound(door, limit, frontPool, hold = CFG.stations.hold)
 
 /* ── 新回合 ─────────────────────────────────────────── */
 export function newRound() {
+  // Invalidate a stale pre-init/ad request before rebuilding a fresh run. If an
+  // actual video is already playing, its own callbacks still own audio restore.
+  crazyGamesDeathRestartAd.cancelPending();
   if (restartTimer !== null) { clearTimeout(restartTimer); restartTimer = null; }
   hooks.resetTransit?.();                      // 過場動過的東西先歸位
   R.lock = new LockState({ ...CFG.lock });
@@ -186,5 +190,11 @@ export function endRound(msg) {
   recordAttempt(msg);
   $fade.querySelector('div').textContent = msg;
   $fade.classList.add('on');
-  restartTimer = setTimeout(newRound, 1500);
+
+  const requestDeathAd = !R.won;
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    if (requestDeathAd) crazyGamesDeathRestartAd.requestAndRestart(newRound);
+    else newRound();
+  }, 1500);
 }
