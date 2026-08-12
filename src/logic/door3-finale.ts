@@ -1,9 +1,9 @@
 /** F2.5 — False Safety Finale timing contract.
  *
  * F2.5.1 closes and deforms the floodgate, F2.5.2 reveals the oversized face,
- * and F2.5.3 turns that reveal into a corridor blackout followed by a second
- * physical escape run. F2.5.4 will replace the temporary post-run completion
- * with the authored fall and final glimpse.
+ * F2.5.3 turns that reveal into a corridor blackout followed by a second
+ * physical escape run, and F2.5.4 ends on a contaminated-water fall, one final
+ * ground-level glimpse, hard blackout, and delayed clear result.
  */
 
 export const DOOR3_FINALE = Object.freeze({
@@ -33,8 +33,27 @@ export const DOOR3_FINALE = Object.freeze({
   secondRunSec: 2.55,
   /** Added physical corridor beyond the old stop point. */
   secondRunDistance: 8.40,
-  /** Temporary release beat until F2.5.4 replaces it with the fall. */
-  secondRunSettleSec: 0.55,
+
+  /** F2.5.4: the red pool becomes readable only near the end of the sprint. */
+  slipRevealProgress: 0.72,
+  /** A tiny skid beat precedes the actual loss of balance. */
+  fallLeadSec: 0.10,
+  fallSec: 0.72,
+  /** The body keeps sliding forward while the camera drops toward the floor. */
+  fallSlideDistance: 0.58,
+  fallCameraDrop: 1.02,
+  fallRollDeg: -18,
+  /** The fallen body twists only slightly; the ground beat then looks back. */
+  fallTwistDeg: 34,
+  groundLookSec: 0.46,
+  /** Darkness reaches the fallen player within roughly one second. */
+  groundChaseSec: 0.92,
+  /** Final near-eye flash is deliberately brief. */
+  eyeFlashAtSec: 0.70,
+  eyeFlashSec: 0.18,
+  blackoutAtSec: 0.92,
+  /** Hold complete darkness before the result text appears. */
+  clearDelaySec: 1.00,
 } as const);
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -100,4 +119,52 @@ export function door3FinaleSecondRunProgress(elapsedSec: number): number {
 export function door3FinaleSecondRunOffset(elapsedSec: number): number {
   const progress = door3FinaleSecondRunProgress(elapsedSec);
   return progress <= 0 ? 0 : -DOOR3_FINALE.secondRunDistance * progress;
+}
+
+/** Red contamination only becomes an obvious hazard near the sprint endpoint. */
+export function door3FinaleSlipProgress(secondRunProgress: number): number {
+  return smoothstep(
+    (secondRunProgress - DOOR3_FINALE.slipRevealProgress) /
+    (1 - DOOR3_FINALE.slipRevealProgress),
+  );
+}
+
+/** 0..1 body fall after the brief skid lead. */
+export function door3FinaleFallProgress(elapsedSec: number): number {
+  return smoothstep(
+    (elapsedSec - DOOR3_FINALE.fallLeadSec) / DOOR3_FINALE.fallSec,
+  );
+}
+
+/** Forward slide after the slip, kept inside the authored corridor extension. */
+export function door3FinaleFallSlideOffset(elapsedSec: number): number {
+  const progress = door3FinaleFallProgress(elapsedSec);
+  return progress <= 0 ? 0 : -DOOR3_FINALE.fallSlideDistance * progress;
+}
+
+/** Fallen camera turns from the partial body twist to a full look back. */
+export function door3FinaleGroundLookYaw(elapsedSec: number): number {
+  const p = smoothstep(elapsedSec / DOOR3_FINALE.groundLookSec);
+  return DOOR3_FINALE.fallTwistDeg + (180 - DOOR3_FINALE.fallTwistDeg) * p;
+}
+
+/** Darkness/face closes the remaining ground-level gap. */
+export function door3FinaleGroundChaseProgress(elapsedSec: number): number {
+  return smoothstep(elapsedSec / DOOR3_FINALE.groundChaseSec);
+}
+
+/** Very brief overexposed eye flash immediately before the hard cut to black. */
+export function door3FinaleEyeFlash(elapsedSec: number): number {
+  const local = (elapsedSec - DOOR3_FINALE.eyeFlashAtSec) / DOOR3_FINALE.eyeFlashSec;
+  if (!Number.isFinite(local) || local <= 0 || local >= 1) return 0;
+  if (local <= 0.42) return smoothstep(local / 0.42);
+  return 1 - smoothstep((local - 0.42) / 0.58);
+}
+
+export function door3FinaleBlackoutReady(elapsedSec: number): boolean {
+  return Number.isFinite(elapsedSec) && elapsedSec >= DOOR3_FINALE.blackoutAtSec;
+}
+
+export function door3FinaleClearReady(elapsedBlackSec: number): boolean {
+  return Number.isFinite(elapsedBlackSec) && elapsedBlackSec >= DOOR3_FINALE.clearDelaySec;
 }
