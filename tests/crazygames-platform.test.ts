@@ -3,7 +3,7 @@ import { createCrazyGamesPlatform } from '../src/platform/crazygames.js';
 
 describe('CG1 CrazyGames SDK v3 adapter', () => {
   it('is a safe no-op when the SDK is unavailable', async () => {
-    const platform = createCrazyGamesPlatform({});
+    const platform = createCrazyGamesPlatform({} as any);
     expect(await platform.init()).toEqual({
       initialized: false,
       available: false,
@@ -30,7 +30,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
         game: { loadingStart, loadingStop, gameplayStart, gameplayStop },
       } },
     };
-    const platform = createCrazyGamesPlatform(root);
+    const platform = createCrazyGamesPlatform(root as any);
 
     const first = await platform.init();
     const second = await platform.init();
@@ -56,7 +56,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
         init: vi.fn(async () => undefined),
         game: { gameplayStart },
       } },
-    });
+    } as any);
 
     expect(await platform.init()).toMatchObject({
       initialized: true, available: true, enabled: false, environment: 'disabled',
@@ -78,7 +78,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
         init: vi.fn(async () => undefined),
         ad: { requestAd },
       } },
-    });
+    } as any);
     await platform.init();
 
     await expect(platform.requestAd('midgame', { adStarted, adFinished })).resolves.toEqual({
@@ -100,7 +100,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
         init: vi.fn(async () => undefined),
         ad: { requestAd },
       } },
-    });
+    } as any);
     await platform.init();
 
     await expect(platform.requestAd('midgame')).resolves.toEqual({
