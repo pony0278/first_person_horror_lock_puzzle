@@ -18,22 +18,13 @@ export const DOOR3_REMOVED_BLACK_OBJECTS = Object.freeze([
   'door3-finale-black-void',
 ]);
 
-function disposeObject(root) {
-  root.traverse?.(object => {
-    object.geometry?.dispose?.();
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    materials.filter(Boolean).forEach(material => {
-      material.map?.dispose?.();
-      material.dispose?.();
-    });
-  });
-}
-
 function removeNamed(root, name) {
   const object = root.getObjectByName?.(name);
   if (!object) return false;
+  // Do not dispose here: `door3-escape-void` shares boxGeo/matDark with other
+  // Pump Hub meshes. Detaching the object is enough to guarantee it can never
+  // render while preserving those shared GPU resources.
   object.parent?.remove(object);
-  disposeObject(object);
   return true;
 }
 
