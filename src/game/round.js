@@ -12,19 +12,21 @@ import { repaint } from '../render/hintwall.js';
 import { monster } from '../render/monster.js';
 import { door, doorLever, keyEye, pickTool, scene, wrench } from '../render/scene.js';
 import { R, ST, anim, hooks, intro, look, ui } from '../state.js';
-import { actx, beep } from './audio.js';
+import { audioMute, beep } from './audio.js';
+import { createCrazyGamesAudioLifecycle } from './crazygames-audio.js';
 import { crazyGamesGameplay } from './crazygames-lifecycle.js';
-import {
-  createAudioAdGate,
-  createCrazyGamesMidgameRestartFlow,
-} from './crazygames-midgame-ad.js';
+import { createCrazyGamesMidgameRestartFlow } from './crazygames-midgame-ad.js';
 
 const ROUND_PAUSE = 'round';
 let restartTimer = null;
 
+const crazyGamesAudio = createCrazyGamesAudioLifecycle({ audioMute });
+const crazyGamesAudioReady = crazyGamesAudio.start();
 const crazyGamesDeathRestartAd = createCrazyGamesMidgameRestartFlow({
-  audioGate: createAudioAdGate(() => actx),
+  audioGate: crazyGamesAudio.adGate,
 });
+globalThis.__crazyGamesAudio = () => crazyGamesAudio.snapshot();
+globalThis.__crazyGamesAudioReady = crazyGamesAudioReady;
 globalThis.__crazyGamesAd = () => crazyGamesDeathRestartAd.snapshot();
 
 /** 開始一扇門自己的威脅回合；跨門環境衰變由呼叫端保留。 */
