@@ -50,7 +50,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
   });
 
   it('exposes game settings and wraps settings change listeners', async () => {
-    let listener: ((settings: any) => void) | null = null;
+    let listener: unknown = null;
     const addSettingsChangeListener = vi.fn((fn: (settings: any) => void) => { listener = fn; });
     const removeSettingsChangeListener = vi.fn();
     const settings = { muteAudio: true, disableChat: false };
@@ -68,7 +68,7 @@ describe('CG1 CrazyGames SDK v3 adapter', () => {
     const unsubscribe = platform.subscribeGameSettings(callback);
     expect(addSettingsChangeListener).toHaveBeenCalledTimes(1);
 
-    listener?.({ muteAudio: false, disableChat: true });
+    (listener as (settings: any) => void)({ muteAudio: false, disableChat: true });
     expect(callback).toHaveBeenCalledWith({ muteAudio: false, disableChat: true });
     expect(unsubscribe()).toBe(true);
     expect(removeSettingsChangeListener).toHaveBeenCalledTimes(1);
