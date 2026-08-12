@@ -12,6 +12,7 @@ import '../render/door3-finale.js';
 import '../render/door3-face-separation.js';
 import { startDoor3FragmentClearance } from '../render/door3-fragment-clearance.js';
 import { startDoor3LeafAssemblyLifecycle } from '../render/door3-leaf-lifecycle.js';
+import { startDoor3ThreatIsolation } from '../render/door3-threat-isolation.js';
 import { floodDoor, pumpHub } from '../render/pumphub.js';
 import { D3 } from './door3.js';
 
@@ -46,3 +47,4 @@ export function removeDoor3LegacyBlackPlanes() {
 removeDoor3LegacyBlackPlanes();
 startDoor3FragmentClearance(() => D3);
 startDoor3LeafAssemblyLifecycle(() => D3);
+startDoor3ThreatIsolation(() => D3);
