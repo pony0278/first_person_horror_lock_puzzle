@@ -8,20 +8,29 @@ import {
   DOOR3_FINALE,
   door3FinaleBlackoutLampCount,
   door3FinaleBlackoutProgress,
+  door3FinaleBlackoutReady,
   door3FinaleBreakProgress,
   door3FinaleCheckbackYaw,
+  door3FinaleClearReady,
   door3FinaleEscapeYaw,
+  door3FinaleEyeFlash,
   door3FinaleFaceProgress,
+  door3FinaleFallProgress,
+  door3FinaleFallSlideOffset,
   door3FinaleGateOpenRatio,
+  door3FinaleGroundChaseProgress,
+  door3FinaleGroundLookYaw,
   door3FinaleImpactCount,
   door3FinaleSecondRunOffset,
   door3FinaleSecondRunProgress,
+  door3FinaleSlipProgress,
 } from '../logic/door3-finale.js';
-import { $turnCue } from '../dom.js';
+import { $fade, $turnCue } from '../dom.js';
 import { R, intro, look } from '../state.js';
 import { camera } from '../render/scene.js';
 import { setPumpHubPuzzleState } from '../render/pumphub.js';
 import { resetDoor3FinaleVisual, setDoor3FinaleVisual } from '../render/door3-finale.js';
+import { resetDoor3EndingVisual, setDoor3EndingVisual } from '../render/door3-finale-ending.js';
 import { setCameraFov } from '../render/viewport.js';
 import { actx, beep, wetStep } from './audio.js';
 import { endRound } from './round.js';
@@ -35,6 +44,9 @@ let rupturePlayed = false;
 let lastBlackoutLampCount = 0;
 let run2StartZ = null;
 let run2BaseFov = null;
+let fallStartZ = null;
+let fallImpactPlayed = false;
+let blackCoverActive = false;
 let completed = false;
 const SECOND_RUN_STEP_SEC = 0.31;
 
@@ -48,8 +60,21 @@ function ensureFinaleState(state) {
     blackoutLamps: 0,
     blackoutProgress: 0,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   };
   return state.finale;
+}
+
+function clearFinaleCover() {
+  if (!blackCoverActive) return;
+  blackCoverActive = false;
+  $fade.classList.remove('on');
+  $fade.style.transition = '';
+  $fade.style.opacity = '';
+  $fade.querySelector('div').textContent = '';
 }
 
 function resetRuntime(state) {
@@ -60,8 +85,12 @@ function resetRuntime(state) {
   lastBlackoutLampCount = 0;
   run2StartZ = null;
   run2BaseFov = null;
+  fallStartZ = null;
+  fallImpactPlayed = false;
   completed = false;
+  clearFinaleCover();
   resetDoor3FinaleVisual();
+  resetDoor3EndingVisual();
   if (state) Object.assign(ensureFinaleState(state), {
     phase: 'idle',
     gateOpenRatio: 1,
@@ -71,6 +100,10 @@ function resetRuntime(state) {
     blackoutLamps: 0,
     blackoutProgress: 0,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
 }
 
@@ -124,6 +157,27 @@ function blackoutSnap(index) {
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
   osc.connect(filter); filter.connect(gain); gain.connect(context.destination);
   osc.start(now); osc.stop(now + 0.11);
+}
+
+/** Wet skid into a low body-impact thump. */
+function bodyImpact() {
+  wetStep(1.55);
+  beep('thunk');
+  const context = actx;
+  if (!context || context.state !== 'running') return;
+  const now = context.currentTime;
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(62, now);
+  osc.frequency.exponentialRampToValueAtTime(31, now + 0.26);
+  filter.type = 'lowpass';
+  filter.frequency.value = 180;
+  gain.gain.setValueAtTime(0.13, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+  osc.connect(filter); filter.connect(gain); gain.connect(context.destination);
+  osc.start(now); osc.stop(now + 0.36);
 }
 
 function beginCheckback(state) {
@@ -190,8 +244,13 @@ function updateCheckback(state) {
     blackoutLamps: 0,
     blackoutProgress: 0,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
   setDoor3FinaleVisual({ impacts, breakProgress, faceProgress: 0, time });
+  setDoor3EndingVisual();
 
   if (breakProgress >= 1) {
     state.phase = 'finale-face';
@@ -215,6 +274,10 @@ function beginBlackout(state) {
     blackoutLamps: 0,
     blackoutProgress: 0,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
   look.holding = false;
   look.yaw = 180;
@@ -244,8 +307,13 @@ function updateFace(state) {
     blackoutLamps: 0,
     blackoutProgress: 0,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
   setDoor3FinaleVisual({ impacts: 3, breakProgress: 1, faceProgress, time });
+  setDoor3EndingVisual();
 
   if (time >= DOOR3_FINALE.faceHoldSec) beginBlackout(state);
 }
@@ -277,6 +345,10 @@ function updateBlackout(state) {
     blackoutLamps,
     blackoutProgress,
     secondRunProgress: 0,
+    slipProgress: 0,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
   setDoor3FinaleVisual({
     impacts: 3,
@@ -287,6 +359,7 @@ function updateBlackout(state) {
     chaseProgress: 0,
     time,
   });
+  setDoor3EndingVisual();
 
   if (time >= DOOR3_FINALE.secondRunStartSec) {
     state.phase = 'finale-run2';
@@ -300,9 +373,22 @@ function updateBlackout(state) {
   }
 }
 
+function beginFall(state) {
+  state.phase = 'finale-fall';
+  state.t = 0;
+  fallStartZ = intro.z;
+  fallImpactPlayed = false;
+  state.stepT = 0;
+  ensureFinaleState(state).phase = 'fall';
+  look.holding = false;
+  $turnCue.textContent = '';
+  wetStep(1.34);
+}
+
 function updateSecondRun(state, dt) {
   const time = state.t;
   const progress = door3FinaleSecondRunProgress(time);
+  const slipProgress = door3FinaleSlipProgress(progress);
   const blackoutClock = DOOR3_FINALE.secondRunStartSec + time;
   const blackoutLamps = door3FinaleBlackoutLampCount(blackoutClock);
   const blackoutProgress = door3FinaleBlackoutProgress(blackoutClock);
@@ -320,6 +406,7 @@ function updateSecondRun(state, dt) {
   intro.bobPhase += dt * 9.0;
   intro.bobY = Math.sin(intro.bobPhase * 2) * 0.061;
   intro.roll = Math.sin(intro.bobPhase) * 1.35;
+  intro.arriveF = 0;
   look.yaw = 0;
   look.target = 0;
   look.holding = false;
@@ -343,6 +430,10 @@ function updateSecondRun(state, dt) {
     blackoutLamps,
     blackoutProgress,
     secondRunProgress: progress,
+    slipProgress,
+    fallProgress: 0,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
   });
   setDoor3FinaleVisual({
     impacts: 3,
@@ -353,25 +444,46 @@ function updateSecondRun(state, dt) {
     chaseProgress,
     time: blackoutClock,
   });
+  setDoor3EndingVisual({ slipProgress, time: blackoutClock });
 
-  if (progress >= 1) {
-    state.phase = 'finale-run2-settle';
-    state.t = 0;
-    ensureFinaleState(state).phase = 'run2-settle';
-    intro.bobY = 0;
-    intro.roll = 0;
-  }
+  if (progress >= 1) beginFall(state);
 }
 
-function updateSecondRunSettle(state) {
+function updateFall(state) {
   const time = state.t;
-  const settle = Math.max(0, 1 - time / DOOR3_FINALE.secondRunSettleSec);
-  intro.bobY *= settle;
-  intro.roll *= settle;
-  look.yaw = 0;
-  look.target = 0;
-  if (run2BaseFov !== null) setCameraFov(run2BaseFov + 4.2 * settle);
+  const fallProgress = door3FinaleFallProgress(time);
+  const slideOffset = door3FinaleFallSlideOffset(time);
+  const baseZ = fallStartZ ?? intro.z;
 
+  intro.active = true;
+  intro.phase = 'run';
+  intro.x = 0;
+  intro.z = baseZ + slideOffset;
+  intro.arriveF = fallProgress;
+  intro.bobY = -DOOR3_FINALE.fallCameraDrop * fallProgress +
+    Math.sin(fallProgress * Math.PI) * 0.035;
+  intro.roll = DOOR3_FINALE.fallRollDeg * fallProgress;
+  look.yaw = DOOR3_FINALE.fallTwistDeg * fallProgress;
+  look.target = look.yaw;
+  look.holding = false;
+  state.fx.shake = Math.max(state.fx.shake, 0.14 + fallProgress * 0.20);
+
+  if (run2BaseFov !== null)
+    setCameraFov(run2BaseFov + 4.2 * (1 - fallProgress));
+
+  Object.assign(ensureFinaleState(state), {
+    phase: 'fall',
+    impactCount: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps: DOOR3_FINALE.blackoutLampCount,
+    blackoutProgress: 1,
+    secondRunProgress: 1,
+    slipProgress: 1,
+    fallProgress,
+    groundChaseProgress: 0,
+    eyeFlash: 0,
+  });
   setDoor3FinaleVisual({
     impacts: 3,
     breakProgress: 1,
@@ -381,20 +493,106 @@ function updateSecondRunSettle(state) {
     chaseProgress: 1,
     time: DOOR3_FINALE.secondRunStartSec + DOOR3_FINALE.secondRunSec + time,
   });
+  setDoor3EndingVisual({ slipProgress: 1, time });
 
-  // F2.5.4 will replace this release with the fall + final glimpse. For now the
-  // second escape remains a complete playable endpoint instead of dead-ending.
-  if (time >= DOOR3_FINALE.secondRunSettleSec && !completed) {
-    completed = true;
-    state.escape.complete = true;
-    ensureFinaleState(state).phase = 'temporary-post-run-complete';
-    intro.active = false;
-    intro.bobY = 0;
-    intro.roll = 0;
-    if (run2BaseFov !== null) setCameraFov(run2BaseFov);
-    R.elapsed = R.timer.elapsed;
-    endRound(state.escape.clutch ? '極限逃脫' : '逃脫成功');
+  if (fallProgress >= 1) {
+    if (!fallImpactPlayed) {
+      fallImpactPlayed = true;
+      state.fx.shake = Math.max(state.fx.shake, 1.25);
+      bodyImpact();
+    }
+    state.phase = 'finale-ground';
+    state.t = 0;
+    ensureFinaleState(state).phase = 'ground';
+    intro.z = baseZ - DOOR3_FINALE.fallSlideDistance;
+    intro.bobY = -DOOR3_FINALE.fallCameraDrop;
+    intro.roll = DOOR3_FINALE.fallRollDeg;
+    look.yaw = DOOR3_FINALE.fallTwistDeg;
+    look.target = look.yaw;
   }
+}
+
+function beginFinalBlack(state) {
+  state.phase = 'finale-black';
+  state.t = 0;
+  ensureFinaleState(state).phase = 'black';
+  setDoor3EndingVisual({ slipProgress: 1, groundChaseProgress: 1, eyeFlash: 0 });
+  $fade.querySelector('div').textContent = '';
+  $fade.style.transition = 'none';
+  $fade.style.opacity = '1';
+  $fade.classList.add('on');
+  blackCoverActive = true;
+}
+
+function updateGround(state) {
+  const time = state.t;
+  const chaseProgress = door3FinaleGroundChaseProgress(time);
+  const eyeFlash = door3FinaleEyeFlash(time);
+  const yaw = door3FinaleGroundLookYaw(time);
+
+  intro.active = true;
+  intro.phase = 'run';
+  intro.arriveF = 1;
+  intro.bobY = -DOOR3_FINALE.fallCameraDrop + Math.sin(time * 5.2) * 0.004;
+  intro.roll = DOOR3_FINALE.fallRollDeg + 4.5 * chaseProgress;
+  look.yaw = yaw;
+  look.target = yaw;
+  look.holding = false;
+  state.fx.shake = Math.max(state.fx.shake, 0.05 + eyeFlash * 0.42);
+
+  if (run2BaseFov !== null) setCameraFov(run2BaseFov - 1.4 * chaseProgress);
+
+  Object.assign(ensureFinaleState(state), {
+    phase: 'ground',
+    impactCount: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps: DOOR3_FINALE.blackoutLampCount,
+    blackoutProgress: 1,
+    secondRunProgress: 1,
+    slipProgress: 1,
+    fallProgress: 1,
+    groundChaseProgress: chaseProgress,
+    eyeFlash,
+  });
+  setDoor3FinaleVisual({
+    impacts: 3,
+    breakProgress: 1,
+    faceProgress: 1,
+    blackoutLamps: DOOR3_FINALE.blackoutLampCount,
+    blackoutProgress: 1,
+    chaseProgress: 1,
+    time: DOOR3_FINALE.secondRunStartSec + DOOR3_FINALE.secondRunSec + time,
+  });
+  setDoor3EndingVisual({
+    slipProgress: 1,
+    groundChaseProgress: chaseProgress,
+    eyeFlash,
+    time,
+  });
+
+  if (door3FinaleBlackoutReady(time)) beginFinalBlack(state);
+}
+
+function updateFinalBlack(state) {
+  setDoor3EndingVisual({ slipProgress: 1, groundChaseProgress: 1, eyeFlash: 0 });
+  if (!door3FinaleClearReady(state.t) || completed) return;
+
+  completed = true;
+  state.escape.complete = true;
+  ensureFinaleState(state).phase = 'complete';
+  intro.active = false;
+  intro.bobY = 0;
+  intro.roll = 0;
+  intro.arriveF = 0;
+  if (run2BaseFov !== null) setCameraFov(run2BaseFov);
+  R.elapsed = R.timer.elapsed;
+
+  // The cover is already fully black. Restore normal CSS transition metadata
+  // without removing the cover, then let endRound place the result text on it.
+  $fade.style.transition = '';
+  $fade.style.opacity = '';
+  endRound(state.escape.clutch ? '極限逃脫' : '逃脫成功');
 }
 
 function applyFrame(state) {
@@ -415,8 +613,9 @@ function applyFrame(state) {
   else if (state.phase === 'finale-checkback') updateCheckback(state);
   else if (state.phase === 'finale-face') updateFace(state);
   else if (state.phase === 'finale-blackout') updateBlackout(state);
-  else if (state.phase === 'finale-run2') updateSecondRun(state, 1 / 60);
-  else if (state.phase === 'finale-run2-settle') updateSecondRunSettle(state);
+  else if (state.phase === 'finale-fall') updateFall(state);
+  else if (state.phase === 'finale-ground') updateGround(state);
+  else if (state.phase === 'finale-black') updateFinalBlack(state);
 }
 
 export function startDoor3FalseSafetyFinale(getDoor3State) {
