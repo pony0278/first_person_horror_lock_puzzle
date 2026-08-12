@@ -19,6 +19,14 @@ function normalizeError(error) {
   };
 }
 
+function normalizeGameSettings(settings) {
+  if (!settings || typeof settings !== 'object') return null;
+  return {
+    muteAudio: Boolean(settings.muteAudio),
+    disableChat: Boolean(settings.disableChat),
+  };
+}
+
 export function createCrazyGamesPlatform(root = globalThis) {
   let initPromise = null;
   const state = {
@@ -75,6 +83,44 @@ export function createCrazyGamesPlatform(root = globalThis) {
     return initPromise;
   }
 
+  function gameSettings() {
+    const sdk = callableSdk();
+    return normalizeGameSettings(sdk?.game?.settings);
+  }
+
+  function subscribeGameSettings(listener) {
+    const sdk = callableSdk();
+    const add = sdk?.game?.addSettingsChangeListener;
+    const remove = sdk?.game?.removeSettingsChangeListener;
+    if (typeof listener !== 'function' || typeof add !== 'function') return () => false;
+
+    const wrapped = settings => listener(normalizeGameSettings(settings) ?? {
+      muteAudio: false,
+      disableChat: false,
+    });
+
+    try {
+      add.call(sdk.game, wrapped);
+    } catch (error) {
+      state.error = normalizeError(error);
+      return () => false;
+    }
+
+    let subscribed = true;
+    return () => {
+      if (!subscribed) return false;
+      subscribed = false;
+      if (typeof remove !== 'function') return true;
+      try {
+        remove.call(sdk.game, wrapped);
+        return true;
+      } catch (error) {
+        state.error = normalizeError(error);
+        return false;
+      }
+    };
+  }
+
   function requestAd(type, callbacks = {}) {
     if (!VALID_AD_TYPES.has(type)) {
       return Promise.resolve({
@@ -123,6 +169,8 @@ export function createCrazyGamesPlatform(root = globalThis) {
     loadingStop: () => callGame('loadingStop'),
     gameplayStart: () => callGame('gameplayStart'),
     gameplayStop: () => callGame('gameplayStop'),
+    gameSettings,
+    subscribeGameSettings,
     requestAd,
   });
 }
