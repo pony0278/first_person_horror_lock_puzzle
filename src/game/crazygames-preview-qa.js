@@ -101,14 +101,26 @@ function inspectAd(platform, gameplay, ad) {
   return result('WAIT', `Unrecognized ad state: ${last.status}`);
 }
 
-export function buildCrazyGamesPreviewQaReport({
-  platform = null,
-  gameplay = null,
-  audio = null,
-  ad = null,
-  game = null,
-  expectCrazyGames = false,
-} = {}) {
+/**
+ * @param {{
+ *   platform?: any,
+ *   gameplay?: any,
+ *   audio?: any,
+ *   ad?: any,
+ *   game?: any,
+ *   expectCrazyGames?: boolean,
+ * }} [input]
+ */
+export function buildCrazyGamesPreviewQaReport(input = {}) {
+  const {
+    platform = null,
+    gameplay = null,
+    audio = null,
+    ad = null,
+    game = null,
+    expectCrazyGames = false,
+  } = input;
+
   const checks = Object.freeze({
     platform: inspectPlatform(platform, expectCrazyGames),
     gameplay: inspectGameplay(platform, gameplay),
@@ -138,14 +150,26 @@ export function buildCrazyGamesPreviewQaReport({
   });
 }
 
-export function installCrazyGamesPreviewQa({
-  platformSnapshot,
-  gameplaySnapshot,
-  audioSnapshot,
-  adSnapshot,
-  gameSnapshot,
-  root = globalThis,
-} = {}) {
+/**
+ * @param {{
+ *   platformSnapshot?: () => any,
+ *   gameplaySnapshot?: () => any,
+ *   audioSnapshot?: () => any,
+ *   adSnapshot?: () => any,
+ *   gameSnapshot?: () => any,
+ *   root?: any,
+ * }} [options]
+ */
+export function installCrazyGamesPreviewQa(options = {}) {
+  const {
+    platformSnapshot,
+    gameplaySnapshot,
+    audioSnapshot,
+    adSnapshot,
+    gameSnapshot,
+    root = globalThis,
+  } = options;
+
   const expectCrazyGames = () => {
     const host = String(root?.location?.hostname || '').toLowerCase();
     return host === 'crazygames.com' || host.endsWith('.crazygames.com');
