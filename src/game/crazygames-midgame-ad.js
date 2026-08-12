@@ -54,12 +54,14 @@ export function createCrazyGamesMidgameRestartFlow({
   });
 
   function cancelPending() {
+    if (!pending) return false;
     generation++;
     pending = false;
     adStarted = false;
     // Do not resume audio here. If an ad has already started, only its actual
     // finished/error callback may restore audio; otherwise game audio could play
     // over the advertisement.
+    return true;
   }
 
   function requestAndRestart(restart) {
@@ -109,7 +111,9 @@ export function createCrazyGamesMidgameRestartFlow({
         restart?.();
         return normalized;
       } finally {
-        if (token === generation) pendingPromise = null;
+        // A second request cannot start while pendingPromise is non-null, so the
+        // current task always owns this slot even if it was cancelled pre-init.
+        pendingPromise = null;
       }
     })();
 
