@@ -97,6 +97,10 @@ function impactAges(state, impactCount) {
     return DOOR3_FINALE.impactTimes.map((time, index) =>
       index < impactCount ? state.t - time : -1);
   }
+  // F2.5R.3 resets state.t when the third hit starts the second escape. Keep
+  // the first two dents permanently set, but let the third hit finish its
+  // 0.31-second plastic overshoot while the player is already running away.
+  if (state.phase === 'finale-run2' && impactCount >= 3) return [1, 1, state.t];
   return DOOR3_FINALE.impactTimes.map((_, index) => index < impactCount ? 1 : -1);
 }
 
