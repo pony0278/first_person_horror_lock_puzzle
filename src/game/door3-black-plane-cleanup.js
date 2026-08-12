@@ -9,7 +9,9 @@
  * progressively dimmer lamps/materials, never by a wall the camera can cross.
  */
 import '../render/door3-finale.js';
+import { startDoor3FragmentClearance } from '../render/door3-fragment-clearance.js';
 import { floodDoor, pumpHub } from '../render/pumphub.js';
+import { D3 } from './door3.js';
 
 export const DOOR3_REMOVED_BLACK_OBJECTS = Object.freeze([
   'door3-escape-void',
@@ -40,3 +42,4 @@ export function removeDoor3LegacyBlackPlanes() {
 // constructed their rigs, so removal here is deterministic and happens before
 // the first gameplay frame.
 removeDoor3LegacyBlackPlanes();
+startDoor3FragmentClearance(() => D3);
