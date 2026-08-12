@@ -92,4 +92,29 @@ describe('CG4 CrazyGames audio lifecycle', () => {
     expect(lifecycle.adEnded()).toBe(false);
     expect(audioMute.setMuted).toHaveBeenCalledTimes(2);
   });
+
+  it('unsubscribes and releases both CrazyGames mute reasons on stop', async () => {
+    const audioMute = fakeAudioMute();
+    const unsubscribe = vi.fn(() => true);
+    const lifecycle = createCrazyGamesAudioLifecycle({
+      ready: Promise.resolve({}),
+      platform: {
+        gameSettings: () => ({ muteAudio: true, disableChat: false }),
+        subscribeGameSettings: () => unsubscribe,
+      },
+      audioMute,
+    } as any);
+
+    await lifecycle.start();
+    lifecycle.adStarted();
+    lifecycle.stop();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(audioMute.snapshot().reasons).toEqual([]);
+    expect(lifecycle.snapshot()).toMatchObject({
+      initialized: false,
+      platformMuted: false,
+      adPlaying: false,
+    });
+  });
 });
