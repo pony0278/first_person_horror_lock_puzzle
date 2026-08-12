@@ -9,10 +9,12 @@ import { beginDoor3ControlPress, hd, hdSync } from '../render/hands.js';
 import { R, blind, intro, look, pick, ui } from '../state.js';
 import { beep } from './audio.js';
 import { D3, operateDoor3Control } from './door3.js';
+import { startDoor3DedicatedEscapeRun } from './door3-escape-run.js';
 import { startDoor3EnvironmentalEscalation } from './door3-escalation.js';
 import { startDoor3FalseSafetyFinale } from './door3-finale.js';
 import { interrupted } from './halt.js';
 
+startDoor3DedicatedEscapeRun(() => D3);
 startDoor3EnvironmentalEscalation(() => D3);
 startDoor3FalseSafetyFinale(() => D3);
 
