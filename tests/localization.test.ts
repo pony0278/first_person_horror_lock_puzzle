@@ -50,9 +50,9 @@ describe('CG6 English player localization', () => {
     expect(installEnglishPlayerUi(root as any)).toBe(true);
     expect(document.documentElement.lang).toBe('en');
     expect(document.title).toBe('First Person Horror Lock Puzzle');
-    expect(nodes.turnCue.textContent).toContain('LOOK BACK');
-    expect(nodes.dump.textContent).toBe('VENT ALL');
-    expect(nodes.fade.textContent).toBe('TO BE CONTINUED');
-    expect(nodes.halt.textContent).toContain('RENDERING INTERRUPTED');
+    expect(nodes.turnCue!.textContent).toContain('LOOK BACK');
+    expect(nodes.dump!.textContent).toBe('VENT ALL');
+    expect(nodes.fade!.textContent).toBe('TO BE CONTINUED');
+    expect(nodes.halt!.textContent).toContain('RENDERING INTERRUPTED');
   });
 });
